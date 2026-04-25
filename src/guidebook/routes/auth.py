@@ -237,6 +237,11 @@ async def skip_auth(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Skip auth — acknowledge the warning."""
+    if REQUIRE_AUTH or _env_require_auth():
+        raise HTTPException(
+            400,
+            "Cannot disable auth: GUIDEBOOK_REQUIRE_AUTH is set",
+        )
     await _set_setting(gdb, "auth_enabled", "false")
     await _set_setting(gdb, "auth_configured", "true")
     await gdb.commit()
