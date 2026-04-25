@@ -1,14 +1,20 @@
 # Guidebook
 
-A web application template with FastAPI, SQLAlchemy, and Svelte.
-Forked from [rigbook](https://github.com/EnigmaCurry/rigbook), with all
-domain-specific code stripped out and replaced by a generic Record model
-(title, content, tags). The Record model and its views are intended as a
-starting point — replace them with your own data model and UI to build
-your application.
+A framework for building personal web applications. Guidebook is designed
+for a single user accessing the app from one or a handful of trusted
+browsers — not for multi-tenant or public-facing use. It ships with
+strong security defaults: TLS and cookie-based authentication are enabled
+out of the box, sessions are locked to a single browser by default, and
+login links are one-time use with a short expiration window.
+
+Built with FastAPI, SQLAlchemy, and Svelte. Forked from
+[rigbook](https://github.com/EnigmaCurry/rigbook), with all
+domain-specific code replaced by a generic Record model (title, content,
+tags) as a starting point — replace it with your own data model and UI.
 
 ## Features
 
+- **Personal by default**: TLS, single-session auth, and one-time login links out of the box
 - **Records**: Generic CRUD records (title, content, tags) — replace with your own data model
 - **Multi-database**: Multiple projects with separate SQLite databases and a database picker
 - **Themes**: Dark, light, amber, green, blue, and custom theme builder
@@ -17,8 +23,8 @@ your application.
 - **Notifications**: In-app notification system with SSE real-time updates
 - **Auto-backup**: Automatic database backups on a configurable schedule
 - **Cross-platform**: Runs on Linux, macOS, and Windows
-- **GitHub Actions releases**: Builds standalone PyInstaller binaries for Linux (amd64/arm64), macOS (universal .pkg), and Windows, and publishes them as GitHub release assets on tag push
-- **Claude Code skills**: Built-in slash commands for developer workflow — `/master`, `/dev`, `/issue`, `/pr`, `/merge`, `/release`
+- **GitHub Actions releases**: Standalone PyInstaller binaries for Linux (amd64/arm64), macOS (universal .pkg), and Windows
+- **Claude Code skills**: Built-in slash commands for developer workflow
 
 ## Quick Start
 
