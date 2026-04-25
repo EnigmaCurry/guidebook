@@ -578,10 +578,15 @@ def run() -> None:
         action="store_true",
         help="Require authentication (lock to browser session)",
     )
+    parser.add_argument(
+        "--reset-auth",
+        action="store_true",
+        help="Reset all auth sessions and generate a new login link",
+    )
     args = parser.parse_args()
 
     global NO_SHUTDOWN
-    if args.require_auth:
+    if args.require_auth or args.reset_auth:
         _auth_module.REQUIRE_AUTH = True
     if args.name and args.name.startswith("__"):
         print(
@@ -591,6 +596,33 @@ def run() -> None:
     db_manager.configure(db_name=args.name, picker=args.pick)
     if args.no_shutdown:
         NO_SHUTDOWN = True
+
+    if args.reset_auth:
+        import secrets
+        import sqlite3
+
+        from guidebook.db import META_DB_PATH
+
+        META_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(META_DB_PATH))
+        conn.execute("DELETE FROM auth_tokens")
+        token_str = secrets.token_urlsafe(48)
+        now = time.time()
+        conn.execute(
+            "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, is_transfer) VALUES (?, ?, ?, ?, ?)",
+            (token_str, "Reset session", now, now, 0),
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_enabled', 'true')"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_configured', 'true')"
+        )
+        conn.commit()
+        conn.close()
+        # Store the token so the server can open the login URL
+        os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
+        print("Auth reset: all sessions cleared, new login token generated.")
 
     import webbrowser
 
@@ -696,11 +728,17 @@ def run() -> None:
 
     import threading
 
+    reset_token = os.environ.pop("_GUIDEBOOK_RESET_AUTH_TOKEN", "")
+    if reset_token:
+        login_url = f"http://{host}:{port}/?auth_token={reset_token}"
+        print(f"Login URL: {login_url}")
     no_browser = args.no_browser or os.environ.get(
         "GUIDEBOOK_NO_BROWSER", ""
     ).lower() in ("1", "true", "yes")
     if not no_browser:
         default_url = f"http://{host}:{port}"
+        if reset_token:
+            default_url = f"http://{host}:{port}/?auth_token={reset_token}"
         env_browser_url = os.environ.get("GUIDEBOOK_BROWSER_URL", "").strip()
 
         def open_browser():
