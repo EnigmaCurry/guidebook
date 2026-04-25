@@ -150,11 +150,10 @@
       if (res.ok) {
         const data = await res.json();
         if (!data.valid) {
-          // Token already used or expired — show access denied
+          // Token already used or expired — redirect to base URL for server 401 page
           const url = new URL(window.location.href);
           url.searchParams.delete("auth_token");
-          window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-          authBlocked = true;
+          window.location.replace(url.pathname);
           return true;
         }
       }
