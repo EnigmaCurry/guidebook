@@ -4,7 +4,7 @@
   import { THEMES, THEME_NAMES, applyThemeVars, applyCustomThemeVars, generateCustomTheme } from "./themes.js";
   import "vanilla-colorful/hex-color-picker.js";
 
-  export let logbookName = "";
+  export let databaseName = "";
   export const pickerMode = false;
   export const needsSetup = false;
   export let initialTab = null;
@@ -26,7 +26,7 @@
   let updateBuildRepo = "";
   let updateBuildSha = "";
   let updateOfficialBuild = false;
-  let logbook_right = false;
+  let database_right = false;
   let wide_breakpoint = "1200";
   let wide_mode_enabled = true;
   let theme = "dark";
@@ -52,14 +52,14 @@
   let global_default_pick_mode = true;
   let global_default_host = "127.0.0.1";
   let global_default_port = "4280";
-  let global_default_logbook_name = "guidebook";
+  let global_default_database_name = "guidebook";
   let global_open_browser_on_startup = true;
   let global_auto_shutdown_delay = "300";
   let global_browser_url_override = "";
-  let availableLogbooks = [];
+  let availableDatabases = [];
   let globalSettingsLoaded = false;
 
-  // Track which per-logbook settings are from global defaults
+  // Track which per-database settings are from global defaults
   let settingSources = {};
   // Store global default values for use as placeholders
   let globalPlaceholders = {};
@@ -420,7 +420,7 @@
   let clearError = "";
 
   async function clearAllEntries() {
-    if (dangerConfirmName !== logbookName) {
+    if (dangerConfirmName !== databaseName) {
       clearError = "Name does not match";
       return;
     }
@@ -429,7 +429,7 @@
       const res = await fetch("/api/records/");
       if (res.ok) { const data = await res.json(); count = data.length; }
     } catch {}
-    if (!confirm(`Are you sure you want to delete ${count} entries from "${logbookName}"? This cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete ${count} entries from "${databaseName}"? This cannot be undone.`)) {
       return;
     }
     clearError = "";
@@ -449,31 +449,31 @@
     clearing = false;
   }
 
-  async function deleteLogbook() {
-    if (dangerConfirmName !== logbookName) {
+  async function deleteDatabase() {
+    if (dangerConfirmName !== databaseName) {
       deleteError = "Name does not match";
       return;
     }
-    if (!confirm(`Are you sure you want to permanently delete "${logbookName}"? This cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to permanently delete "${databaseName}"? This cannot be undone.`)) {
       return;
     }
     deleteError = "";
     deleting = true;
     try {
-      const res = await fetch("/api/logbooks/delete", {
+      const res = await fetch("/api/databases/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: logbookName }),
+        body: JSON.stringify({ name: databaseName }),
       });
       if (res.ok) {
         const data = await res.json();
         dispatch("deleted", { shutdown: data.shutdown });
       } else {
         const data = await res.json();
-        deleteError = data.detail || "Failed to delete logbook";
+        deleteError = data.detail || "Failed to delete database";
       }
     } catch {
-      deleteError = "Failed to delete logbook";
+      deleteError = "Failed to delete database";
     }
     deleting = false;
   }
@@ -488,7 +488,7 @@
     if (!confirm("Are you sure you want to shut down the Guidebook server?")) return;
     dispatch("shutdown-pending");
     try {
-      const res = await fetch("/api/logbooks/shutdown", { method: "POST" });
+      const res = await fetch("/api/databases/shutdown", { method: "POST" });
       if (res.ok) {
         dispatch("shutdown");
         dispatch("deleted", { shutdown: true });
@@ -731,7 +731,7 @@
       const res = await fetch(`/api/settings/${key}`);
       if (res.ok) {
         const data = await res.json();
-        settingSources[key] = data.source || "logbook";
+        settingSources[key] = data.source || "database";
         if (data.source === "global" && data.value) {
           globalPlaceholders[key] = data.value;
         } else {
@@ -902,8 +902,8 @@
     dispatch("saved");
   }
 
-  async function onLogbookRightChange() {
-    await saveSetting("logbook_right", logbook_right ? "true" : "false");
+  async function onDatabaseRightChange() {
+    await saveSetting("database_right", database_right ? "true" : "false");
     dispatch("saved");
   }
 
@@ -949,7 +949,7 @@
               wide_breakpoint = s.value || "1500";
             }
           }
-          if (s.key === "logbook_right") logbook_right = s.value === "true";
+          if (s.key === "database_right") database_right = s.value === "true";
           if (s.key === "custom_header") custom_header = s.value || "";
           if (s.key === "default_page") default_page = s.value || "log";
           if (s.key === "theme") theme = s.value || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
@@ -978,10 +978,10 @@
     } catch {}
   }
 
-  async function fetchLogbookList() {
+  async function fetchDatabaseList() {
     try {
-      const res = await fetch("/api/logbooks/");
-      if (res.ok) availableLogbooks = (await res.json()).map(d => d.name);
+      const res = await fetch("/api/databases/");
+      if (res.ok) availableDatabases = (await res.json()).map(d => d.name);
     } catch {}
   }
 
@@ -994,7 +994,7 @@
           if (s.key === "default_pick_mode") global_default_pick_mode = s.value !== "false";
           if (s.key === "default_host") global_default_host = s.value || "127.0.0.1";
           if (s.key === "default_port") global_default_port = s.value || "4280";
-          if (s.key === "default_logbook_name") global_default_logbook_name = s.value || "guidebook";
+          if (s.key === "default_database_name") global_default_database_name = s.value || "guidebook";
           if (s.key === "open_browser_on_startup") global_open_browser_on_startup = s.value !== "false";
           if (s.key === "auto_shutdown_delay") global_auto_shutdown_delay = s.value || "300";
           if (s.key === "browser_url_override") global_browser_url_override = s.value || "";
@@ -1014,7 +1014,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value }),
     });
-    // Re-fetch per-logbook settings so placeholders and fallbacks update
+    // Re-fetch per-database settings so placeholders and fallbacks update
     await fetchSettings();
     dispatch("saved");
   }
@@ -1146,7 +1146,7 @@
   onMount(() => {
     fetchSettings();
     fetchGlobalSettings();
-    fetchLogbookList();
+    fetchDatabaseList();
     fetchEntryCount();
     loadDbInfo();
     loadBackupStatus();
@@ -1353,8 +1353,8 @@
     </div>
     <div class="setting-row toggle-row">
       <label>
-        <input type="checkbox" bind:checked={logbook_right} on:change={onLogbookRightChange} disabled={!wide_mode_enabled} />
-        Logbook on right side
+        <input type="checkbox" bind:checked={database_right} on:change={onDatabaseRightChange} disabled={!wide_mode_enabled} />
+        Database on right side
       </label>
     </div>
   </section>
@@ -1453,7 +1453,7 @@
 
   <section class="settings-section">
     <h3>Backup</h3>
-    <p class="hint">Backup settings are configured separately for each logbook.</p>
+    <p class="hint">Backup settings are configured separately for each database.</p>
     {#if dbInfo}
       <p class="hint">Database: {dbInfo.path} ({formatSize(dbInfo.size)})</p>
       <p class="hint">Backups: {dbInfo.directory}</p>
@@ -1511,31 +1511,31 @@
   </section>
   {/if}
 
-  {#if logbookName}
+  {#if databaseName}
     <section class="settings-section danger-zone">
       <h3>Danger Zone</h3>
       <div class="setting-row">
-        <label for="danger-confirm">Type <strong>{logbookName}</strong> to enable the Danger Zone</label>
-        <input id="danger-confirm" type="text" bind:value={dangerConfirmName} placeholder={logbookName} autocomplete="off" />
+        <label for="danger-confirm">Type <strong>{databaseName}</strong> to enable the Danger Zone</label>
+        <input id="danger-confirm" type="text" bind:value={dangerConfirmName} placeholder={databaseName} autocomplete="off" />
       </div>
       <div class="danger-separator"></div>
-      <p class="danger-text">Delete all entries from <strong>{logbookName}</strong> but keep the logbook and settings.</p>
+      <p class="danger-text">Delete all entries from <strong>{databaseName}</strong> but keep the database and settings.</p>
       {#if clearError}
         <p class="danger-error">{clearError}</p>
       {/if}
       <div class="setting-row">
-        <button class="danger-btn" on:click={clearAllEntries} disabled={clearing || dangerConfirmName !== logbookName || entryCount === 0}>
+        <button class="danger-btn" on:click={clearAllEntries} disabled={clearing || dangerConfirmName !== databaseName || entryCount === 0}>
           {clearing ? "Clearing..." : entryCount === 0 ? "No entries to clear" : "Clear All Entries"}
         </button>
       </div>
       <div class="danger-separator"></div>
-      <p class="danger-text">Permanently delete the logbook <strong>{logbookName}</strong> and all its data. This cannot be undone.</p>
+      <p class="danger-text">Permanently delete the database <strong>{databaseName}</strong> and all its data. This cannot be undone.</p>
       {#if deleteError}
         <p class="danger-error">{deleteError}</p>
       {/if}
       <div class="setting-row">
-        <button class="danger-btn" on:click={deleteLogbook} disabled={deleting || dangerConfirmName !== logbookName}>
-          {deleting ? "Deleting..." : "Delete Logbook"}
+        <button class="danger-btn" on:click={deleteDatabase} disabled={deleting || dangerConfirmName !== databaseName}>
+          {deleting ? "Deleting..." : "Delete Database"}
         </button>
       </div>
     </section>
@@ -1647,29 +1647,29 @@
   {/if}
 
   {#if activeTab === "global"}
-  <div class="tab-scroll"><p class="hint" style="max-width:1100px;margin:0 auto;width:100%;box-sizing:border-box">Global defaults are used when a per-logbook setting is not set. Changes here apply across all logbooks.</p>
+  <div class="tab-scroll"><p class="hint" style="max-width:1100px;margin:0 auto;width:100%;box-sizing:border-box">Global defaults are used when a per-database setting is not set. Changes here apply across all databases.</p>
   <div class="tab-content" use:masonry>
 
   <section class="settings-section">
-    <h3>Logbook</h3>
+    <h3>Database</h3>
     <div class="setting-row toggle-row">
       <label>
         <input type="checkbox" bind:checked={global_default_pick_mode} on:change={() => saveGlobalSetting("default_pick_mode", global_default_pick_mode ? "true" : "false")} />
-        Ask which logbook to open on start
+        Ask which database to open on start
       </label>
     </div>
     <div class="setting-row">
-      <label for="global_default_logbook">Default Logbook Name</label>
-      {#if availableLogbooks.length > 0}
-        <select id="global_default_logbook" bind:value={global_default_logbook_name} on:change={() => saveGlobalSetting("default_logbook_name", global_default_logbook_name)} style="max-width: 14rem">
-          {#each availableLogbooks as name}
+      <label for="global_default_database">Default Database Name</label>
+      {#if availableDatabases.length > 0}
+        <select id="global_default_database" bind:value={global_default_database_name} on:change={() => saveGlobalSetting("default_database_name", global_default_database_name)} style="max-width: 14rem">
+          {#each availableDatabases as name}
             <option value={name}>{name}</option>
           {/each}
         </select>
       {:else}
-        <span class="hint">No logbooks exist yet</span>
+        <span class="hint">No databases exist yet</span>
       {/if}
-      <span class="hint">Logbook opened when running guidebook without arguments</span>
+      <span class="hint">Database opened when running guidebook without arguments</span>
     </div>
   </section>
 

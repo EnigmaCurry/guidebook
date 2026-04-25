@@ -42,7 +42,7 @@ QUERY_TIMEOUT_OPS = 1_000_000  # SQLite VM operations before abort
 
 
 def _authorizer(action, arg1, arg2, db_name, trigger):
-    """SQLite authorizer: allows reading logbook tables and attached meta tables."""
+    """SQLite authorizer: allows reading database tables and attached meta tables."""
     if action == sqlite3.SQLITE_SELECT:
         return sqlite3.SQLITE_OK
     if action == sqlite3.SQLITE_READ:
@@ -61,7 +61,7 @@ def _authorizer(action, arg1, arg2, db_name, trigger):
 def _execute_query(
     db_path: str, sql: str, limit: int | None = MAX_ROWS
 ) -> tuple[list[str], list[list]]:
-    """Execute a read-only query against logbook + attached global DB."""
+    """Execute a read-only query against database + attached global DB."""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         conn.set_authorizer(_authorizer)
@@ -87,10 +87,10 @@ def _execute_query(
 
 @router.get("/schema")
 async def get_schema(session: AsyncSession = Depends(get_session)):
-    """Return schema for all allowed tables (logbook + meta)."""
+    """Return schema for all allowed tables (database + meta)."""
     await _check_enabled(session)
     if not db_manager.db_path:
-        raise HTTPException(status_code=503, detail="No logbook is currently open")
+        raise HTTPException(status_code=503, detail="No database is currently open")
 
     tables = {}
     conn = sqlite3.connect(f"file:{db_manager.db_path}?mode=ro", uri=True)
@@ -143,7 +143,7 @@ async def run_query(
     """Execute a read-only SQL query against the records table."""
     await _check_enabled(session)
     if not db_manager.db_path:
-        raise HTTPException(status_code=503, detail="No logbook is currently open")
+        raise HTTPException(status_code=503, detail="No database is currently open")
 
     sql = sql.strip()
     if not sql:
@@ -180,7 +180,7 @@ async def run_query_csv(
     """Execute a read-only SQL query and return results as CSV."""
     await _check_enabled(session)
     if not db_manager.db_path:
-        raise HTTPException(status_code=503, detail="No logbook is currently open")
+        raise HTTPException(status_code=503, detail="No database is currently open")
 
     sql = sql.strip()
     if not sql:
@@ -223,7 +223,7 @@ async def run_query_json(
     """Execute a read-only SQL query and return results as a JSON file download."""
     await _check_enabled(session)
     if not db_manager.db_path:
-        raise HTTPException(status_code=503, detail="No logbook is currently open")
+        raise HTTPException(status_code=503, detail="No database is currently open")
 
     sql = sql.strip()
     if not sql:

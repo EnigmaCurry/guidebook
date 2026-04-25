@@ -16,10 +16,10 @@ from guidebook.db import (
 from guidebook.routes.settings import start_auto_backup, stop_auto_backup
 from guidebook.sse import broadcast, notify_shutdown
 
-router = APIRouter(prefix="/api/logbooks", tags=["logbooks"])
+router = APIRouter(prefix="/api/databases", tags=["databases"])
 
 
-class LogbookName(BaseModel):
+class DatabaseName(BaseModel):
     name: str
 
 
@@ -51,7 +51,7 @@ async def get_mode():
 
 
 def _is_locked(db_path) -> bool:
-    """Check if a logbook database is locked by another process.
+    """Check if a database is locked by another process.
 
     Also cleans up stale lock files left behind by dead processes.
     """
@@ -71,7 +71,7 @@ def _is_locked(db_path) -> bool:
 
 
 @router.get("/")
-async def list_logbooks():
+async def list_databases():
     last_opened = await db_manager.read_last_opened()
     dbs = []
     for f in DB_DIR.glob("*.db"):
@@ -100,7 +100,7 @@ async def get_current():
 @router.post("/confirm")
 async def confirm_create():
     if not db_manager.pending_name:
-        raise HTTPException(status_code=400, detail="No pending logbook to confirm")
+        raise HTTPException(status_code=400, detail="No pending database to confirm")
     name = db_manager.pending_name
     db_manager.pending_name = None
     db_path = DB_DIR / f"{name}.db"
@@ -111,7 +111,7 @@ async def confirm_create():
     except DatabaseTooNewError as e:
         raise HTTPException(status_code=409, detail=str(e))
     await start_auto_backup(initial_delay=0)
-    broadcast("logbook-changed", {"name": name, "action": "opened"})
+    broadcast("database-changed", {"name": name, "action": "opened"})
     return {"name": name, "is_open": True}
 
 
@@ -130,7 +130,7 @@ def _deferred_kill(delay: float = 1.0):
 @router.post("/decline")
 async def decline_create():
     if not db_manager.pending_name:
-        raise HTTPException(status_code=400, detail="No pending logbook to decline")
+        raise HTTPException(status_code=400, detail="No pending database to decline")
     db_manager.pending_name = None
     notify_shutdown()
     os.kill(os.getpid(), signal.SIGTERM)
@@ -151,11 +151,11 @@ async def shutdown_server():
 
 
 @router.post("/open")
-async def open_logbook(body: LogbookName):
+async def open_database(body: DatabaseName):
     _validate_name(body.name)
     db_path = DB_DIR / f"{body.name}.db"
     if not db_path.exists():
-        raise HTTPException(status_code=404, detail="Logbook not found")
+        raise HTTPException(status_code=404, detail="Database not found")
     await stop_auto_backup()
     try:
         await db_manager.open(db_path)
@@ -164,12 +164,12 @@ async def open_logbook(body: LogbookName):
     except DatabaseTooNewError as e:
         raise HTTPException(status_code=409, detail=str(e))
     await start_auto_backup(initial_delay=0)
-    broadcast("logbook-changed", {"name": body.name, "action": "opened"})
+    broadcast("database-changed", {"name": body.name, "action": "opened"})
     return {"name": body.name, "is_open": True}
 
 
 @router.post("/close")
-async def close_logbook():
+async def close_database():
     if not db_manager.picker_mode:
         raise HTTPException(
             status_code=400, detail="Close is only available in picker mode"
@@ -177,16 +177,16 @@ async def close_logbook():
     name = db_manager.db_name
     await stop_auto_backup()
     await db_manager.close()
-    broadcast("logbook-changed", {"name": name, "action": "closed"})
+    broadcast("database-changed", {"name": name, "action": "closed"})
     return {"is_open": False}
 
 
 @router.delete("/delete")
-async def delete_logbook(body: LogbookName):
+async def delete_database(body: DatabaseName):
     _validate_name(body.name)
     if not db_manager.is_open or db_manager.db_name != body.name:
         raise HTTPException(
-            status_code=400, detail="Can only delete the currently open logbook"
+            status_code=400, detail="Can only delete the currently open database"
         )
     db_path = DB_DIR / f"{body.name}.db"
     await stop_auto_backup()
@@ -202,11 +202,11 @@ async def delete_logbook(body: LogbookName):
 
 
 @router.post("/create")
-async def create_logbook(body: LogbookName):
+async def create_database(body: DatabaseName):
     _validate_name(body.name)
     db_path = DB_DIR / f"{body.name}.db"
     if db_path.exists():
-        raise HTTPException(status_code=409, detail="Logbook already exists")
+        raise HTTPException(status_code=409, detail="Database already exists")
     try:
         await db_manager.open(db_path)
     except DatabaseLockError as e:
@@ -214,5 +214,5 @@ async def create_logbook(body: LogbookName):
     except DatabaseTooNewError as e:
         raise HTTPException(status_code=409, detail=str(e))
     await start_auto_backup(initial_delay=0)
-    broadcast("logbook-changed", {"name": body.name, "action": "created"})
+    broadcast("database-changed", {"name": body.name, "action": "created"})
     return {"name": body.name, "is_open": True}

@@ -43,7 +43,7 @@ class SettingValue(BaseModel):
 class SettingResponse(BaseModel):
     key: str
     value: str | None
-    source: str = "logbook"
+    source: str = "database"
 
     model_config = {"from_attributes": True}
 
@@ -51,7 +51,7 @@ class SettingResponse(BaseModel):
 HIDDEN_KEYS: set[str] = set()
 
 
-def _redact(setting: Setting, source: str = "logbook") -> SettingResponse:
+def _redact(setting: Setting, source: str = "database") -> SettingResponse:
     if setting.key in HIDDEN_KEYS:
         return SettingResponse(
             key=setting.key,
@@ -67,15 +67,15 @@ async def list_settings(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     result = await session.execute(select(Setting))
-    logbook_settings = result.scalars().all()
-    # Track which defaultable keys have a non-blank logbook value
-    logbook_filled = {
+    db_settings = result.scalars().all()
+    # Track which defaultable keys have a non-blank database value
+    db_filled = {
         s.key
-        for s in logbook_settings
+        for s in db_settings
         if s.key not in GLOBAL_DEFAULTABLE_KEYS or s.value
     }
     responses = [
-        _redact(s, "logbook") for s in logbook_settings if s.key in logbook_filled
+        _redact(s, "database") for s in db_settings if s.key in db_filled
     ]
 
     # Fill in global defaults for defaultable keys that are missing or blank
@@ -83,7 +83,7 @@ async def list_settings(
         select(GlobalSetting).where(GlobalSetting.key.in_(GLOBAL_DEFAULTABLE_KEYS))
     )
     for ms in meta_result.scalars().all():
-        if ms.key not in logbook_filled and ms.value:
+        if ms.key not in db_filled and ms.value:
             responses.append(
                 _redact(Setting(key=ms.key, value=ms.value), source="global")
             )
@@ -100,7 +100,7 @@ async def get_setting(
     result = await session.execute(select(Setting).where(Setting.key == key))
     setting = result.scalar_one_or_none()
     if setting and setting.value:
-        return _redact(setting, "logbook")
+        return _redact(setting, "database")
     # Fall back to global default if applicable
     if key in GLOBAL_DEFAULTABLE_KEYS:
         meta_result = await gdb.execute(
@@ -113,7 +113,7 @@ async def get_setting(
                 source="global",
             )
     if setting:
-        return _redact(setting, "logbook")
+        return _redact(setting, "database")
     return SettingResponse(key=key, value=None)
 
 

@@ -204,7 +204,7 @@
       </div>
       <details class="hint-details">
         <summary>Query Information</summary>
-        <p class="hint">Read-only access to logbook tables: <code>contacts</code>, <code>notifications</code>. Global tables (via <code>meta.</code> prefix): <code>meta.cache</code>, <code>meta.pota_programs</code>, <code>meta.pota_locations</code>, <code>meta.pota_parks</code>.<br>Max 10000 rows shown on this page. Downloading JSON/CSV returns all rows.<br>After writing your query, you may bookmark this page, and the query will be saved in the bookmark.</p>
+        <p class="hint">Read-only access to database tables: <code>contacts</code>, <code>notifications</code>. Global tables (via <code>meta.</code> prefix): <code>meta.cache</code>, <code>meta.pota_programs</code>, <code>meta.pota_locations</code>, <code>meta.pota_parks</code>.<br>Max 10000 rows shown on this page. Downloading JSON/CSV returns all rows.<br>After writing your query, you may bookmark this page, and the query will be saved in the bookmark.</p>
       </details>
       <div class="buttons">
         <select class="canned-select" bind:value={cannedSelect} on:change={applyCanned}>

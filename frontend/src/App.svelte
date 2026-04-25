@@ -4,14 +4,14 @@
   import Settings from "./Settings.svelte";
   import About from "./About.svelte";
   import Notifications from "./Notifications.svelte";
-  import LogbookPicker from "./LogbookPicker.svelte";
+  import DatabasePicker from "./DatabasePicker.svelte";
   import Welcome from "./Welcome.svelte";
   import Query from "./Query.svelte";
   import Icon from "@iconify/svelte";
   import iconBook from "@iconify-icons/twemoji/open-book";
   import iconBell from "@iconify-icons/twemoji/bell";
   import iconPlus from "@iconify-icons/twemoji/heavy-plus-sign";
-  import { setLogbook, storageGet, storageSet, migrateStorage } from "./storage.js";
+  import { setDatabase, storageGet, storageSet, migrateStorage } from "./storage.js";
   import { applyThemeVars, applyCustomThemeVars, resolveDefaultTheme } from "./themes.js";
 
   const DUAL_RIGHT_PAGES = new Set(["notifications"]);
@@ -30,7 +30,7 @@
       return { page: "query", editId: null, dualRight: null, querySql: sp?.get("sql") || "" };
     }
     if (hash === "/notifications") return { page: isWide() ? "dual" : "notifications", editId: null, dualRight: "notifications" };
-    if (hash === "/logbook" || hash === "/records") return { page: isWide() ? "dual" : "records", editId: null, dualRight: null };
+    if (hash === "/database" || hash === "/records") return { page: isWide() ? "dual" : "records", editId: null, dualRight: null };
     if (hash === "/add") return { page: isWide() ? "dual" : "add", editId: null, dualRight: null };
     // Dual with subpage
     const dualMatch = hash.match(/^\/dual(?:\/(\w+))?$/);
@@ -56,7 +56,7 @@
   let prefill = null;
   let formDirty = false;
   let dualShowForm = !!editId || (page === "dual" && (window.location.hash.slice(1) === "/add"));
-  let logbookRight = false;
+  let databaseRight = false;
   let dualSplit = 50;
   let draggingSplit = false;
 
@@ -68,7 +68,7 @@
       const layout = e.target.closest(".dual-layout");
       if (!layout) return;
       const rect = layout.getBoundingClientRect();
-      let pct = logbookRight
+      let pct = databaseRight
         ? 100 - ((clientX - rect.left) / rect.width) * 100
         : ((clientX - rect.left) / rect.width) * 100;
       if (pct < 10) pct = 10;
@@ -124,12 +124,12 @@
   let welcomeAcknowledged = true; // assume true until checked
   let welcomeChecked = false;
   let pickerMode = false;
-  let logbookReady = false;
-  let logbookOpen = false;
-  let currentLogbook = "";
-  let pendingLogbook = "";
-  let showLogbookSwitcher = false;
-  let switcherLogbooks = [];
+  let databaseReady = false;
+  let databaseOpen = false;
+  let currentDatabase = "";
+  let pendingDatabase = "";
+  let showDatabaseSwitcher = false;
+  let switcherDatabases = [];
   let authBlocked = false; // true when server returns 401
   let authLoginError = "";
 
@@ -191,21 +191,21 @@
 
   async function handleWelcomeComplete(e) {
     welcomeAcknowledged = true;
-    switchingLogbook = true; // prevent logbook-changed SSE from reloading
-    const logbook = e.detail.logbook;
-    if (logbook) {
-      currentLogbook = logbook;
-      logbookOpen = true;
-      logbookReady = true;
-      setLogbook(logbook);
+    switchingDatabase = true; // prevent database-changed SSE from reloading
+    const database = e.detail.database;
+    if (database) {
+      currentDatabase = database;
+      databaseOpen = true;
+      databaseReady = true;
+      setDatabase(database);
       applyTheme();
       await startAppServices();
       navigate(isWide() ? "dual" : "records");
     } else {
       // Skip was clicked — proceed with normal startup
-      await checkLogbookMode();
-      if (logbookOpen) {
-        setLogbook(currentLogbook);
+      await checkDatabaseMode();
+      if (databaseOpen) {
+        setDatabase(currentDatabase);
         applyTheme();
         fetchWideBreakpoint();
         await startAppServices();
@@ -215,9 +215,9 @@
     }
   }
 
-  async function checkLogbookMode() {
+  async function checkDatabaseMode() {
     try {
-      const res = await fetch("/api/logbooks/mode");
+      const res = await fetch("/api/databases/mode");
       if (res.ok) {
         const data = await res.json();
         pickerMode = data.picker;
@@ -225,18 +225,18 @@
       }
     } catch {}
     try {
-      const cur = await fetch("/api/logbooks/current");
+      const cur = await fetch("/api/databases/current");
       if (cur.ok) {
         const data = await cur.json();
-        logbookOpen = data.is_open;
-        currentLogbook = data.name || "";
-        pendingLogbook = data.pending || "";
+        databaseOpen = data.is_open;
+        currentDatabase = data.name || "";
+        pendingDatabase = data.pending || "";
       }
     } catch {}
-    if (!pickerMode && !logbookOpen && !pendingLogbook) {
-      logbookOpen = true;
+    if (!pickerMode && !databaseOpen && !pendingDatabase) {
+      databaseOpen = true;
     }
-    logbookReady = true;
+    databaseReady = true;
   }
 
   async function startAppServices() {
@@ -245,7 +245,7 @@
     fetchCustomHeader();
     await fetchDefaultPage();
     fetchPopupNotifEnabled();
-    await fetchLogbookRight();
+    await fetchDatabaseRight();
     await fetchSqlQueryEnabled();
     await fetchShutdownMenuEnabled();
     fetchUnreadCount();
@@ -278,7 +278,7 @@
 
   function clearShutdownState() {
     serverShutdown = false;
-    logbookClosed = false;
+    databaseClosed = false;
     shutdownPendingSince = 0;
     document.title = "Guidebook";
     const link = document.querySelector("link[rel~='icon']");
@@ -287,7 +287,7 @@
 
   async function reloadIfAlive() {
     try {
-      const res = await fetch("/api/logbooks/current");
+      const res = await fetch("/api/databases/current");
       if (res.ok) {
         location.reload();
       } else {
@@ -300,15 +300,15 @@
 
   async function attemptReconnect() {
     try {
-      const res = await fetch("/api/logbooks/current");
+      const res = await fetch("/api/databases/current");
       if (res.ok) {
         const data = await res.json();
         if (serverDisconnected) {
           clearDisconnectedState();
-          if (data.is_open && data.name === currentLogbook) {
+          if (data.is_open && data.name === currentDatabase) {
             startAppServices();
           } else {
-            logbookClosed = true;
+            databaseClosed = true;
             serverShutdown = true;
             document.title = "Close this tab";
           }
@@ -356,7 +356,7 @@
         if (Date.now() - reconnectStartedAt > 61000) {
           stopAutoReconnect();
           serverDisconnected = false;
-          logbookClosed = true;
+          databaseClosed = true;
           serverShutdown = true;
           stopAppServices();
           document.title = "Close this tab";
@@ -383,29 +383,29 @@
     if (eventSource) { eventSource.close(); eventSource = null; }
   }
 
-  function handleLogbookOpened() {
+  function handleDatabaseOpened() {
     location.reload();
   }
 
-  async function openLogbookSwitcher() {
+  async function openDatabaseSwitcher() {
     try {
-      const res = await fetch("/api/logbooks/");
+      const res = await fetch("/api/databases/");
       if (res.ok) {
         const data = await res.json();
-        switcherLogbooks = data.filter(lb => lb.name !== currentLogbook && !lb.locked);
+        switcherDatabases = data.filter(lb => lb.name !== currentDatabase && !lb.locked);
       }
     } catch {}
-    showLogbookSwitcher = true;
+    showDatabaseSwitcher = true;
   }
 
-  let switchingLogbook = false;
+  let switchingDatabase = false;
 
-  async function switchLogbook(name) {
-    showLogbookSwitcher = false;
-    switchingLogbook = true;
+  async function switchDatabase(name) {
+    showDatabaseSwitcher = false;
+    switchingDatabase = true;
     try {
-      await fetch("/api/logbooks/close", { method: "POST" });
-      const res = await fetch("/api/logbooks/open", {
+      await fetch("/api/databases/close", { method: "POST" });
+      const res = await fetch("/api/databases/open", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -415,13 +415,13 @@
           location.reload();
         }
     } catch {}
-    switchingLogbook = false;
+    switchingDatabase = false;
   }
 
   let serverShutdown = false;
   let serverDisconnected = false;
   let shutdownPendingSince = 0;
-  let logbookClosed = false;
+  let databaseClosed = false;
   let autoReconnectTimer = null;
   let autoReconnectDelay = 1000;
   let reconnecting = false;
@@ -429,17 +429,17 @@
   let countdownInterval = null;
   let reconnectStartedAt = 0;
 
-  async function confirmPendingLogbook() {
+  async function confirmPendingDatabase() {
     try {
-      const res = await fetch("/api/logbooks/confirm", { method: "POST" });
+      const res = await fetch("/api/databases/confirm", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
-        currentLogbook = data.name;
-        setLogbook(currentLogbook);
+        currentDatabase = data.name;
+        setDatabase(currentDatabase);
         dualSplit = parseFloat(storageGet("dualSplit")) || 50;
         applyTheme();
-        pendingLogbook = "";
-        logbookOpen = true;
+        pendingDatabase = "";
+        databaseOpen = true;
         page = isWide() ? "dual" : "records";
         window.location.hash = "/";
         startAppServices();
@@ -447,9 +447,9 @@
     } catch {}
   }
 
-  async function declinePendingLogbook() {
+  async function declinePendingDatabase() {
     try {
-      await fetch("/api/logbooks/decline", { method: "POST" });
+      await fetch("/api/databases/decline", { method: "POST" });
     } catch {}
     setShutdownState();
   }
@@ -458,17 +458,17 @@
     menuOpen = false;
     shutdownPendingSince = Date.now();
     try {
-      const res = await fetch("/api/logbooks/shutdown", { method: "POST" });
+      const res = await fetch("/api/databases/shutdown", { method: "POST" });
       if (res.ok) setShutdownState();
     } catch {
       setShutdownState();
     }
   }
 
-  async function closeLogbook() {
+  async function closeDatabase() {
     menuOpen = false;
     try {
-      await fetch("/api/logbooks/close", { method: "POST" });
+      await fetch("/api/databases/close", { method: "POST" });
     } catch {}
     location.reload();
   }
@@ -547,9 +547,9 @@
       _themeState[key] = value;
       applyThemeFromState(_themeState);
     });
-    eventSource.addEventListener("logbook-changed", () => {
-      if (switchingLogbook) return; // this client initiated the switch
-      // Navigate home before reloading — the new logbook may not support the current page
+    eventSource.addEventListener("database-changed", () => {
+      if (switchingDatabase) return; // this client initiated the switch
+      // Navigate home before reloading — the new database may not support the current page
       window.location.hash = "/";
       setTimeout(() => location.reload(), 100);
     });
@@ -692,12 +692,12 @@
     } catch {}
   }
 
-  async function fetchLogbookRight() {
+  async function fetchDatabaseRight() {
     try {
-      const res = await fetch("/api/settings/logbook_right");
+      const res = await fetch("/api/settings/database_right");
       if (res.ok) {
         const data = await res.json();
-        logbookRight = data.value === "true";
+        databaseRight = data.value === "true";
       }
     } catch {}
   }
@@ -812,7 +812,7 @@
     if (parsed.dualRight) {
       dualRightPage = parsed.dualRight;
     }
-    if (logbookOpen) {
+    if (databaseOpen) {
       fetchWideBreakpoint();
     }
   }
@@ -927,14 +927,14 @@
     connectSSE(); // connect early to prevent auto-shutdown during welcome
     await checkWelcome();
     if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
-    await checkLogbookMode();
-    setLogbook(currentLogbook);
+    await checkDatabaseMode();
+    setDatabase(currentDatabase);
     dualSplit = parseFloat(storageGet("dualSplit")) || 50;
-    if (logbookOpen) {
+    if (databaseOpen) {
       applyTheme();
       fetchWideBreakpoint();
     }
-    if (logbookOpen) {
+    if (databaseOpen) {
       await startAppServices();
       // Navigate to default page on initial load (no specific hash)
       const initHash = window.location.hash.slice(1) || "/";
@@ -970,7 +970,7 @@
   });
 </script>
 
-<main class:picker-mode={pickerMode && !logbookOpen} class:dual-mode={page === "dual"} class:query-mode={page === "query"} class:settings-mode={page === "settings"}>
+<main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:query-mode={page === "query"} class:settings-mode={page === "settings"}>
   {#if authBlocked}
     <div class="auth-blocked">
       <p>You need a login link from the owner to access this site.</p>
@@ -981,13 +981,13 @@
   {:else if serverShutdown}
     <div class="welcome-container">
       <div class="welcome-card">
-        <p>{logbookClosed ? "This logbook has been closed." : "Server has shut down."}</p>
+        <p>{databaseClosed ? "This database has been closed." : "Server has shut down."}</p>
         <button class="welcome-btn" on:click={reloadIfAlive}>Reconnect</button>
       </div>
     </div>
   {:else if welcomeChecked && !welcomeAcknowledged}
     <Welcome on:complete={handleWelcomeComplete} />
-  {:else if pendingLogbook}
+  {:else if pendingDatabase}
     <header>
       <div class="header-left">
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
@@ -997,18 +997,18 @@
     </header>
     <div class="welcome-container">
       <div class="welcome-card">
-        <h2>Create New Logbook?</h2>
-        <p>The logbook <strong>{pendingLogbook}</strong> does not exist yet. Would you like to create it?</p>
+        <h2>Create New Database?</h2>
+        <p>The database <strong>{pendingDatabase}</strong> does not exist yet. Would you like to create it?</p>
         <div class="welcome-buttons">
-          <button class="welcome-btn confirm" on:click={confirmPendingLogbook}>Yes, create it</button>
-          <button class="welcome-btn decline" on:click={declinePendingLogbook}>No, shut down</button>
+          <button class="welcome-btn confirm" on:click={confirmPendingDatabase}>Yes, create it</button>
+          <button class="welcome-btn decline" on:click={declinePendingDatabase}>No, shut down</button>
         </div>
       </div>
     </div>
-  {:else if !logbookReady}
-    <!-- waiting for logbook mode check -->
-  {:else if pickerMode && !logbookOpen}
-    <LogbookPicker on:logbookopened={handleLogbookOpened} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={setShutdownState} showShutdown={!noShutdown} />
+  {:else if !databaseReady}
+    <!-- waiting for database mode check -->
+  {:else if pickerMode && !databaseOpen}
+    <DatabasePicker on:databaseopened={handleDatabaseOpened} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={setShutdownState} showShutdown={!noShutdown} />
   {:else}
   <header>
     <div class="header-left">
@@ -1021,10 +1021,10 @@
       </div>
       {#if customHeader}
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <span class="custom-header" on:click={() => { settingsTab = "appearance"; settingsHighlight = "content"; navigate("settings"); }} style="cursor: pointer">{customHeader}{#if currentLogbook}<span class="logbook-name" class:logbook-switchable={pickerMode} title={pickerMode ? "Switch logbook" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openLogbookSwitcher(); }}>{currentLogbook}</span>{/if}</span>
-      {:else if currentLogbook}
+        <span class="custom-header" on:click={() => { settingsTab = "appearance"; settingsHighlight = "content"; navigate("settings"); }} style="cursor: pointer">{customHeader}{#if currentDatabase}<span class="database-name" class:database-switchable={pickerMode} title={pickerMode ? "Switch database" : "Current database: " + currentDatabase} on:click|stopPropagation={() => { if (pickerMode) openDatabaseSwitcher(); }}>{currentDatabase}</span>{/if}</span>
+      {:else if currentDatabase}
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <span class="logbook-name" class:logbook-switchable={pickerMode} title={pickerMode ? "Switch logbook" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openLogbookSwitcher(); }}>{currentLogbook}</span>
+        <span class="database-name" class:database-switchable={pickerMode} title={pickerMode ? "Switch database" : "Current database: " + currentDatabase} on:click|stopPropagation={() => { if (pickerMode) openDatabaseSwitcher(); }}>{currentDatabase}</span>
       {/if}
     </div>
     <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1032,7 +1032,7 @@
     <span class="utc-clock" on:click={copyUtcTimestamp} title="Click to copy">{clockCopied ? "Copied!" : utcNow}</span>
     <div class="hamburger-wrap">
       {#if wide}
-        <button class="add-btn dual-btn" class:active-nav={dualRightPage === "notifications"} on:click={handleNotificationClick} title="Records & Notifications">{#if dualRightPage === "notifications" && !logbookRight}<Icon icon={iconBook} width={14} />{/if}{#if unreadCount > 0}<span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>{:else}<Icon icon={iconBell} width={18} />{/if}{#if dualRightPage === "notifications" && logbookRight}<Icon icon={iconBook} width={14} />{/if}</button>
+        <button class="add-btn dual-btn" class:active-nav={dualRightPage === "notifications"} on:click={handleNotificationClick} title="Records & Notifications">{#if dualRightPage === "notifications" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}{#if unreadCount > 0}<span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>{:else}<Icon icon={iconBell} width={18} />{/if}{#if dualRightPage === "notifications" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
       {:else}
         <button class="add-btn" on:click={() => navigate("records")} title="Records"><Icon icon={iconBook} width={18} /></button>
         <button class="add-btn notification-btn" class:has-unread={unreadCount > 0} on:click={handleNotificationClick} title="Notifications">
@@ -1062,7 +1062,7 @@
           <button class="menu-item" class:active={page === "about"} on:click={() => navigate("about")}>About</button>
           {#if pickerMode}
             <div class="menu-separator"></div>
-            <button class="menu-item close-logbook" on:click={closeLogbook}>Close Logbook</button>
+            <button class="menu-item close-database" on:click={closeDatabase}>Close Database</button>
           {/if}
           {#if shutdownMenuEnabled && !noShutdown}
             <div class="menu-separator"></div>
@@ -1074,7 +1074,7 @@
   </header>
 
   {#if page === "dual"}
-    <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={logbookRight}>
+    <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={databaseRight}>
       <div class="dual-pane" style="flex: 0 0 {dualSplit}%">
         <Records showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} bind:formDirty on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
       </div>
@@ -1097,30 +1097,30 @@
     {:else if page === "notifications"}
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}
-      <Settings logbookName={currentLogbook} pickerMode={pickerMode} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} {authRefreshTrigger} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); logbookOpen = false; currentLogbook = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchLogbookRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchLogbookRight(); await fetchSqlQueryEnabled(); fetchShutdownMenuEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} />
+      <Settings databaseName={currentDatabase} pickerMode={pickerMode} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} {authRefreshTrigger} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); databaseOpen = false; currentDatabase = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchDatabaseRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchDatabaseRight(); await fetchSqlQueryEnabled(); fetchShutdownMenuEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} />
     {:else if page === "about"}
       <About />
     {/if}
     </div>
   {/if}
   {/if}
-{#if showLogbookSwitcher}
+{#if showDatabaseSwitcher}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="switcher-overlay" on:click|self={() => showLogbookSwitcher = false}>
+  <div class="switcher-overlay" on:click|self={() => showDatabaseSwitcher = false}>
     <div class="switcher-panel">
-      <h3>Switch Logbook</h3>
-      {#if switcherLogbooks.length > 0}
+      <h3>Switch Database</h3>
+      {#if switcherDatabases.length > 0}
         <div class="switcher-list">
-          {#each switcherLogbooks as lb}
-            <button class="switcher-item" on:click={() => switchLogbook(lb.name)}>{lb.name}</button>
+          {#each switcherDatabases as lb}
+            <button class="switcher-item" on:click={() => switchDatabase(lb.name)}>{lb.name}</button>
           {/each}
         </div>
       {:else}
-        <p class="switcher-empty">No other logbooks available</p>
+        <p class="switcher-empty">No other databases available</p>
       {/if}
       <div class="switcher-actions">
-        <button class="switcher-cancel" on:click={() => showLogbookSwitcher = false}>Cancel</button>
+        <button class="switcher-cancel" on:click={() => showDatabaseSwitcher = false}>Cancel</button>
       </div>
     </div>
   </div>
@@ -1296,7 +1296,7 @@
   }
 
   .app-version,
-  .logbook-name {
+  .database-name {
     display: block;
     color: var(--text-muted);
     font-size: 0.6rem;
@@ -1304,12 +1304,12 @@
     line-height: 1;
     margin-top: 0.05rem;
   }
-  .logbook-switchable {
+  .database-switchable {
     cursor: pointer;
     text-decoration: underline;
     text-decoration-style: dotted;
   }
-  .logbook-switchable:hover {
+  .database-switchable:hover {
     color: var(--accent);
   }
   .switcher-overlay {
@@ -1576,7 +1576,7 @@
     margin: 0.25rem 0;
   }
 
-  .menu-item.close-logbook {
+  .menu-item.close-database {
     color: var(--text-muted);
   }
 

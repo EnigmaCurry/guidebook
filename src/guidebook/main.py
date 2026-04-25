@@ -30,7 +30,7 @@ from guidebook.db import (
 )
 from guidebook.routes.auth import router as auth_router
 import guidebook.routes.auth as _auth_module
-from guidebook.routes.logbooks import router as logbooks_router
+from guidebook.routes.databases import router as databases_router
 from guidebook.routes.records import router as records_router
 from guidebook.routes.notifications import router as notifications_router
 from guidebook.sse import (
@@ -150,8 +150,8 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/version",
     "/api/global-settings/welcome_acknowledged",
     "/api/global-settings/auth_",
-    "/api/logbooks/mode",
-    "/api/logbooks/current",
+    "/api/databases/mode",
+    "/api/databases/current",
 )
 _AUTH_EXEMPT_EXACT = {"/api/version"}
 
@@ -410,7 +410,7 @@ async def skip_update(
 
 
 app.include_router(auth_router)
-app.include_router(logbooks_router)
+app.include_router(databases_router)
 app.include_router(records_router)
 app.include_router(settings_router)
 app.include_router(global_settings_router)
@@ -575,7 +575,7 @@ def run() -> None:
         "name",
         nargs="?",
         default=None,
-        help="Logbook name to open (e.g. my-project, default: guidebook)",
+        help="Database name to open (e.g. my-project, default: guidebook)",
     )
     parser.add_argument(
         "--pick",
@@ -616,7 +616,7 @@ def run() -> None:
         _auth_module.REQUIRE_AUTH = True
     if args.name and args.name.startswith("__"):
         print(
-            "Error: logbook name must not start with '__' (reserved for system databases)"
+            "Error: database name must not start with '__' (reserved for system databases)"
         )
         sys.exit(1)
     db_manager.configure(db_name=args.name, picker=args.pick)

@@ -1,17 +1,17 @@
-/** Per-logbook localStorage wrapper. */
+/** Per-database localStorage wrapper. */
 
-let _logbook = "guidebook";
+let _database = "guidebook";
 
-export function setLogbook(name) {
-  _logbook = name || "guidebook";
+export function setDatabase(name) {
+  _database = name || "guidebook";
 }
 
-export function getLogbook() {
-  return _logbook;
+export function getDatabase() {
+  return _database;
 }
 
 function prefixedKey(k) {
-  return `${_logbook}:${k}`;
+  return `${_database}:${k}`;
 }
 
 export function storageGet(k) {

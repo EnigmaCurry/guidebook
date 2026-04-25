@@ -24,7 +24,7 @@ guidebook/
 │   └── routes/           # API route modules
 │       ├── records.py    # CRUD for records
 │       ├── settings.py   # App settings
-│       ├── logbooks.py   # Database management
+│       ├── databases.py  # Database management
 │       ├── notifications.py
 │       ├── query.py      # SQL query interface
 │       ├── global_settings.py
