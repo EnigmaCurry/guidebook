@@ -102,7 +102,6 @@
 
   // Authentication
   let authEnabled = false;
-  let authConfigured = false;
   let authAuthenticated = false;
   let authSlots = 1;
   let authAllowTransfer = false;
@@ -120,7 +119,6 @@
       if (res.ok) {
         const data = await res.json();
         authEnabled = data.enabled;
-        authConfigured = data.configured;
         authAuthenticated = data.authenticated;
         authSlots = data.slots;
         authAllowTransfer = data.allow_transfer;

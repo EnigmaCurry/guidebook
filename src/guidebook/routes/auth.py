@@ -78,9 +78,6 @@ async def check_auth(request: Request, gdb: AsyncSession) -> bool:
     """Check if the current request is authenticated. Returns True if OK."""
     if not await _is_auth_enabled(gdb):
         return True
-    configured = await _get_setting(gdb, "auth_configured")
-    if configured != "true":
-        return True  # Not yet configured, allow access for initial setup
     token_str = _get_current_token(request)
     if not token_str:
         return False
@@ -95,7 +92,6 @@ async def check_auth(request: Request, gdb: AsyncSession) -> bool:
 
 class AuthStatusResponse(BaseModel):
     enabled: bool
-    configured: bool  # initial setup completed
     authenticated: bool
     slots: int
     session_count: int
@@ -108,7 +104,6 @@ async def auth_status(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     enabled = await _is_auth_enabled(gdb)
-    configured = (await _get_setting(gdb, "auth_configured")) == "true"
     token_str = _get_current_token(request)
     authenticated = False
     if token_str:
@@ -119,7 +114,6 @@ async def auth_status(
     count = await _token_count(gdb)
     return AuthStatusResponse(
         enabled=enabled,
-        configured=configured,
         authenticated=authenticated,
         slots=AUTH_SLOTS,
         session_count=count,
@@ -158,55 +152,6 @@ async def list_sessions(
             )
         )
     return sessions
-
-
-class LockResponse(BaseModel):
-    status: str
-    token: str | None = None
-
-
-@router.post("/lock")
-async def lock_session(
-    request: Request,
-    response: Response,
-    gdb: AsyncSession = Depends(get_global_session),
-):
-    """Lock the server to the current browser session."""
-    # Check if already has a valid token
-    current_token = _get_current_token(request)
-    if current_token:
-        existing = await _validate_token(gdb, current_token)
-        if existing:
-            # Already locked — just mark as configured
-            await _set_setting(gdb, "auth_configured", "true")
-            await gdb.commit()
-            return LockResponse(status="already_locked")
-
-    token_str = secrets.token_urlsafe(48)
-    now = time.time()
-    gdb.add(
-        AuthToken(
-            token=token_str,
-            label="Initial session",
-            created_at=now,
-            last_seen_at=now,
-            expires_at=now + AUTH_TTL,
-            is_transfer=0,
-        )
-    )
-    await _set_setting(gdb, "auth_configured", "true")
-    await gdb.commit()
-
-    response.set_cookie(
-        AUTH_COOKIE_NAME,
-        token_str,
-        max_age=AUTH_TTL,
-        httponly=True,
-        samesite="lax",
-        path="/",
-    )
-    logger.info("Session locked to browser")
-    return LockResponse(status="locked", token=token_str)
 
 
 class GenerateTokenResponse(BaseModel):

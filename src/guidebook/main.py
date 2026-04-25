@@ -687,9 +687,8 @@ environment variables (overridden by command line options):
     if args.no_shutdown:
         NO_SHUTDOWN = True
 
-    # Auth is enabled by default — generate initial token on first run
-    auth_disabled = _auth_module.DISABLE_AUTH or _auth_module._env_disable_auth()
-    if not auth_disabled or args.reset_auth:
+    # Ensure auth tables exist and handle --reset-auth
+    if True:
         import secrets
         import sqlite3
 
@@ -697,13 +696,11 @@ environment variables (overridden by command line options):
 
         META_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(META_DB_PATH))
-        # Ensure auth_tokens table exists (fresh DB may not have it yet)
         conn.execute(
             "CREATE TABLE IF NOT EXISTS auth_tokens "
             "(id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, label TEXT NOT NULL DEFAULT '', "
             "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
-        # Add expires_at column if missing (upgrade from older schema)
         try:
             conn.execute("ALTER TABLE auth_tokens ADD COLUMN expires_at REAL")
         except sqlite3.OperationalError:
@@ -715,24 +712,15 @@ environment variables (overridden by command line options):
 
         if args.reset_auth:
             conn.execute("DELETE FROM auth_tokens")
-
-        existing = conn.execute("SELECT COUNT(*) FROM auth_tokens WHERE is_transfer = 0").fetchone()[0]
-        if existing == 0:
             token_str = secrets.token_urlsafe(48)
             now = time.time()
             conn.execute(
                 "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, expires_at, is_transfer) VALUES (?, ?, ?, ?, ?, ?)",
                 (token_str, "Initial session", now, now, now + _auth_module.AUTH_TTL, 0),
             )
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_configured', 'true')"
-            )
             conn.commit()
             os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
-            if args.reset_auth:
-                print("Auth reset: all sessions cleared, new login token generated.")
-            else:
-                print("Auth enabled: login token generated for first run.")
+            print("Auth reset: all sessions cleared, new login token generated.")
 
         conn.close()
 

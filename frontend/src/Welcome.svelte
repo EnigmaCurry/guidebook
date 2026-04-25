@@ -7,9 +7,6 @@
   let existingDatabases = [];
   let saving = false;
   let error = "";
-  let step = "database"; // "database" or "auth"
-  let authConfigured = false;
-  let authLoading = true;
 
   onMount(async () => {
     try {
@@ -22,15 +19,6 @@
         }
       }
     } catch {}
-    // Check auth status
-    try {
-      const res = await fetch("/api/auth/status");
-      if (res.ok) {
-        const data = await res.json();
-        authConfigured = data.configured;
-      }
-    } catch {}
-    authLoading = false;
   });
 
   async function saveGlobal(key, value) {
@@ -66,32 +54,8 @@
           return;
         }
       }
-      // Skip auth step if already configured
-      if (authConfigured) {
-        saving = false;
-        dispatch("complete", { database: databaseName || "guidebook" });
-        return;
-      }
       saving = false;
-      step = "auth";
-    } catch (e) {
-      error = e.message || "Something went wrong";
-      saving = false;
-    }
-  }
-
-  async function lockSession() {
-    saving = true;
-    error = "";
-    try {
-      const res = await fetch("/api/auth/lock", { method: "POST" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        error = data?.detail || "Failed to lock session";
-        saving = false;
-        return;
-      }
-      dispatch("complete", { database: databaseName.trim() || "guidebook" });
+      dispatch("complete", { database: databaseName || "guidebook" });
     } catch (e) {
       error = e.message || "Something went wrong";
       saving = false;
@@ -127,54 +91,39 @@
 
 <div class="welcome-overlay">
   <div class="welcome-panel">
-    {#if step === "database"}
-      <h1>Welcome to Guidebook</h1>
-      <p class="subtitle">Choose a name for your project database, or select an existing one.</p>
+    <h1>Welcome to Guidebook</h1>
+    <p class="subtitle">Choose a name for your project database, or select an existing one.</p>
 
-      <div class="fields">
-        <div class="field">
-          <label for="w-database">Project Name</label>
-          {#if existingDatabases.length > 0}
-            <select id="w-database" bind:value={databaseName} style="max-width: 14rem">
-              {#each existingDatabases as name}
-                <option value={name}>{name}</option>
-              {/each}
-            </select>
+    <div class="fields">
+      <div class="field">
+        <label for="w-database">Project Name</label>
+        {#if existingDatabases.length > 0}
+          <select id="w-database" bind:value={databaseName} style="max-width: 14rem">
+            {#each existingDatabases as name}
+              <option value={name}>{name}</option>
+            {/each}
+          </select>
+        {:else}
+          <input id="w-database" type="text" bind:value={databaseName} autocomplete="off" on:keydown={onNameKeydown} placeholder="guidebook" style="max-width: 14rem" />
+          {#if nameError}
+            <span class="field-error">{nameError}</span>
           {:else}
-            <input id="w-database" type="text" bind:value={databaseName} autocomplete="off" on:keydown={onNameKeydown} placeholder="guidebook" style="max-width: 14rem" />
-            {#if nameError}
-              <span class="field-error">{nameError}</span>
-            {:else}
-              <span class="hint">Letters, numbers, hyphens, underscores only</span>
-            {/if}
+            <span class="hint">Letters, numbers, hyphens, underscores only</span>
           {/if}
-        </div>
+        {/if}
       </div>
+    </div>
 
-      {#if error}
-        <p class="error">{error}</p>
-      {/if}
-
-      <div class="actions">
-        <button class="skip-link" on:click={skip} disabled={saving}>Skip</button>
-        <button class="continue-btn" on:click={finishDatabase} disabled={saving || !!nameError}>
-          {saving ? "Setting up..." : "Continue"}
-        </button>
-      </div>
-    {:else if step === "auth"}
-      <h1>Session Security</h1>
-      <p class="subtitle">Lock your session to this browser to continue.</p>
-      <div class="auth-options">
-        <button class="auth-btn lock-btn" on:click={lockSession} disabled={saving}>
-          {saving ? "Locking..." : "Lock to this browser"}
-        </button>
-        <p class="auth-desc">Creates a secure cookie that restricts access to only this browser session. You can grant access to additional browsers from the settings page.</p>
-      </div>
-
-      {#if error}
-        <p class="error">{error}</p>
-      {/if}
+    {#if error}
+      <p class="error">{error}</p>
     {/if}
+
+    <div class="actions">
+      <button class="skip-link" on:click={skip} disabled={saving}>Skip</button>
+      <button class="continue-btn" on:click={finishDatabase} disabled={saving || !!nameError}>
+        {saving ? "Setting up..." : "Continue"}
+      </button>
+    </div>
   </div>
 </div>
 
@@ -290,50 +239,5 @@
   .continue-btn:disabled, .skip-link:disabled {
     opacity: 0.5;
     cursor: default;
-  }
-
-  /* Auth step styles */
-  .auth-options {
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    margin-top: 1rem;
-  }
-
-  .auth-option {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  .auth-btn {
-    border: none;
-    border-radius: 6px;
-    padding: 0.6rem 1.5rem;
-    font-size: 0.9rem;
-    font-weight: 600;
-    cursor: pointer;
-    width: 100%;
-  }
-
-  .auth-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .lock-btn {
-    background: var(--accent, #00ff88);
-    color: var(--accent-text, #000);
-  }
-
-  .lock-btn:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-
-  .auth-desc {
-    font-size: 0.75rem;
-    color: var(--text-dim, #888);
-    margin: 0;
-    line-height: 1.4;
   }
 </style>
