@@ -259,6 +259,13 @@
     await loadAuthStatus();
   }
 
+  async function logoutSession() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    location.reload();
+  }
+
   let copiedField = null;
   async function copyToClipboard(text, field) {
     try {
@@ -1595,6 +1602,14 @@
     {/if}
   </section>
   {/if}
+
+  <section class="settings-section">
+    <h3>Logout</h3>
+    <p class="hint">Log out of this browser session. You will need a new login link to access the server again.</p>
+    <div class="setting-row">
+      <button class="danger-btn" on:click={logoutSession}>Logout</button>
+    </div>
+  </section>
 
   {#if authError}
     <section class="settings-section">

@@ -391,6 +391,24 @@ async def delete_session(
     return {"status": "deleted"}
 
 
+@router.post("/logout")
+async def logout(
+    request: Request,
+    response: Response,
+    gdb: AsyncSession = Depends(get_global_session),
+):
+    """Log out the current session."""
+    token_str = _get_current_token(request)
+    if token_str:
+        tok = await _validate_token(gdb, token_str)
+        if tok:
+            await gdb.delete(tok)
+            await gdb.commit()
+            logger.info("Session logged out")
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+    return {"status": "logged_out"}
+
+
 class AuthSettingsUpdate(BaseModel):
     auth_enabled: bool | None = None
     auth_slots: int | None = None
