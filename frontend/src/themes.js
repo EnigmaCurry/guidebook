@@ -103,8 +103,8 @@ export const THEMES = {
       "--menu-hover": "#2e2210",
     },
   },
-  "field-radio": {
-    label: "Field Radio",
+  forest: {
+    label: "Forest",
     base: "dark",
     vars: {
       "--bg": "#1a2018",
@@ -202,8 +202,8 @@ export const THEMES = {
       "--menu-hover": "#0a404c",
     },
   },
-  "boat-anchor": {
-    label: "Boat Anchor",
+  vintage: {
+    label: "Vintage",
     base: "dark",
     vars: {
       "--bg": "#1e1008",
@@ -235,8 +235,8 @@ export const THEMES = {
       "--menu-hover": "#342010",
     },
   },
-  "qsl-card": {
-    label: "QSL Card",
+  parchment: {
+    label: "Parchment",
     base: "light",
     vars: {
       "--bg": "#ede0c0",
@@ -268,8 +268,8 @@ export const THEMES = {
       "--menu-hover": "#d8c8a0",
     },
   },
-  moonbounce: {
-    label: "Moonbounce",
+  midnight: {
+    label: "Midnight",
     base: "dark",
     vars: {
       "--bg": "#0a0e18",
@@ -301,8 +301,8 @@ export const THEMES = {
       "--menu-hover": "#1a2438",
     },
   },
-  sunspot: {
-    label: "Sunspot",
+  ember: {
+    label: "Ember",
     base: "dark",
     vars: {
       "--bg": "#1a1818",
@@ -334,8 +334,8 @@ export const THEMES = {
       "--menu-hover": "#2e2828",
     },
   },
-  ares: {
-    label: "EMCOMM",
+  alert: {
+    label: "Alert",
     base: "dark",
     vars: {
       "--bg": "#141418",
@@ -367,8 +367,8 @@ export const THEMES = {
       "--menu-hover": "#28282e",
     },
   },
-  contest: {
-    label: "Contest Mode",
+  terminal: {
+    label: "Terminal",
     base: "dark",
     vars: {
       "--bg": "#080808",
@@ -400,8 +400,8 @@ export const THEMES = {
       "--menu-hover": "#181818",
     },
   },
-  "field-day": {
-    label: "Field Day",
+  meadow: {
+    label: "Meadow",
     base: "light",
     vars: {
       "--bg": "#c8e0c0",
@@ -433,8 +433,8 @@ export const THEMES = {
       "--menu-hover": "#a8c8a0",
     },
   },
-  logbook: {
-    label: "Logbook",
+  journal: {
+    label: "Journal",
     base: "light",
     vars: {
       "--bg": "#d8d0c0",
@@ -466,8 +466,8 @@ export const THEMES = {
       "--menu-hover": "#c0b8a0",
     },
   },
-  "shack-window": {
-    label: "Shack Window",
+  sandstone: {
+    label: "Sandstone",
     base: "light",
     vars: {
       "--bg": "#e0c8a8",
@@ -499,8 +499,8 @@ export const THEMES = {
       "--menu-hover": "#c8b088",
     },
   },
-  "dx-pileup": {
-    label: "DX Pileup",
+  lavender: {
+    label: "Lavender",
     base: "light",
     vars: {
       "--bg": "#dcc8e8",
@@ -532,8 +532,8 @@ export const THEMES = {
       "--menu-hover": "#c4aad8",
     },
   },
-  elmer: {
-    label: "Elmer",
+  seafoam: {
+    label: "Seafoam",
     base: "light",
     vars: {
       "--bg": "#b8d8d4",
@@ -565,8 +565,8 @@ export const THEMES = {
       "--menu-hover": "#98c0bc",
     },
   },
-  ragchew: {
-    label: "Ragchew",
+  terracotta: {
+    label: "Terracotta",
     base: "light",
     vars: {
       "--bg": "#e8c0a8",
@@ -598,8 +598,8 @@ export const THEMES = {
       "--menu-hover": "#d0a488",
     },
   },
-  qrp: {
-    label: "QRP",
+  horizon: {
+    label: "Horizon",
     base: "light",
     vars: {
       "--bg": "#c0d0e8",
