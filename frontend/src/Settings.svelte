@@ -1549,11 +1549,11 @@
     <h3>Authentication</h3>
     <div class="setting-row toggle-row">
       <label>
-        <input type="checkbox" bind:checked={authEnabled} on:change={toggleAuth} disabled={authEnvRequired && authEnabled} />
+        <input type="checkbox" bind:checked={authEnabled} on:change={toggleAuth} disabled={authRequired && authEnabled} />
         Require authentication
       </label>
     </div>
-    {#if authEnvRequired}
+    {#if authRequired}
       <p class="hint" style="color: var(--warning-color, #e6a700);">Forced on by GUIDEBOOK_REQUIRE_AUTH environment variable or --require-auth flag.</p>
     {/if}
     <p class="hint">When enabled, only browsers with a valid session cookie can access the server.</p>
