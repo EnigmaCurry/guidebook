@@ -59,6 +59,7 @@
   let formDirty = false;
   let dualShowForm = !!editId || (page === "dual" && (window.location.hash.slice(1) === "/add"));
   let recordsRef = null;
+  let recordAutoCreated = false;
   let databaseRight = false;
   let dualSplit = 50;
   let draggingSplit = false;
@@ -1130,7 +1131,7 @@
   {#if page === "dual"}
     <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={databaseRight}>
       <div class="dual-pane" style="flex: 0 0 {dualSplit}%">
-        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} bind:formDirty on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
+        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} autoCreated={recordAutoCreated} bind:formDirty on:dropcreated={() => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { recordAutoCreated = false; if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
       </div>
       <!-- svelte-ignore a11y-no-static-element-interactions -->
       <div class="dual-divider" on:mousedown={onDividerDown} on:touchstart={onDividerDown}></div>
@@ -1143,9 +1144,9 @@
   {:else}
     <div class="page-content">
     {#if page === "records"}
-      <Records bind:this={recordsRef} showForm={false} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} />
+      <Records bind:this={recordsRef} showForm={false} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} />
     {:else if page === "add"}
-      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => navigate(e.detail)} on:prefillconsumed={() => prefill = null} />
+      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
     {:else if page === "query"}
       <Query initialSql={querySql} />
     {:else if page === "notifications"}

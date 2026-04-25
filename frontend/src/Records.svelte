@@ -8,6 +8,7 @@
   export let showForm = false;
   export let prefill = null;
   export let formDirty = false;
+  export let autoCreated = false;
 
   let records = [];
   let loading = true;
@@ -17,6 +18,7 @@
   let formContent = "";
   let formTags = "";
   let formId = null;
+  let formAutoCreated = false;
   let saving = false;
   let error = "";
   let tableWrapEl;
@@ -203,6 +205,7 @@
 
   // --- Data ---
   $: if (editId !== null && editId !== formId) {
+    formAutoCreated = autoCreated;
     loadRecord(editId);
   }
 
@@ -374,6 +377,7 @@
         });
       }
       if (res.ok) {
+        formAutoCreated = false;
         cancelForm();
         await fetchRecords();
       } else {
@@ -395,9 +399,16 @@
     } catch {}
   }
 
-  function cancelForm() {
+  async function cancelForm() {
+    if (formAutoCreated && formId) {
+      try {
+        await fetch(`/api/records/${formId}`, { method: "DELETE" });
+      } catch {}
+    }
+    const wasAutoCreated = formAutoCreated;
     showForm = false;
     formId = null;
+    formAutoCreated = false;
     selectedIndex = -1;
     formTitle = "";
     formContent = "";
@@ -406,6 +417,7 @@
     attachments = [];
     attachmentError = "";
     formDirty = false;
+    if (wasAutoCreated) await fetchRecords();
     dispatch("navigate", "records");
   }
 
@@ -539,6 +551,8 @@
       });
 
       // Now open the edit form — this may navigate and destroy this component
+      formAutoCreated = true;
+      dispatch("dropcreated", record.id);
       editRecord(record);
     } catch {}
   }
