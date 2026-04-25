@@ -611,11 +611,27 @@ def run() -> None:
         action="store_true",
         help="Reset all auth sessions and generate a new login link",
     )
+    parser.add_argument(
+        "--auth-slots",
+        type=int,
+        default=None,
+        help="Force maximum concurrent sessions (overrides settings UI)",
+    )
+    parser.add_argument(
+        "--auth-ttl",
+        type=int,
+        default=None,
+        help="Force login link TTL in seconds (overrides settings UI)",
+    )
     args = parser.parse_args()
 
     global NO_SHUTDOWN
     if args.require_auth or args.reset_auth:
         _auth_module.REQUIRE_AUTH = True
+    if args.auth_slots is not None:
+        _auth_module.FORCED_SLOTS = args.auth_slots
+    if args.auth_ttl is not None:
+        _auth_module.FORCED_LOGIN_TTL = args.auth_ttl
     if args.name and args.name.startswith("__"):
         print(
             "Error: database name must not start with '__' (reserved for system databases)"

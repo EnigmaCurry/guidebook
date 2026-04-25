@@ -22,6 +22,8 @@ LOGIN_LINK_TTL_DEFAULT = 300  # 5 minutes
 
 # Set at startup by main.py
 REQUIRE_AUTH = False
+FORCED_SLOTS: int | None = None  # --auth-slots override
+FORCED_LOGIN_TTL: int | None = None  # --auth-ttl override
 
 
 def _env_require_auth() -> bool:
@@ -55,6 +57,8 @@ async def _is_auth_enabled(gdb: AsyncSession) -> bool:
 
 
 async def _get_slots(gdb: AsyncSession) -> int:
+    if FORCED_SLOTS is not None:
+        return FORCED_SLOTS
     val = await _get_setting(gdb, "auth_slots")
     if val is not None:
         try:
@@ -65,6 +69,8 @@ async def _get_slots(gdb: AsyncSession) -> int:
 
 
 async def _get_login_ttl(gdb: AsyncSession) -> int:
+    if FORCED_LOGIN_TTL is not None:
+        return FORCED_LOGIN_TTL
     val = await _get_setting(gdb, "login_link_ttl")
     if val is not None:
         try:
@@ -118,8 +124,10 @@ class AuthStatusResponse(BaseModel):
     authenticated: bool
     env_require_auth: bool
     slots: int
+    slots_forced: bool
     session_count: int
     login_link_ttl: int
+    login_link_ttl_forced: bool
 
 
 @router.get("/status")
@@ -146,8 +154,10 @@ async def auth_status(
         authenticated=authenticated,
         env_require_auth=_env_require_auth(),
         slots=slots,
+        slots_forced=FORCED_SLOTS is not None,
         session_count=count,
         login_link_ttl=login_ttl,
+        login_link_ttl_forced=FORCED_LOGIN_TTL is not None,
     )
 
 
@@ -484,12 +494,16 @@ async def update_auth_settings(
         logger.info("Auth enabled: %s", data.auth_enabled)
 
     if data.auth_slots is not None:
+        if FORCED_SLOTS is not None:
+            raise HTTPException(400, "Session slots are forced by --auth-slots")
         if data.auth_slots < 0:
             raise HTTPException(400, "Slots must be >= 0")
         await _set_setting(gdb, "auth_slots", str(data.auth_slots))
         logger.info("Auth slots: %d", data.auth_slots)
 
     if data.login_link_ttl is not None:
+        if FORCED_LOGIN_TTL is not None:
+            raise HTTPException(400, "Login link TTL is forced by --auth-ttl")
         if data.login_link_ttl < 30:
             raise HTTPException(400, "TTL must be >= 30 seconds")
         await _set_setting(gdb, "login_link_ttl", str(data.login_link_ttl))

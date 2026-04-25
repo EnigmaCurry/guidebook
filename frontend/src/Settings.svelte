@@ -118,7 +118,9 @@
   let authAuthenticated = false;
   let authEnvRequired = false;
   let authSlots = 1;
+  let authSlotsForced = false;
   let authLinkTtl = 300;
+  let authLinkTtlForced = false;
   let authSessions = [];
   let authLoading = true;
   let authTokenUrl = "";
@@ -138,7 +140,9 @@
         authAuthenticated = data.authenticated;
         authEnvRequired = data.env_require_auth;
         authSlots = data.slots;
+        authSlotsForced = data.slots_forced;
         authLinkTtl = data.login_link_ttl;
+        authLinkTtlForced = data.login_link_ttl_forced;
       }
     } catch {}
     authLoading = false;
@@ -1565,13 +1569,19 @@
     <h3>Session Slots</h3>
     <div class="setting-row">
       <label for="auth_slots">Maximum sessions (0 = unlimited)</label>
-      <input id="auth_slots" type="number" min="0" bind:value={authSlots} on:blur={saveAuthSlots} on:change={saveAuthSlots} autocomplete="off" style="max-width: 5rem" />
+      <input id="auth_slots" type="number" min="0" bind:value={authSlots} on:blur={saveAuthSlots} on:change={saveAuthSlots} autocomplete="off" style="max-width: 5rem" disabled={authSlotsForced} />
     </div>
+    {#if authSlotsForced}
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced by --auth-slots flag.</p>
+    {/if}
     <p class="hint">Controls how many browser sessions can be logged in simultaneously. Default is 1.</p>
     <div class="setting-row">
       <label for="login_link_ttl">Login link TTL (seconds)</label>
-      <input id="login_link_ttl" type="number" min="30" bind:value={authLinkTtl} on:blur={saveAuthLinkTtl} on:change={saveAuthLinkTtl} autocomplete="off" style="max-width: 6rem" />
+      <input id="login_link_ttl" type="number" min="30" bind:value={authLinkTtl} on:blur={saveAuthLinkTtl} on:change={saveAuthLinkTtl} autocomplete="off" style="max-width: 6rem" disabled={authLinkTtlForced} />
     </div>
+    {#if authLinkTtlForced}
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced by --auth-ttl flag.</p>
+    {/if}
     <p class="hint">How long a generated login or transfer link stays valid. Default is 300 (5 minutes).</p>
   </section>
 
