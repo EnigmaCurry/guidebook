@@ -87,8 +87,8 @@ async def check_auth(request: Request, gdb: AsyncSession) -> bool:
     if not await _is_auth_enabled(gdb):
         return True
     configured = await _get_setting(gdb, "auth_configured")
-    if configured != "true":
-        return True  # Not yet configured, allow access
+    if configured != "true" and not REQUIRE_AUTH:
+        return True  # Not yet configured, allow access (unless forced)
     token_str = _get_current_token(request)
     if not token_str:
         return False

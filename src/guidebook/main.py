@@ -597,7 +597,7 @@ def run() -> None:
     if args.no_shutdown:
         NO_SHUTDOWN = True
 
-    if args.reset_auth:
+    if args.reset_auth or args.require_auth:
         import secrets
         import sqlite3
 
@@ -605,24 +605,42 @@ def run() -> None:
 
         META_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(META_DB_PATH))
-        conn.execute("DELETE FROM auth_tokens")
-        token_str = secrets.token_urlsafe(48)
-        now = time.time()
+        # Ensure auth_tokens table exists (fresh DB may not have it yet)
         conn.execute(
-            "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, is_transfer) VALUES (?, ?, ?, ?, ?)",
-            (token_str, "Reset session", now, now, 0),
+            "CREATE TABLE IF NOT EXISTS auth_tokens "
+            "(id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, label TEXT NOT NULL DEFAULT '', "
+            "created_at REAL NOT NULL, last_seen_at REAL, is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
         conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_enabled', 'true')"
+            "CREATE TABLE IF NOT EXISTS settings "
+            "(key TEXT PRIMARY KEY, value TEXT)"
         )
-        conn.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_configured', 'true')"
-        )
-        conn.commit()
+
+        if args.reset_auth:
+            conn.execute("DELETE FROM auth_tokens")
+
+        existing = conn.execute("SELECT COUNT(*) FROM auth_tokens WHERE is_transfer = 0").fetchone()[0]
+        if existing == 0:
+            token_str = secrets.token_urlsafe(48)
+            now = time.time()
+            conn.execute(
+                "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, is_transfer) VALUES (?, ?, ?, ?, ?)",
+                (token_str, "Initial session", now, now, 0),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_enabled', 'true')"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_configured', 'true')"
+            )
+            conn.commit()
+            os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
+            if args.reset_auth:
+                print("Auth reset: all sessions cleared, new login token generated.")
+            else:
+                print("Auth required: new login token generated.")
+
         conn.close()
-        # Store the token so the server can open the login URL
-        os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
-        print("Auth reset: all sessions cleared, new login token generated.")
 
     import webbrowser
 
