@@ -400,6 +400,7 @@
         placeholder="Search records..."
         bind:value={searchQuery}
         on:input={onSearchInput}
+        on:keydown={e => { if (e.key === "Escape") e.target.blur(); }}
       />
     </div>
   </div>
