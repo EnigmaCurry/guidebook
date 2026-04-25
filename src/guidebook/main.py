@@ -570,7 +570,7 @@ def run() -> None:
     import argparse
 
     env_help = """
-environment variables:
+environment variables (overridden by command line options):
   GUIDEBOOK_DB              Database name to open (default: guidebook)
   GUIDEBOOK_PICKER          Enable database picker mode (default: false)
   GUIDEBOOK_NO_BROWSER      Skip opening browser (default: false)
