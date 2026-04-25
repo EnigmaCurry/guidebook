@@ -183,7 +183,7 @@ async def http_middleware(request: Request, call_next):
                         '<div class="box">'
                         "<p>You need a login link from the owner to access this site.</p>"
                         '<p class="dim">If you are the owner and have lost access, restart the server with '
-                        "<code>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
+                        "<code style='white-space:nowrap'>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
                         "</div></body></html>",
                     )
 
