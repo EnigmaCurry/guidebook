@@ -40,7 +40,7 @@ def _redact(setting: GlobalSetting) -> SettingResponse:
 @router.get("/", response_model=list[SettingResponse])
 async def list_global_settings(gdb: AsyncSession = Depends(get_global_session)):
     result = await gdb.execute(select(GlobalSetting))
-    return [_redact(s) for s in result.scalars().all()]
+    return [_redact(s) for s in result.scalars().all() if s is not None]
 
 
 @router.get("/{key}", response_model=SettingResponse)
