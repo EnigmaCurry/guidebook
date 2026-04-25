@@ -9,6 +9,7 @@
   let error = "";
   let step = "logbook"; // "logbook" or "auth"
   let authRequired = false; // forced by env/CLI
+  let authConfigured = false;
   let authLoading = true;
 
   onMount(async () => {
@@ -28,6 +29,7 @@
       if (res.ok) {
         const data = await res.json();
         authRequired = data.required;
+        authConfigured = data.configured;
       }
     } catch {}
     authLoading = false;
@@ -67,7 +69,12 @@
           return;
         }
       }
-      // Move to auth step
+      // Skip auth step if already configured (e.g. --require-auth)
+      if (authConfigured) {
+        saving = false;
+        dispatch("complete", { logbook: logbookName || "guidebook" });
+        return;
+      }
       saving = false;
       step = "auth";
     } catch (e) {
