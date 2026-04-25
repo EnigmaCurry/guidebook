@@ -152,6 +152,7 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/global-settings/auth_",
     "/api/databases/mode",
     "/api/databases/current",
+    "/api/databases/list",
 )
 _AUTH_EXEMPT_EXACT = {"/api/version"}
 

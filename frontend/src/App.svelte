@@ -187,6 +187,12 @@
         if (databases.length > 0) {
           welcomeAcknowledged = true;
           welcomeChecked = true;
+          // Ensure the setting is persisted for future checks
+          fetch("/api/global-settings/welcome_acknowledged", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ value: "true" }),
+          });
           return;
         }
       }
