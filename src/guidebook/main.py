@@ -626,17 +626,33 @@ def run() -> None:
         "--auth-ttl",
         type=int,
         default=None,
-        help="Set login link TTL in seconds (default: 300)",
+        help="Set session cookie TTL in seconds (default: 10 years)",
     )
     args = parser.parse_args()
 
     global NO_SHUTDOWN
     if args.disable_auth:
         _auth_module.DISABLE_AUTH = True
+    # Apply --auth-slots / GUIDEBOOK_AUTH_SLOTS
     if args.auth_slots is not None:
-        _auth_module.FORCED_SLOTS = args.auth_slots
+        _auth_module.AUTH_SLOTS = args.auth_slots
+    else:
+        val = os.environ.get("GUIDEBOOK_AUTH_SLOTS", "").strip()
+        if val:
+            try:
+                _auth_module.AUTH_SLOTS = int(val)
+            except ValueError:
+                pass
+    # Apply --auth-ttl / GUIDEBOOK_AUTH_TTL
     if args.auth_ttl is not None:
-        _auth_module.FORCED_LOGIN_TTL = args.auth_ttl
+        _auth_module.AUTH_TTL = args.auth_ttl
+    else:
+        val = os.environ.get("GUIDEBOOK_AUTH_TTL", "").strip()
+        if val:
+            try:
+                _auth_module.AUTH_TTL = max(30, int(val))
+            except ValueError:
+                pass
     if args.name and args.name.startswith("__"):
         print(
             "Error: database name must not start with '__' (reserved for system databases)"
@@ -679,11 +695,9 @@ def run() -> None:
         if existing == 0:
             token_str = secrets.token_urlsafe(48)
             now = time.time()
-            from guidebook.routes.auth import AUTH_COOKIE_MAX_AGE
-
             conn.execute(
                 "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, expires_at, is_transfer) VALUES (?, ?, ?, ?, ?, ?)",
-                (token_str, "Initial session", now, now, now + AUTH_COOKIE_MAX_AGE, 0),
+                (token_str, "Initial session", now, now, now + _auth_module.AUTH_TTL, 0),
             )
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_configured', 'true')"

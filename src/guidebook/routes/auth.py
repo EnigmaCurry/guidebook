@@ -17,13 +17,13 @@ logger = logging.getLogger("guidebook")
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 AUTH_COOKIE_NAME = "guidebook_token"
-AUTH_COOKIE_MAX_AGE = 365 * 24 * 3600  # 1 year
-LOGIN_LINK_TTL_DEFAULT = 300  # 5 minutes
+AUTH_COOKIE_MAX_AGE_DEFAULT = 10 * 365 * 24 * 3600  # 10 years
+LOGIN_LINK_TTL = 300  # 5 minutes (hardcoded)
 
 # Set at startup by main.py
 DISABLE_AUTH = False
-FORCED_SLOTS: int | None = None  # --auth-slots override
-FORCED_LOGIN_TTL: int | None = None  # --auth-ttl override
+AUTH_SLOTS: int = 1  # --auth-slots (default 1)
+AUTH_TTL: int = AUTH_COOKIE_MAX_AGE_DEFAULT  # --auth-ttl (default 1 year)
 
 
 def _env_disable_auth() -> bool:
@@ -32,26 +32,6 @@ def _env_disable_auth() -> bool:
         "true",
         "yes",
     )
-
-
-def _env_auth_slots() -> int | None:
-    val = os.environ.get("GUIDEBOOK_AUTH_SLOTS", "").strip()
-    if val:
-        try:
-            return int(val)
-        except ValueError:
-            pass
-    return None
-
-
-def _env_auth_ttl() -> int | None:
-    val = os.environ.get("GUIDEBOOK_AUTH_TTL", "").strip()
-    if val:
-        try:
-            return max(30, int(val))
-        except ValueError:
-            pass
-    return None
 
 
 async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
@@ -73,40 +53,6 @@ async def _is_auth_enabled(gdb: AsyncSession) -> bool:
     if DISABLE_AUTH or _env_disable_auth():
         return False
     return True
-
-
-def _effective_forced_slots() -> int | None:
-    return FORCED_SLOTS if FORCED_SLOTS is not None else _env_auth_slots()
-
-
-def _effective_forced_ttl() -> int | None:
-    return FORCED_LOGIN_TTL if FORCED_LOGIN_TTL is not None else _env_auth_ttl()
-
-
-async def _get_slots(gdb: AsyncSession) -> int:
-    forced = _effective_forced_slots()
-    if forced is not None:
-        return forced
-    val = await _get_setting(gdb, "auth_slots")
-    if val is not None:
-        try:
-            return int(val)
-        except ValueError:
-            pass
-    return 1
-
-
-async def _get_login_ttl(gdb: AsyncSession) -> int:
-    forced = _effective_forced_ttl()
-    if forced is not None:
-        return forced
-    val = await _get_setting(gdb, "login_link_ttl")
-    if val is not None:
-        try:
-            return max(30, int(val))
-        except ValueError:
-            pass
-    return LOGIN_LINK_TTL_DEFAULT
 
 
 async def _token_count(gdb: AsyncSession) -> int:
@@ -151,10 +97,7 @@ class AuthStatusResponse(BaseModel):
     configured: bool  # initial setup completed
     authenticated: bool
     slots: int
-    slots_forced: bool
     session_count: int
-    login_link_ttl: int
-    login_link_ttl_forced: bool
 
 
 @router.get("/status")
@@ -172,17 +115,12 @@ async def auth_status(
     if not enabled:
         authenticated = True  # no auth needed
     count = await _token_count(gdb)
-    slots = await _get_slots(gdb)
-    login_ttl = await _get_login_ttl(gdb)
     return AuthStatusResponse(
         enabled=enabled,
         configured=configured,
         authenticated=authenticated,
-        slots=slots,
-        slots_forced=_effective_forced_slots() is not None,
+        slots=AUTH_SLOTS,
         session_count=count,
-        login_link_ttl=login_ttl,
-        login_link_ttl_forced=_effective_forced_ttl() is not None,
     )
 
 
@@ -249,7 +187,7 @@ async def lock_session(
             label="Initial session",
             created_at=now,
             last_seen_at=now,
-            expires_at=now + AUTH_COOKIE_MAX_AGE,
+            expires_at=now + AUTH_TTL,
             is_transfer=0,
         )
     )
@@ -259,7 +197,7 @@ async def lock_session(
     response.set_cookie(
         AUTH_COOKIE_NAME,
         token_str,
-        max_age=AUTH_COOKIE_MAX_AGE,
+        max_age=AUTH_TTL,
         httponly=True,
         samesite="lax",
         path="/",
@@ -289,12 +227,11 @@ async def generate_token(
         raise HTTPException(401, "Not authenticated")
 
     # Check slot availability
-    slots = await _get_slots(gdb)
     count = await _token_count(gdb)
-    if slots > 0 and count >= slots:
+    if AUTH_SLOTS > 0 and count >= AUTH_SLOTS:
         raise HTTPException(
             400,
-            f"All {slots} session slot(s) are in use. Remove a session first.",
+            f"All {AUTH_SLOTS} session slot(s) are in use. Remove a session first.",
         )
 
     token_str = secrets.token_urlsafe(48)
@@ -371,14 +308,13 @@ async def login_with_token(
         raise HTTPException(401, "Invalid or expired token")
 
     # Check if unused login link has expired
-    login_ttl = await _get_login_ttl(gdb)
-    if tok.last_seen_at is None and (time.time() - tok.created_at) > login_ttl:
+    if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
         await gdb.delete(tok)
         await gdb.commit()
         raise HTTPException(401, "Login link has expired")
 
     now = time.time()
-    tok.expires_at = now + AUTH_COOKIE_MAX_AGE
+    tok.expires_at = now + AUTH_TTL
 
     if tok.is_transfer:
         # Transfer token: find the original session that created us and revoke it
@@ -411,7 +347,7 @@ async def login_with_token(
     response.set_cookie(
         AUTH_COOKIE_NAME,
         token_str,
-        max_age=AUTH_COOKIE_MAX_AGE,
+        max_age=AUTH_TTL,
         httponly=True,
         samesite="lax",
         path="/",
@@ -460,35 +396,5 @@ async def logout(
     return {"status": "logged_out"}
 
 
-class AuthSettingsUpdate(BaseModel):
-    auth_slots: int | None = None
-    login_link_ttl: int | None = None
-
-
-@router.put("/settings")
-async def update_auth_settings(
-    data: AuthSettingsUpdate,
-    request: Request,
-    gdb: AsyncSession = Depends(get_global_session),
-):
-    """Update auth settings."""
-    if data.auth_slots is not None:
-        if _effective_forced_slots() is not None:
-            raise HTTPException(400, "Session slots are forced by --auth-slots or GUIDEBOOK_AUTH_SLOTS")
-        if data.auth_slots < 0:
-            raise HTTPException(400, "Slots must be >= 0")
-        await _set_setting(gdb, "auth_slots", str(data.auth_slots))
-        logger.info("Auth slots: %d", data.auth_slots)
-
-    if data.login_link_ttl is not None:
-        if _effective_forced_ttl() is not None:
-            raise HTTPException(400, "Login link TTL is forced by --auth-ttl or GUIDEBOOK_AUTH_TTL")
-        if data.login_link_ttl < 30:
-            raise HTTPException(400, "TTL must be >= 30 seconds")
-        await _set_setting(gdb, "login_link_ttl", str(data.login_link_ttl))
-        logger.info("Login link TTL: %d", data.login_link_ttl)
-
-    await gdb.commit()
-    return {"status": "ok"}
 
 

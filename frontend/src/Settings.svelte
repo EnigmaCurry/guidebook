@@ -116,9 +116,6 @@
   let authConfigured = false;
   let authAuthenticated = false;
   let authSlots = 1;
-  let authSlotsForced = false;
-  let authLinkTtl = 300;
-  let authLinkTtlForced = false;
   let authSessions = [];
   let authLoading = true;
   let authTokenUrl = "";
@@ -136,9 +133,6 @@
         authConfigured = data.configured;
         authAuthenticated = data.authenticated;
         authSlots = data.slots;
-        authSlotsForced = data.slots_forced;
-        authLinkTtl = data.login_link_ttl;
-        authLinkTtlForced = data.login_link_ttl_forced;
       }
     } catch {}
     authLoading = false;
@@ -151,34 +145,6 @@
         authSessions = await res.json();
       }
     } catch {}
-  }
-
-  async function saveAuthSlots() {
-    authError = "";
-    const v = Math.max(0, parseInt(authSlots) || 1);
-    authSlots = v;
-    try {
-      await fetch("/api/auth/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ auth_slots: v }),
-      });
-    } catch {}
-    await loadAuthStatus();
-  }
-
-  async function saveAuthLinkTtl() {
-    authError = "";
-    const v = Math.max(30, parseInt(authLinkTtl) || 300);
-    authLinkTtl = v;
-    try {
-      await fetch("/api/auth/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login_link_ttl: v }),
-      });
-    } catch {}
-    await loadAuthStatus();
   }
 
   async function generateLoginToken() {
@@ -270,7 +236,6 @@
     return `in ${Math.floor(fdiff / 86400)}d`;
   }
 
-  $: authTtlLabel = authLinkTtl >= 3600 ? `${Math.floor(authLinkTtl / 3600)} hour${Math.floor(authLinkTtl / 3600) !== 1 ? "s" : ""}` : authLinkTtl >= 60 ? `${Math.floor(authLinkTtl / 60)} minute${Math.floor(authLinkTtl / 60) !== 1 ? "s" : ""}` : `${authLinkTtl} seconds`;
   $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); }
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
 
@@ -1516,25 +1481,6 @@
     <p class="hint">Authentication is always enabled. Only browsers with a valid session cookie can access the server. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn it off.</p>
   </section>
 
-  <section class="settings-section">
-    <h3>Session Slots</h3>
-    <div class="setting-row">
-      <label for="auth_slots">Maximum sessions (0 = unlimited)</label>
-      <input id="auth_slots" type="number" min="0" bind:value={authSlots} on:blur={saveAuthSlots} on:change={saveAuthSlots} autocomplete="off" style="max-width: 5rem" disabled={authSlotsForced} />
-    </div>
-    {#if authSlotsForced}
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced by --auth-slots or GUIDEBOOK_AUTH_SLOTS.</p>
-    {/if}
-    <p class="hint">Controls how many browser sessions can be logged in simultaneously. Default is 1.</p>
-    <div class="setting-row">
-      <label for="login_link_ttl">Login link TTL (seconds)</label>
-      <input id="login_link_ttl" type="number" min="30" bind:value={authLinkTtl} on:blur={saveAuthLinkTtl} on:change={saveAuthLinkTtl} autocomplete="off" style="max-width: 6rem" disabled={authLinkTtlForced} />
-    </div>
-    {#if authLinkTtlForced}
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced by --auth-ttl or GUIDEBOOK_AUTH_TTL.</p>
-    {/if}
-    <p class="hint">How long a generated login or transfer link stays valid. Default is 300 (5 minutes).</p>
-  </section>
 
   <section class="settings-section">
     <h3>Active Sessions</h3>
@@ -1559,7 +1505,7 @@
 
   <section class="settings-section">
     <h3>Generate Login Link</h3>
-    <p class="hint">Generate a one-time login URL to share with another browser. The new session will count against your slot limit.</p>
+    <p class="hint">Generate a one-time login URL to share with another browser.</p>
     <div class="setting-row">
       <button on:click={generateLoginToken} disabled={authGenerating || (authSlots > 0 && authAvailableSlots <= 0)}>
         {authGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 ? `No slots available (${authSlots}/${authSlots} used)` : "Generate Login Link"}
@@ -1570,7 +1516,7 @@
         <input type="text" value={authTokenUrl} readonly on:click={(e) => e.target.select()} />
         <button class="copy-btn" class:copied={copiedField === 'token'} on:click={() => copyToClipboard(authTokenUrl, 'token')}>{copiedField === 'token' ? 'Copied!' : 'Copy'}</button>
       </div>
-      <p class="hint">Share this link with the new browser. It expires in {authTtlLabel} and is consumed on first use.</p>
+      <p class="hint">Share this link with the new browser. It expires in 5 minutes and is consumed on first use.</p>
     {/if}
   </section>
 
@@ -1587,7 +1533,7 @@
         <input type="text" value={authTransferUrl} readonly on:click={(e) => e.target.select()} />
         <button class="copy-btn" class:copied={copiedField === 'transfer'} on:click={() => copyToClipboard(authTransferUrl, 'transfer')}>{copiedField === 'transfer' ? 'Copied!' : 'Copy'}</button>
       </div>
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one. Expires in {authTtlLabel}.</p>
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one. Expires in 5 minutes.</p>
     {/if}
   </section>
 

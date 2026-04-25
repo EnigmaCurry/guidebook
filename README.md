@@ -45,8 +45,8 @@ Open http://localhost:4280 in your browser.
 | `GUIDEBOOK_PORT` | Port | `4280` |
 | `GUIDEBOOK_BROWSER_URL` | Override browser URL | |
 | `GUIDEBOOK_DISABLE_AUTH` | Disable authentication (allow unauthenticated access) | `false` |
-| `GUIDEBOOK_AUTH_SLOTS` | Force max concurrent sessions (overrides UI) | |
-| `GUIDEBOOK_AUTH_TTL` | Force login link TTL in seconds (overrides UI) | |
+| `GUIDEBOOK_AUTH_SLOTS` | Max concurrent sessions | `1` |
+| `GUIDEBOOK_AUTH_TTL` | Session cookie TTL in seconds | `315360000` (10 years) |
 
 ## Development
 
