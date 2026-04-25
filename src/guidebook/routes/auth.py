@@ -127,10 +127,8 @@ async def auth_status(
     request: Request,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    raw_enabled = await _get_setting(gdb, "auth_enabled")
     enabled = await _is_auth_enabled(gdb)
     configured = (await _get_setting(gdb, "auth_configured")) == "true"
-    logger.info("auth/status: raw auth_enabled=%r enabled=%r configured=%r", raw_enabled, enabled, configured)
     token_str = _get_current_token(request)
     authenticated = False
     if token_str:
@@ -517,15 +515,6 @@ async def enable_and_lock(
             await _set_setting(gdb, "auth_enabled", "true")
             await _set_setting(gdb, "auth_configured", "true")
             await gdb.commit()
-            v1 = await _get_setting(gdb, "auth_enabled")
-            v2 = await _get_setting(gdb, "auth_configured")
-            # Also verify via raw SQL to bypass ORM caching
-            from sqlalchemy import text
-            raw = (await gdb.execute(text("SELECT key, value FROM settings WHERE key IN ('auth_enabled', 'auth_configured')"))).fetchall()
-            logger.info(
-                "enable-and-lock already_locked: orm auth_enabled=%r auth_configured=%r raw=%r",
-                v1, v2, raw,
-            )
             return {"status": "already_locked"}
 
     token_str = secrets.token_urlsafe(48)

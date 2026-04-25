@@ -641,7 +641,7 @@ def run() -> None:
         )
         conn.execute(
             "CREATE TABLE IF NOT EXISTS settings "
-            "(key TEXT PRIMARY KEY, value TEXT)"
+            "(id INTEGER NOT NULL PRIMARY KEY, key VARCHAR NOT NULL UNIQUE, value VARCHAR)"
         )
 
         if args.reset_auth:
