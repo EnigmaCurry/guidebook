@@ -191,7 +191,7 @@
             {saving ? "Locking..." : "Lock to this browser"}
           </button>
         </div>
-        <p class="hint">This creates a secure cookie that restricts access to only this browser session. No one else on the network will be able to use this server.</p>
+        <p class="hint">This creates a secure cookie that restricts access to only this browser session. You can grant access to additional browsers from the settings page.</p>
       {:else}
         <p class="subtitle">Choose how to secure your Guidebook instance.</p>
         <div class="auth-options">
@@ -199,7 +199,7 @@
             <button class="auth-btn lock-btn" on:click={lockSession} disabled={saving}>
               {saving ? "Locking..." : "Lock to this browser"}
             </button>
-            <p class="auth-desc">Creates a secure cookie that restricts access to only this browser session. Recommended if your server is accessible on a network.</p>
+            <p class="auth-desc">Creates a secure cookie that restricts access to only this browser session. You can grant access to additional browsers from the settings page.</p>
           </div>
           <div class="auth-separator">
             <span>or</span>
