@@ -973,7 +973,6 @@
         {#if authLoginError}
           <p style="color: #ff4444; font-size: 0.85rem;">{authLoginError}</p>
         {/if}
-        <button class="welcome-btn" on:click={() => location.reload()}>Retry</button>
       </div>
     </div>
   {:else if serverShutdown}
