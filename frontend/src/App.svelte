@@ -134,6 +134,7 @@
   let authConfirmToken = ""; // set when ?auth_token= is in URL, awaiting user confirmation
   let authConfirmUrl = ""; // the full URL for copying
   let authConfirming = false;
+  let authConfirmCopied = false;
 
   async function handleAuthToken() {
     const params = new URLSearchParams(window.location.search);
@@ -985,7 +986,7 @@
           <label>Copy this one-time login URL to open in a different browser</label>
           <div class="auth-confirm-url-row">
             <input type="text" value={authConfirmUrl} readonly on:click={(e) => e.target.select()} />
-            <button class="auth-confirm-copy" on:click={() => { navigator.clipboard.writeText(authConfirmUrl).catch(() => {}); }}>Copy</button>
+            <button class="auth-confirm-copy" class:copied={authConfirmCopied} on:click={() => { navigator.clipboard.writeText(authConfirmUrl).then(() => { authConfirmCopied = true; setTimeout(() => authConfirmCopied = false, 1500); }).catch(() => {}); }}>{authConfirmCopied ? "Copied!" : "Copy"}</button>
           </div>
         </div>
       </div>
@@ -1674,6 +1675,11 @@
   }
   .auth-confirm-copy:hover {
     background: var(--border, #3a3b3f);
+  }
+  .auth-confirm-copy.copied {
+    background: var(--accent, #00ff88);
+    color: var(--accent-text, #000);
+    border-color: var(--accent, #00ff88);
   }
   .auth-confirm-error {
     color: #ff4444;
