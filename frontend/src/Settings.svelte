@@ -132,6 +132,7 @@
       const res = await fetch("/api/auth/status");
       if (res.ok) {
         const data = await res.json();
+        console.log("[auth] loadAuthStatus response:", JSON.stringify(data));
         authEnabled = data.enabled;
         authRequired = data.required;
         authConfigured = data.configured;
@@ -139,8 +140,12 @@
         authEnvRequired = data.env_require_auth;
         authSlots = data.slots;
         authLinkTtl = data.login_link_ttl;
+      } else {
+        console.log("[auth] loadAuthStatus non-ok:", res.status);
       }
-    } catch {}
+    } catch (e) {
+      console.log("[auth] loadAuthStatus error:", e);
+    }
     authLoading = false;
   }
 
@@ -155,17 +160,20 @@
 
   async function toggleAuth() {
     authError = "";
+    console.log("[auth] toggleAuth called, authEnabled =", authEnabled);
     if (authEnabled) {
       // Enabling — lock to this browser
       try {
         const res = await fetch("/api/auth/enable-and-lock", { method: "POST" });
+        const body = await res.json().catch(() => null);
+        console.log("[auth] enable-and-lock response:", res.status, JSON.stringify(body));
         if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          authError = data?.detail || "Failed to enable auth";
+          authError = body?.detail || "Failed to enable auth";
           authEnabled = false;
           return;
         }
       } catch (e) {
+        console.log("[auth] enable-and-lock error:", e);
         authError = e.message;
         authEnabled = false;
         return;
