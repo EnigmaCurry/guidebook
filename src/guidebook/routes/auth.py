@@ -257,6 +257,10 @@ async def login_with_token(
     if not tok:
         raise HTTPException(401, "Invalid or expired token")
 
+    # Login links are one-time use — reject if already consumed
+    if tok.last_seen_at is not None and not tok.is_transfer:
+        raise HTTPException(401, "This login link has already been used")
+
     # Check if unused login link has expired
     if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
         await gdb.delete(tok)

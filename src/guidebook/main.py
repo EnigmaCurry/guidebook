@@ -716,7 +716,7 @@ environment variables (overridden by command line options):
             now = time.time()
             conn.execute(
                 "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, expires_at, is_transfer) VALUES (?, ?, ?, ?, ?, ?)",
-                (token_str, "Initial session", now, now, now + _auth_module.AUTH_TTL, 0),
+                (token_str, "Login link", now, None, None, 0),
             )
             conn.commit()
             os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
