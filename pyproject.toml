@@ -10,6 +10,7 @@ dependencies = [
     "aiosqlite",
     "httpx",
     "packaging",
+    "cryptography",
 ]
 
 [project.scripts]

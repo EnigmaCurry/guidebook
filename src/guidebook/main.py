@@ -440,14 +440,28 @@ def _check_running_instance(
     Returns False if nothing is running.
     """
     import json as _json
+    import ssl as _ssl
     import urllib.request
 
-    url = f"http://{host}:{port}"
+    # Create an unverified SSL context for probing self-signed certs
+    _noverify = _ssl.create_default_context()
+    _noverify.check_hostname = False
+    _noverify.verify_mode = _ssl.CERT_NONE
 
-    # Quick probe — is anything listening?
-    try:
-        urllib.request.urlopen(f"{url}/api/version", timeout=2)
-    except Exception:
+    # Quick probe — try HTTPS first, then HTTP
+    url = None
+    for _scheme in ("https", "http"):
+        try:
+            urllib.request.urlopen(
+                f"{_scheme}://{host}:{port}/api/version",
+                timeout=2,
+                context=_noverify,
+            )
+            url = f"{_scheme}://{host}:{port}"
+            break
+        except Exception:
+            continue
+    if url is None:
         return False  # nothing running
 
     # Something is running — gather info
@@ -455,12 +469,12 @@ def _check_running_instance(
     running_origin = None
     running_sha = None
     try:
-        resp = urllib.request.urlopen(f"{url}/api/version", timeout=2)
+        resp = urllib.request.urlopen(f"{url}/api/version", timeout=2, context=_noverify)
         running_version = _json.loads(resp.read()).get("version")
     except Exception:
         pass
     try:
-        resp = urllib.request.urlopen(f"{url}/api/update/platform", timeout=2)
+        resp = urllib.request.urlopen(f"{url}/api/update/platform", timeout=2, context=_noverify)
         platform_info = _json.loads(resp.read())
         running_origin = platform_info.get("build_origin_repo")
         running_sha = platform_info.get("build_git_sha")
@@ -559,6 +573,7 @@ environment variables (overridden by command line options):
   GUIDEBOOK_DISABLE_AUTH    Disable authentication (default: false)
   GUIDEBOOK_AUTH_SLOTS      Max concurrent sessions (default: 1)
   GUIDEBOOK_AUTH_TTL        Session cookie TTL in seconds (default: 10 years)
+  GUIDEBOOK_NO_TLS          Disable TLS (default: false)
 """
     parser = argparse.ArgumentParser(
         description="Guidebook - Web Application Template",
@@ -622,6 +637,11 @@ environment variables (overridden by command line options):
         type=int,
         default=None,
         help="Set session cookie TTL in seconds (default: 10 years)",
+    )
+    parser.add_argument(
+        "--no-tls",
+        action="store_true",
+        help="Disable TLS (serve plain HTTP instead of HTTPS)",
     )
     args = parser.parse_args()
 
@@ -784,6 +804,11 @@ environment variables (overridden by command line options):
             host = "127.0.0.1"
     port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "4280"))
 
+    no_tls = args.no_tls or os.environ.get(
+        "GUIDEBOOK_NO_TLS", ""
+    ).lower() in ("1", "true", "yes")
+    scheme = "http" if no_tls else "https"
+
     # Check if guidebook is already running on this port
     no_browser = args.no_browser or os.environ.get(
         "GUIDEBOOK_NO_BROWSER", ""
@@ -796,15 +821,15 @@ environment variables (overridden by command line options):
 
     reset_token = os.environ.pop("_GUIDEBOOK_RESET_AUTH_TOKEN", "")
     if reset_token:
-        login_url = f"http://{host}:{port}/?auth_token={reset_token}"
+        login_url = f"{scheme}://{host}:{port}/?auth_token={reset_token}"
         print(f"Login URL: {login_url}")
     no_browser = args.no_browser or os.environ.get(
         "GUIDEBOOK_NO_BROWSER", ""
     ).lower() in ("1", "true", "yes")
     if not no_browser:
-        default_url = f"http://{host}:{port}"
+        default_url = f"{scheme}://{host}:{port}"
         if reset_token:
-            default_url = f"http://{host}:{port}/?auth_token={reset_token}"
+            default_url = f"{scheme}://{host}:{port}/?auth_token={reset_token}"
         env_browser_url = os.environ.get("GUIDEBOOK_BROWSER_URL", "").strip()
 
         def open_browser():
@@ -818,4 +843,14 @@ environment variables (overridden by command line options):
 
         threading.Thread(target=open_browser, daemon=True).start()
 
-    uvicorn.run(app, host=host, port=port, access_log=False, log_config=None)
+    ssl_kwargs = {}
+    if not no_tls:
+        from guidebook.db import META_DB_PATH
+        from guidebook.tls import ensure_tls_cert, write_tls_temp_files
+
+        cert_pem, key_pem = ensure_tls_cert(str(META_DB_PATH))
+        certfile, keyfile = write_tls_temp_files(cert_pem, key_pem)
+        ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
+        logger.info("TLS enabled (self-signed certificate)")
+
+    uvicorn.run(app, host=host, port=port, access_log=False, log_config=None, **ssl_kwargs)
