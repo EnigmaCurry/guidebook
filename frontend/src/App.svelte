@@ -104,9 +104,6 @@
   let appFrozen = true;
   let sqlQueryEnabled = false;
   let noShutdown = false;
-  let utcNow = new Date().toISOString().slice(0, 19).replace("T", " ") + "z";
-  let clockInterval;
-  let clockCopied = false;
   let unreadCount = 0;
   let prevUnreadCount = -1;
   let clientCount = 0;
@@ -633,14 +630,6 @@
     navigate("notifications");
   }
 
-  async function copyUtcTimestamp() {
-    try {
-      await navigator.clipboard.writeText(utcNow);
-      clockCopied = true;
-      setTimeout(() => { clockCopied = false; }, 1500);
-    } catch {}
-  }
-
   async function fetchVersion() {
     try {
       const res = await fetch("/api/version");
@@ -932,7 +921,6 @@
     fetchVersion();
     applySystemTheme();
     window.addEventListener("keydown", onGlobalKeydown);
-    clockInterval = setInterval(() => { utcNow = new Date().toISOString().slice(0, 19).replace("T", " ") + "z"; }, 1000);
     window.addEventListener("hashchange", onHashChange);
     window.addEventListener("resize", onResize);
     // Handle auth token from URL (login link)
@@ -979,7 +967,6 @@
   }
 
   onDestroy(() => {
-    clearInterval(clockInterval);
     if (eventSource) eventSource.close();
     window.removeEventListener("hashchange", onHashChange);
     window.removeEventListener("resize", onResize);
@@ -1031,7 +1018,8 @@
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <h1 class="app-title"><span class="title-full">Guidebook</span><span class="title-short">GB</span>{#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}</h1>
       </div>
-      <span class="utc-clock">{utcNow}</span>
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <span class="client-count" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>
     </header>
     <div class="welcome-container">
       <div class="welcome-card">
@@ -1067,7 +1055,8 @@
     </div>
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <span class="utc-clock" on:click={copyUtcTimestamp} title="Click to copy">{clockCopied ? "Copied!" : utcNow}</span>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <span class="client-count" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>
     <div class="hamburger-wrap">
       {#if wide}
         <button class="add-btn dual-btn" class:active-nav={dualRightPage === "notifications"} on:click={handleNotificationClick} title="Records & Notifications">{#if dualRightPage === "notifications" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}{#if unreadCount > 0}<span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>{:else}<Icon icon={iconBell} width={18} />{/if}{#if dualRightPage === "notifications" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
@@ -1459,12 +1448,14 @@
     gap: 0.4rem;
   }
 
-  .utc-clock {
+  .client-count {
     font-size: 0.75rem;
     color: var(--text-dim);
-    font-family: monospace;
     cursor: pointer;
     white-space: nowrap;
+  }
+  .client-count:hover {
+    color: var(--text);
   }
 
   .add-btn {
