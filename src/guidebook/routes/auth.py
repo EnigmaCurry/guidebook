@@ -355,6 +355,7 @@ async def login_with_token(
         tok.last_seen_at = time.time()
         tok.label = "Logged in session"
         await gdb.commit()
+        broadcast("auth-login", {"label": tok.label})
         logger.info("New session logged in via token")
 
     response.set_cookie(
