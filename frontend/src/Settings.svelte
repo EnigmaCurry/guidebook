@@ -1477,6 +1477,9 @@
         {authGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 ? `No slots available (${authSlots}/${authSlots} used)` : "Generate Login Link"}
       </button>
     </div>
+    {#if authSlots > 0 && authAvailableSlots <= 0}
+      <p class="hint">Pass <code style="font-size: 0.75rem; white-space: nowrap">--auth-slots X</code> at startup to allow more concurrent sessions.</p>
+    {/if}
     {#if authTokenUrl}
       <div class="token-url-box">
         <input type="text" value={authTokenUrl} readonly on:click={(e) => e.target.select()} />
