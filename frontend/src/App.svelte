@@ -191,6 +191,7 @@
 
   async function handleWelcomeComplete(e) {
     welcomeAcknowledged = true;
+    switchingLogbook = true; // prevent logbook-changed SSE from reloading
     const logbook = e.detail.logbook;
     if (logbook) {
       currentLogbook = logbook;
