@@ -34,6 +34,26 @@ def _env_require_auth() -> bool:
     )
 
 
+def _env_auth_slots() -> int | None:
+    val = os.environ.get("GUIDEBOOK_AUTH_SLOTS", "").strip()
+    if val:
+        try:
+            return int(val)
+        except ValueError:
+            pass
+    return None
+
+
+def _env_auth_ttl() -> int | None:
+    val = os.environ.get("GUIDEBOOK_AUTH_TTL", "").strip()
+    if val:
+        try:
+            return max(30, int(val))
+        except ValueError:
+            pass
+    return None
+
+
 async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
     row = (
         await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
@@ -56,9 +76,18 @@ async def _is_auth_enabled(gdb: AsyncSession) -> bool:
     return val == "true"
 
 
+def _effective_forced_slots() -> int | None:
+    return FORCED_SLOTS if FORCED_SLOTS is not None else _env_auth_slots()
+
+
+def _effective_forced_ttl() -> int | None:
+    return FORCED_LOGIN_TTL if FORCED_LOGIN_TTL is not None else _env_auth_ttl()
+
+
 async def _get_slots(gdb: AsyncSession) -> int:
-    if FORCED_SLOTS is not None:
-        return FORCED_SLOTS
+    forced = _effective_forced_slots()
+    if forced is not None:
+        return forced
     val = await _get_setting(gdb, "auth_slots")
     if val is not None:
         try:
@@ -69,8 +98,9 @@ async def _get_slots(gdb: AsyncSession) -> int:
 
 
 async def _get_login_ttl(gdb: AsyncSession) -> int:
-    if FORCED_LOGIN_TTL is not None:
-        return FORCED_LOGIN_TTL
+    forced = _effective_forced_ttl()
+    if forced is not None:
+        return forced
     val = await _get_setting(gdb, "login_link_ttl")
     if val is not None:
         try:
@@ -154,10 +184,10 @@ async def auth_status(
         authenticated=authenticated,
         env_require_auth=_env_require_auth(),
         slots=slots,
-        slots_forced=FORCED_SLOTS is not None,
+        slots_forced=_effective_forced_slots() is not None,
         session_count=count,
         login_link_ttl=login_ttl,
-        login_link_ttl_forced=FORCED_LOGIN_TTL is not None,
+        login_link_ttl_forced=_effective_forced_ttl() is not None,
     )
 
 
@@ -494,16 +524,16 @@ async def update_auth_settings(
         logger.info("Auth enabled: %s", data.auth_enabled)
 
     if data.auth_slots is not None:
-        if FORCED_SLOTS is not None:
-            raise HTTPException(400, "Session slots are forced by --auth-slots")
+        if _effective_forced_slots() is not None:
+            raise HTTPException(400, "Session slots are forced by --auth-slots or GUIDEBOOK_AUTH_SLOTS")
         if data.auth_slots < 0:
             raise HTTPException(400, "Slots must be >= 0")
         await _set_setting(gdb, "auth_slots", str(data.auth_slots))
         logger.info("Auth slots: %d", data.auth_slots)
 
     if data.login_link_ttl is not None:
-        if FORCED_LOGIN_TTL is not None:
-            raise HTTPException(400, "Login link TTL is forced by --auth-ttl")
+        if _effective_forced_ttl() is not None:
+            raise HTTPException(400, "Login link TTL is forced by --auth-ttl or GUIDEBOOK_AUTH_TTL")
         if data.login_link_ttl < 30:
             raise HTTPException(400, "TTL must be >= 30 seconds")
         await _set_setting(gdb, "login_link_ttl", str(data.login_link_ttl))

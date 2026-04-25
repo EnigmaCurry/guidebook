@@ -1572,7 +1572,7 @@
       <input id="auth_slots" type="number" min="0" bind:value={authSlots} on:blur={saveAuthSlots} on:change={saveAuthSlots} autocomplete="off" style="max-width: 5rem" disabled={authSlotsForced} />
     </div>
     {#if authSlotsForced}
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced by --auth-slots flag.</p>
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced by --auth-slots or GUIDEBOOK_AUTH_SLOTS.</p>
     {/if}
     <p class="hint">Controls how many browser sessions can be logged in simultaneously. Default is 1.</p>
     <div class="setting-row">
@@ -1580,7 +1580,7 @@
       <input id="login_link_ttl" type="number" min="30" bind:value={authLinkTtl} on:blur={saveAuthLinkTtl} on:change={saveAuthLinkTtl} autocomplete="off" style="max-width: 6rem" disabled={authLinkTtlForced} />
     </div>
     {#if authLinkTtlForced}
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced by --auth-ttl flag.</p>
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced by --auth-ttl or GUIDEBOOK_AUTH_TTL.</p>
     {/if}
     <p class="hint">How long a generated login or transfer link stays valid. Default is 300 (5 minutes).</p>
   </section>
