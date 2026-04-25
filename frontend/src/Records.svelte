@@ -29,6 +29,7 @@
   let attachmentError = "";
   let fileInput;
   let dragOver = false;
+  let previewUrl = null;
 
   // --- Column definitions ---
   const defaultColumnOrder = ["timestamp", "title", "tags", "content", "updated_at"];
@@ -554,9 +555,9 @@
               {#each attachments as att (att.id)}
                 <div class="attachment-item">
                   {#if att.content_type.startsWith("image/")}
-                    <a href={attDownloadUrl(att)} target="_blank">
-                      <img src={attDownloadUrl(att)} alt={att.filename} class="attachment-thumb" />
-                    </a>
+                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+                    <img src={attDownloadUrl(att)} alt={att.filename} class="attachment-thumb" on:click={() => { previewUrl = attDownloadUrl(att); }} />
                   {/if}
                   <a href={attDownloadUrl(att)} target="_blank" class="attachment-name">{att.filename}</a>
                   <span class="attachment-size">{formatFileSize(att.size)}</span>
@@ -645,6 +646,16 @@
     </div>
   {/if}
 </div>
+
+{#if previewUrl}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="lightbox" on:click={() => { previewUrl = null; }}>
+    <img src={previewUrl} alt="Preview" />
+  </div>
+{/if}
+
+<svelte:window on:keydown={e => { if (e.key === "Escape" && previewUrl) { e.preventDefault(); previewUrl = null; } }} />
 
 <style>
   .records-page {
@@ -918,6 +929,29 @@
     max-width: 80px;
     border-radius: 4px;
     object-fit: cover;
+    cursor: pointer;
+  }
+
+  .attachment-thumb:hover {
+    opacity: 0.8;
+  }
+
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    cursor: pointer;
+  }
+
+  .lightbox img {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 4px;
   }
 
   .attachment-name {
