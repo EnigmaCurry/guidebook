@@ -178,6 +178,25 @@ async def http_middleware(request: Request, call_next):
                         content={"detail": "Authentication required"},
                     )
 
+    # Auth check for non-API routes (HTML pages)
+    if not path.startswith("/api/") and "auth_token" not in request.url.query:
+        from guidebook.routes.auth import check_auth
+        from guidebook.db import db_manager
+
+        if db_manager._global_session_factory:
+            async with db_manager._global_session_factory() as gdb:
+                ok = await check_auth(request, gdb)
+                if not ok:
+                    from fastapi.responses import HTMLResponse
+
+                    return HTMLResponse(
+                        status_code=401,
+                        content="<html><body><h2>Access Restricted</h2>"
+                        "<p>This Guidebook instance requires authentication. "
+                        "You need a login link from the owner to access it.</p>"
+                        "</body></html>",
+                    )
+
     response: Response = await call_next(request)
     if not path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-cache"
