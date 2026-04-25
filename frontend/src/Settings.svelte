@@ -259,9 +259,12 @@
     await loadAuthStatus();
   }
 
-  async function copyToClipboard(text) {
+  let copiedField = null;
+  async function copyToClipboard(text, field) {
     try {
       await navigator.clipboard.writeText(text);
+      copiedField = field;
+      setTimeout(() => { if (copiedField === field) copiedField = null; }, 1500);
     } catch {}
   }
 
@@ -1569,7 +1572,7 @@
     {#if authTokenUrl}
       <div class="token-url-box">
         <input type="text" value={authTokenUrl} readonly on:click={(e) => e.target.select()} />
-        <button class="copy-btn" on:click={() => copyToClipboard(authTokenUrl)}>Copy</button>
+        <button class="copy-btn" class:copied={copiedField === 'token'} on:click={() => copyToClipboard(authTokenUrl, 'token')}>{copiedField === 'token' ? 'Copied!' : 'Copy'}</button>
       </div>
       <p class="hint">Share this link with the new browser. It will be consumed on first use.</p>
     {/if}
@@ -1586,7 +1589,7 @@
     {#if authTransferUrl}
       <div class="token-url-box">
         <input type="text" value={authTransferUrl} readonly on:click={(e) => e.target.select()} />
-        <button class="copy-btn" on:click={() => copyToClipboard(authTransferUrl)}>Copy</button>
+        <button class="copy-btn" class:copied={copiedField === 'transfer'} on:click={() => copyToClipboard(authTransferUrl, 'transfer')}>{copiedField === 'transfer' ? 'Copied!' : 'Copy'}</button>
       </div>
       <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one.</p>
     {/if}
@@ -2230,5 +2233,10 @@
   }
   .copy-btn:hover {
     background: var(--btn-secondary-hover);
+  }
+  .copy-btn.copied {
+    background: var(--success-color, #2ea043);
+    color: #fff;
+    border-color: var(--success-color, #2ea043);
   }
 </style>

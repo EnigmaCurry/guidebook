@@ -535,6 +535,9 @@
       if (eventSource) { eventSource.close(); eventSource = null; }
       setShutdownState();
     });
+    eventSource.addEventListener("auth-revoked", () => {
+      location.reload();
+    });
     eventSource.addEventListener("theme-changed", () => applyTheme());
     eventSource.addEventListener("theme-preview", (e) => {
       const { key, value } = JSON.parse(e.data);

@@ -9,6 +9,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from guidebook.db import AuthToken, GlobalSetting, get_global_session
+from guidebook.sse import broadcast
 
 logger = logging.getLogger("guidebook")
 
@@ -347,6 +348,7 @@ async def login_with_token(
             await gdb.delete(old_tok)
 
         await gdb.commit()
+        broadcast("auth-revoked", {})
         logger.info("Session transferred to new browser")
     else:
         # Regular login token — just activate it
