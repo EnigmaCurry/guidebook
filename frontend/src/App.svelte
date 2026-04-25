@@ -973,7 +973,7 @@
     <div class="auth-confirm">
       <div class="auth-confirm-panel">
         <h1>Create Session</h1>
-        <p class="auth-confirm-desc">You are about to lock a long-term browser session with Guidebook. This browser will be the only one able to access the app unless additional sessions are granted.</p>
+        <p class="auth-confirm-desc">You are about to lock in a long-term browser session with Guidebook. This browser will be the only one able to access the app unless additional sessions are granted.</p>
         <div class="auth-confirm-url-box">
           <label>One-time login URL (copy to open in a different browser instead)</label>
           <div class="auth-confirm-url-row">
