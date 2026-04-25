@@ -348,6 +348,7 @@ async def delete_session(
 
     await gdb.delete(tok)
     await gdb.commit()
+    broadcast("auth-revoked", {})
     logger.info("Deleted session %d", session_id)
     return {"status": "deleted"}
 
