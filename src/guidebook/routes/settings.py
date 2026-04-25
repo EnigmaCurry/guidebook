@@ -127,6 +127,7 @@ async def upsert_setting(
     stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": data.value})
     await session.execute(stmt)
     await session.commit()
+    session.expire_all()
     result = await session.execute(select(Setting).where(Setting.key == key))
     setting = result.scalar_one()
     log_value = "***" if key in HIDDEN_KEYS else data.value

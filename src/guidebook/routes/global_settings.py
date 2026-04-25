@@ -69,6 +69,7 @@ async def upsert_global_setting(
     stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": data.value})
     await gdb.execute(stmt)
     await gdb.commit()
+    gdb.expire_all()
     result = await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
     setting = result.scalar_one()
     log_value = "***" if key in HIDDEN_KEYS else data.value
