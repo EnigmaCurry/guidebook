@@ -179,29 +179,13 @@
   }
 
   async function checkWelcome() {
+    // The welcome screen only shows once — before the first database is created.
+    // We use the /api/databases/mode endpoint (auth-exempt) to check.
     try {
-      // If any databases exist, the welcome was already completed
-      const dbRes = await fetch("/api/databases/list");
-      if (dbRes.ok) {
-        const databases = await dbRes.json();
-        if (databases.length > 0) {
-          welcomeAcknowledged = true;
-          welcomeChecked = true;
-          // Ensure the setting is persisted for future checks
-          fetch("/api/global-settings/welcome_acknowledged", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ value: "true" }),
-          });
-          return;
-        }
-      }
-    } catch {}
-    try {
-      const res = await fetch("/api/global-settings/welcome_acknowledged");
+      const res = await fetch("/api/databases/mode");
       if (res.ok) {
         const data = await res.json();
-        welcomeAcknowledged = data.value === "true";
+        welcomeAcknowledged = !!data.has_databases;
       }
     } catch {}
     welcomeChecked = true;

@@ -43,10 +43,14 @@ def _validate_name(name: str) -> None:
 async def get_mode():
     from guidebook.main import NO_SHUTDOWN
 
+    has_databases = any(
+        f.stem != "__global" for f in DB_DIR.glob("*.db")
+    )
     return {
         "picker": db_manager.picker_mode,
         "db_override": db_manager._db_override is not None,
         "no_shutdown": NO_SHUTDOWN,
+        "has_databases": has_databases,
     }
 
 
