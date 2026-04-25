@@ -103,7 +103,6 @@
   let updateSupported = false;
   let appFrozen = true;
   let sqlQueryEnabled = false;
-  let shutdownMenuEnabled = false;
   let noShutdown = false;
   let utcNow = new Date().toISOString().slice(0, 19).replace("T", " ") + "z";
   let clockInterval;
@@ -248,7 +247,6 @@
     fetchPopupNotifEnabled();
     await fetchDatabaseRight();
     await fetchSqlQueryEnabled();
-    await fetchShutdownMenuEnabled();
     fetchUnreadCount();
     connectSSE();
   }
@@ -713,15 +711,6 @@
     } catch {}
   }
 
-  async function fetchShutdownMenuEnabled() {
-    try {
-      const res = await fetch("/api/global-settings/shutdown_in_menu");
-      if (res.ok) {
-        const data = await res.json();
-        shutdownMenuEnabled = data.value === "true";
-      }
-    } catch {}
-  }
 
   function isWide() {
     return typeof window !== "undefined" && window.innerWidth >= wideBreakpoint;
@@ -1064,10 +1053,6 @@
           {#if pickerMode}
             <div class="menu-separator"></div>
             <button class="menu-item close-database" on:click={closeDatabase}>Close Database</button>
-          {/if}
-          {#if shutdownMenuEnabled && !noShutdown}
-            <div class="menu-separator"></div>
-            <button class="menu-item menu-shutdown" on:click={shutdownFromMenu}>Shutdown</button>
           {/if}
         </nav>
       {/if}

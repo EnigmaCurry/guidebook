@@ -47,7 +47,6 @@
     error = "";
     try {
       const name = databaseName.trim() || "guidebook";
-      await saveGlobal("default_database_name", name);
       await saveGlobal("welcome_acknowledged", "true");
       const res = await fetch("/api/databases/open", {
         method: "POST",

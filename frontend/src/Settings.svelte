@@ -49,14 +49,6 @@
   let default_page = "log";
 
   // Global settings state
-  let global_default_pick_mode = true;
-  let global_default_host = "127.0.0.1";
-  let global_default_port = "4280";
-  let global_default_database_name = "guidebook";
-  let global_open_browser_on_startup = true;
-  let global_auto_shutdown_delay = "300";
-  let global_browser_url_override = "";
-  let availableDatabases = [];
   let globalSettingsLoaded = false;
 
   // Track which per-database settings are from global defaults
@@ -95,9 +87,6 @@
 
   // Shutdown
   let noShutdown = false;
-  let disableShutdown = false;
-  let autoShutdownOnDisconnect = false;
-  let shutdownInMenu = false;
 
   // Backup
   let backupMessage = "";
@@ -909,12 +898,6 @@
     } catch {}
   }
 
-  async function fetchDatabaseList() {
-    try {
-      const res = await fetch("/api/databases/");
-      if (res.ok) availableDatabases = (await res.json()).map(d => d.name);
-    } catch {}
-  }
 
   async function fetchGlobalSettings() {
     try {
@@ -922,16 +905,6 @@
       if (res.ok) {
         const data = await res.json();
         for (const s of data) {
-          if (s.key === "default_pick_mode") global_default_pick_mode = s.value !== "false";
-          if (s.key === "default_host") global_default_host = s.value || "127.0.0.1";
-          if (s.key === "default_port") global_default_port = s.value || "4280";
-          if (s.key === "default_database_name") global_default_database_name = s.value || "guidebook";
-          if (s.key === "open_browser_on_startup") global_open_browser_on_startup = s.value !== "false";
-          if (s.key === "auto_shutdown_delay") global_auto_shutdown_delay = s.value || "300";
-          if (s.key === "browser_url_override") global_browser_url_override = s.value || "";
-          if (s.key === "shutdown_in_menu") shutdownInMenu = s.value === "true";
-          if (s.key === "auto_shutdown_on_disconnect") autoShutdownOnDisconnect = s.value === "true";
-          if (s.key === "disable_shutdown") disableShutdown = s.value === "true";
           if (s.key === "update_check_enabled") update_check_enabled = s.value !== "false";
         }
         globalSettingsLoaded = true;
@@ -1069,15 +1042,9 @@
     } catch {}
   }
 
-  async function toggleDisableShutdown() {
-    await saveGlobalSetting("disable_shutdown", disableShutdown ? "true" : "false");
-    await fetchNoShutdown();
-  }
-
   onMount(() => {
     fetchSettings();
     fetchGlobalSettings();
-    fetchDatabaseList();
     fetchEntryCount();
     loadDbInfo();
     loadBackupStatus();
@@ -1100,7 +1067,6 @@
     <button class="tab" class:active={activeTab === "updates"} on:click={() => switchTab("updates")}>Updates</button>
     <button class="tab" class:active={activeTab === "data"} on:click={() => switchTab("data")}>Data</button>
     <button class="tab" class:active={activeTab === "auth"} on:click={() => switchTab("auth")}>Auth</button>
-    <button class="tab" class:active={activeTab === "global"} on:click={() => switchTab("global")}>Global</button>
   </div>
 
   {#if activeTab === "features"}
@@ -1553,94 +1519,6 @@
   </div></div>
   {/if}
 
-  {#if activeTab === "global"}
-  <div class="tab-scroll"><p class="hint" style="max-width:1100px;margin:0 auto;width:100%;box-sizing:border-box">Global defaults are used when a per-database setting is not set. Changes here apply across all databases.</p>
-  <div class="tab-content" use:masonry>
-
-  <section class="settings-section">
-    <h3>Database</h3>
-    <div class="setting-row toggle-row">
-      <label>
-        <input type="checkbox" bind:checked={global_default_pick_mode} on:change={() => saveGlobalSetting("default_pick_mode", global_default_pick_mode ? "true" : "false")} />
-        Ask which database to open on start
-      </label>
-    </div>
-    <div class="setting-row">
-      <label for="global_default_database">Default Database Name</label>
-      {#if availableDatabases.length > 0}
-        <select id="global_default_database" bind:value={global_default_database_name} on:change={() => saveGlobalSetting("default_database_name", global_default_database_name)} style="max-width: 14rem">
-          {#each availableDatabases as name}
-            <option value={name}>{name}</option>
-          {/each}
-        </select>
-      {:else}
-        <span class="hint">No databases exist yet</span>
-      {/if}
-      <span class="hint">Database opened when running guidebook without arguments</span>
-    </div>
-  </section>
-
-  <section class="settings-section">
-    <h3>Network</h3>
-    <span class="hint">Changing these settings requires restarting guidebook.</span>
-    <div class="setting-row">
-      <label for="global_default_host">Default Host</label>
-      <span style="display: inline-flex; align-items: center; gap: 0.5rem;">
-        <input id="global_default_host" type="text" bind:value={global_default_host} on:blur={() => saveGlobalSetting("default_host", global_default_host.trim())} autocomplete="off" style="max-width: 10rem" />
-        {#if global_default_host.trim() !== "127.0.0.1"}
-          <button type="button" class="btn btn-sm" on:click={() => { global_default_host = "127.0.0.1"; saveGlobalSetting("default_host", "127.0.0.1"); }}>Reset</button>
-        {/if}
-      </span>
-      <span class="hint">Bind address. Use <code>0.0.0.0</code> to listen on all interfaces. Override with <code>GUIDEBOOK_HOST</code> env var.</span>
-      {#if global_default_host.trim() && global_default_host.trim() !== "127.0.0.1"}
-        <span class="hint" style="color: var(--warning-color, #e6a700); font-weight: bold;">Warning: Serving on a public network is not recommended unless authentication is enabled (Settings &rarr; Auth).</span>
-      {/if}
-    </div>
-    <div class="setting-row">
-      <label for="global_default_port">Default Port</label>
-      <input id="global_default_port" type="text" bind:value={global_default_port} on:blur={() => saveGlobalSetting("default_port", global_default_port.trim())} autocomplete="off" style="max-width: 6rem" />
-    </div>
-    <div class="setting-row toggle-row">
-      <label>
-        <input type="checkbox" bind:checked={global_open_browser_on_startup} on:change={() => saveGlobalSetting("open_browser_on_startup", global_open_browser_on_startup ? "true" : "false")} />
-        Open browser on startup (unless <code>--no-browser</code> argument given)
-      </label>
-    </div>
-    <div class="setting-row">
-      <label for="global_browser_url">Browser URL Override</label>
-      <input id="global_browser_url" type="text" bind:value={global_browser_url_override} on:blur={() => saveGlobalSetting("browser_url_override", global_browser_url_override.trim())} autocomplete="off" placeholder="e.g. https://guidebook.local" style="max-width: 20rem" disabled={!global_open_browser_on_startup} />
-      <span class="hint">Custom URL opened in browser on startup (for proxies/TLS). Leave blank for http://127.0.0.1:{global_default_port || "4280"}.</span>
-    </div>
-  </section>
-
-  <section class="settings-section">
-    <h3>Shutdown</h3>
-    <div class="setting-row toggle-row">
-      <label class="toggle-label">
-        <input type="checkbox" bind:checked={disableShutdown} on:change={toggleDisableShutdown} />
-        Disable shutdown
-      </label>
-    </div>
-    <div class="setting-row toggle-row">
-      <label class="toggle-label">
-        <input type="checkbox" bind:checked={autoShutdownOnDisconnect} on:change={() => saveGlobalSetting("auto_shutdown_on_disconnect", autoShutdownOnDisconnect ? "true" : "false")} disabled={disableShutdown} />
-        Shutdown automatically when no clients are connected
-      </label>
-    </div>
-    <div class="setting-row">
-      <label for="global_shutdown_delay">Shutdown delay (seconds)</label>
-      <input id="global_shutdown_delay" type="number" min="5" bind:value={global_auto_shutdown_delay} on:blur={() => { const v = Math.max(5, parseInt(global_auto_shutdown_delay) || 300); global_auto_shutdown_delay = String(v); saveGlobalSetting("auto_shutdown_delay", String(v)); }} autocomplete="off" style="max-width: 5rem" disabled={disableShutdown || !autoShutdownOnDisconnect} />
-    </div>
-    <p class="hint">Shuts down the server after {global_auto_shutdown_delay} consecutive seconds with no connected clients.</p>
-    <div class="setting-row toggle-row">
-      <label class="toggle-label">
-        <input type="checkbox" bind:checked={shutdownInMenu} on:change={() => { saveGlobalSetting("shutdown_in_menu", shutdownInMenu ? "true" : "false"); }} disabled={disableShutdown} />
-        Add Shutdown action to the main menu
-      </label>
-    </div>
-  </section>
-  </div></div>
-  {/if}
 </div>
 
 <style>

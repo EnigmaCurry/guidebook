@@ -20,7 +20,6 @@ from guidebook.db import (
     DatabaseLockError,
     DatabaseTooNewError,
     GlobalCache,
-    GlobalSetting,
     Setting,
     db_manager,
     get_global_session,
@@ -35,7 +34,6 @@ from guidebook.routes.records import router as records_router
 from guidebook.routes.notifications import router as notifications_router
 from guidebook.sse import (
     router as sse_router,
-    start_auto_shutdown,
     stop_auto_shutdown as stop_sse_auto_shutdown,
 )
 from guidebook.routes.settings import (
@@ -112,28 +110,8 @@ async def lifespan(app: FastAPI):
             )
         )
         await gdb.commit()
-    if not NO_SHUTDOWN:
-        async with global_async_session() as gdb:
-            row = (
-                await gdb.execute(
-                    select(GlobalSetting).where(GlobalSetting.key == "disable_shutdown")
-                )
-            ).scalar_one_or_none()
-            if row and row.value == "true":
-                NO_SHUTDOWN = True
     if db_manager.is_open:
         await start_auto_backup()
-        if not NO_SHUTDOWN:
-            async with global_async_session() as gdb:
-                row = (
-                    await gdb.execute(
-                        select(GlobalSetting).where(
-                            GlobalSetting.key == "auto_shutdown_on_disconnect"
-                        )
-                    )
-                ).scalar_one_or_none()
-                if row and row.value == "true":
-                    await start_auto_shutdown()
     yield
     await stop_sse_auto_shutdown()
     await stop_auto_backup()
@@ -803,22 +781,6 @@ environment variables (overridden by command line options):
 
     host = os.environ.get("GUIDEBOOK_HOST", "")
     if not host:
-        try:
-            import sqlite3 as _sqlite3
-
-            from guidebook.db import META_DB_PATH
-
-            if META_DB_PATH.exists():
-                _conn = _sqlite3.connect(str(META_DB_PATH))
-                _row = _conn.execute(
-                    "SELECT value FROM settings WHERE key = 'default_host'"
-                ).fetchone()
-                _conn.close()
-                if _row and _row[0]:
-                    host = _row[0]
-        except Exception:
-            pass
-        if not host:
             host = "127.0.0.1"
     port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "4280"))
 
@@ -846,28 +808,10 @@ environment variables (overridden by command line options):
         env_browser_url = os.environ.get("GUIDEBOOK_BROWSER_URL", "").strip()
 
         def open_browser():
-            import sqlite3
             import time
 
             time.sleep(1)
             url = env_browser_url or default_url
-            if not env_browser_url:
-                try:
-                    from guidebook.db import META_DB_PATH
-
-                    if META_DB_PATH.exists():
-                        conn = sqlite3.connect(str(META_DB_PATH))
-                        rows = conn.execute(
-                            "SELECT key, value FROM settings WHERE key IN ('browser_url_override', 'open_browser_on_startup')"
-                        ).fetchall()
-                        conn.close()
-                        settings = dict(rows)
-                        if settings.get("open_browser_on_startup") == "false":
-                            return
-                        if settings.get("browser_url_override"):
-                            url = settings["browser_url_override"]
-                except Exception:
-                    pass
             browser_name = _detect_browser_name()
             logger.info("Opening %s in %s", url, browser_name)
             webbrowser.open(url)
