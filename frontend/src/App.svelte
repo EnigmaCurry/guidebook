@@ -1004,7 +1004,7 @@
   });
 </script>
 
-<main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:settings-mode={page === "settings"}>
+<main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:settings-mode={page === "settings"}>
   {#if authConfirmToken}
     <div class="auth-confirm">
       <div class="auth-confirm-panel">
@@ -1284,6 +1284,21 @@
   .page-content {
     max-width: 1100px;
     margin: 0 auto;
+  }
+
+  :global(main.records-mode) {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  :global(main.records-mode) .page-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
   }
 
   :global(main.picker-mode) {
