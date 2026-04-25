@@ -202,6 +202,7 @@
         body: JSON.stringify({ auth_slots: v }),
       });
     } catch {}
+    await loadAuthStatus();
   }
 
   async function generateLoginToken() {
@@ -1544,7 +1545,7 @@
     <h3>Session Slots</h3>
     <div class="setting-row">
       <label for="auth_slots">Maximum sessions (0 = unlimited)</label>
-      <input id="auth_slots" type="number" min="0" bind:value={authSlots} on:blur={saveAuthSlots} autocomplete="off" style="max-width: 5rem" />
+      <input id="auth_slots" type="number" min="0" bind:value={authSlots} on:blur={saveAuthSlots} on:change={saveAuthSlots} autocomplete="off" style="max-width: 5rem" />
     </div>
     <p class="hint">Controls how many browser sessions can be logged in simultaneously. Default is 1.</p>
   </section>
