@@ -396,6 +396,7 @@
   <div class="records-header">
     <div class="search-bar">
       <input
+        id="records-search"
         type="text"
         placeholder="Search records..."
         bind:value={searchQuery}

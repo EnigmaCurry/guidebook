@@ -901,6 +901,13 @@
     } else if (e.key === "5") {
       e.preventDefault();
       navigate("about");
+    } else if (e.key === "/") {
+      e.preventDefault();
+      if (page !== "records" && page !== "dual") navigate("records");
+      requestAnimationFrame(() => {
+        const el = document.getElementById("records-search");
+        if (el) el.focus();
+      });
     } else if (e.key === "n" || e.key === "N") {
       e.preventDefault();
       dualShowForm = true; prefill = null; editId = null;
