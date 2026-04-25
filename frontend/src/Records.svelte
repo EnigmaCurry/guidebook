@@ -559,18 +559,17 @@
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
                     <img src={attDownloadUrl(att)} alt={att.filename} class="attachment-thumb" on:click={() => { previewUrl = attDownloadUrl(att); previewType = "image"; }} />
+                  {:else if att.content_type.startsWith("audio/")}
+                    <audio controls preload="metadata" src={attDownloadUrl(att)} class="attachment-audio"></audio>
+                  {:else if att.content_type.startsWith("video/")}
+                    <video controls preload="metadata" src={attDownloadUrl(att)} class="attachment-video"
+                      on:click|stopPropagation={() => { previewUrl = attDownloadUrl(att); previewType = "video"; }}></video>
                   {/if}
                   <div class="attachment-info">
                     <a href={attDownloadUrl(att)} target="_blank" class="attachment-name">{att.filename}</a>
                     <span class="attachment-size">{formatFileSize(att.size)}</span>
                     <button class="attachment-delete-btn" on:click|stopPropagation={() => deleteAttachment(att.id)}>x</button>
                   </div>
-                  {#if att.content_type.startsWith("audio/")}
-                    <audio controls preload="metadata" src={attDownloadUrl(att)} class="attachment-audio"></audio>
-                  {:else if att.content_type.startsWith("video/")}
-                    <video controls preload="metadata" src={attDownloadUrl(att)} class="attachment-video"
-                      on:click|stopPropagation={() => { previewUrl = attDownloadUrl(att); previewType = "video"; }}></video>
-                  {/if}
                 </div>
               {/each}
             </div>
