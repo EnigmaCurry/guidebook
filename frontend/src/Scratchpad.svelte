@@ -104,7 +104,8 @@
   .scratchpad-container {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
     padding: 1rem;
     box-sizing: border-box;
   }
@@ -139,7 +140,7 @@
   textarea {
     flex: 1;
     width: 100%;
-    min-height: 200px;
+    min-height: 0;
     padding: 0.75rem;
     font-family: inherit;
     font-size: 0.95rem;
@@ -148,7 +149,7 @@
     border-radius: 6px;
     background: var(--bg-input, transparent);
     color: var(--text, #eaeaea);
-    resize: vertical;
+    resize: none;
     box-sizing: border-box;
   }
   textarea:focus {
