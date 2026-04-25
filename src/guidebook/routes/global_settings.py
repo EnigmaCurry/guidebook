@@ -71,7 +71,6 @@ async def upsert_global_setting(
         setting = GlobalSetting(key=key, value=data.value)
         gdb.add(setting)
     await gdb.commit()
-    await gdb.refresh(setting)
     log_value = "***" if key in HIDDEN_KEYS else data.value
     logger.info("Global setting changed: %s = %s", key, log_value)
 
@@ -94,4 +93,5 @@ async def upsert_global_setting(
         else:
             await stop_auto_shutdown()
 
-    return _redact(setting)
+    redacted_value = "***" if key in HIDDEN_KEYS and data.value else data.value
+    return SettingResponse(key=key, value=redacted_value)

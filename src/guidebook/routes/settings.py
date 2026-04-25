@@ -131,7 +131,6 @@ async def upsert_setting(
         setting = Setting(key=key, value=data.value)
         session.add(setting)
     await session.commit()
-    await session.refresh(setting)
     log_value = "***" if key in HIDDEN_KEYS else data.value
     logger.info("Setting changed: %s = %s", key, log_value)
 
@@ -140,7 +139,8 @@ async def upsert_setting(
 
         broadcast("theme-changed", {})
 
-    return setting
+    redacted_value = "***" if key in HIDDEN_KEYS and data.value else data.value
+    return SettingResponse(key=key, value=redacted_value)
 
 
 @router.post("/theme-preview")
