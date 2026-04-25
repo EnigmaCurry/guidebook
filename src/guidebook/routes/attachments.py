@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_serializer
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import Attachment, Record, DB_DIR, get_session
+from guidebook.db import Attachment, Record, DB_DIR, db_manager, get_session
 from guidebook.routes.records import _broadcast_records_changed
 
 router = APIRouter(
@@ -20,7 +20,8 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 
 def _attachments_dir(record_uuid: str) -> Path:
-    return DB_DIR / "attachments" / record_uuid
+    db_name = db_manager.db_name or "guidebook"
+    return DB_DIR / "attachments" / db_name / record_uuid
 
 
 def _safe_filename(name: str, existing: set[str]) -> str:
