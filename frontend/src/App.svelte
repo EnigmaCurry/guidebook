@@ -117,13 +117,6 @@
   let sseHeartbeatTimer = null;
   const SSE_TIMEOUT_MS = 11000;
   let authRefreshTrigger = 0;
-  let toastMessage = "";
-  let toastTimer = null;
-  function showToast(msg, duration = 4000) {
-    toastMessage = msg;
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toastMessage = ""; }, duration);
-  }
   let popupNotifications = [];
   let popupNotifEnabled = false;
   let showPopup = false;
@@ -520,6 +513,7 @@
     });
     eventSource.addEventListener("notification", (e) => {
       notifRefreshTrigger++;
+      authRefreshTrigger++;
     });
     eventSource.addEventListener("update-check", () => {
       fetchUpdateCheck();
@@ -545,11 +539,6 @@
     });
     eventSource.addEventListener("auth-revoked", () => {
       location.reload();
-    });
-    eventSource.addEventListener("auth-login", (e) => {
-      const data = JSON.parse(e.data);
-      showToast("New session logged in: " + (data.label || "unknown"));
-      authRefreshTrigger++;
     });
     eventSource.addEventListener("theme-changed", () => applyTheme());
     eventSource.addEventListener("theme-preview", (e) => {
@@ -1174,10 +1163,6 @@
       </div>
     </div>
   </div>
-{/if}
-
-{#if toastMessage}
-  <div class="toast">{toastMessage}</div>
 {/if}
 
 <style>
@@ -1886,22 +1871,4 @@
   }
 
   .popup-btn-go:hover { background: var(--accent-hover); }
-  .toast {
-    position: fixed;
-    bottom: 1.5rem;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--accent, #4a9eff);
-    color: var(--accent-text, #fff);
-    padding: 0.6rem 1.2rem;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    z-index: 40000;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    animation: toast-in 0.2s ease-out;
-  }
-  @keyframes toast-in {
-    from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-    to { opacity: 1; transform: translateX(-50%) translateY(0); }
-  }
 </style>

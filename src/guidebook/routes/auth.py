@@ -9,6 +9,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from guidebook.db import AuthToken, GlobalSetting, get_global_session
+from guidebook.routes.notifications import create_notification
 from guidebook.sse import broadcast
 
 logger = logging.getLogger("guidebook")
@@ -376,7 +377,7 @@ async def login_with_token(
         tok.last_seen_at = time.time()
         tok.label = "Logged in session"
         await gdb.commit()
-        broadcast("auth-login", {"label": tok.label})
+        await create_notification("New session logged in", "A new browser session was authenticated via login link.")
         logger.info("New session logged in via token")
 
     response.set_cookie(
