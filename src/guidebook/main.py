@@ -632,6 +632,16 @@ def run() -> None:
         _auth_module.FORCED_SLOTS = args.auth_slots
     if args.auth_ttl is not None:
         _auth_module.FORCED_LOGIN_TTL = args.auth_ttl
+    auth_forced = _auth_module.REQUIRE_AUTH or _auth_module._env_require_auth()
+    has_forced_detail = (
+        _auth_module._effective_forced_slots() is not None
+        or _auth_module._effective_forced_ttl() is not None
+    )
+    if has_forced_detail and not auth_forced:
+        print(
+            "Error: --auth-slots / --auth-ttl require --require-auth or GUIDEBOOK_REQUIRE_AUTH=true"
+        )
+        sys.exit(1)
     if args.name and args.name.startswith("__"):
         print(
             "Error: database name must not start with '__' (reserved for system databases)"
