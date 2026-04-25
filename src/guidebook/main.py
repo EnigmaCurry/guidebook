@@ -31,6 +31,7 @@ from guidebook.routes.auth import router as auth_router
 import guidebook.routes.auth as _auth_module
 from guidebook.routes.databases import router as databases_router
 from guidebook.routes.records import router as records_router
+from guidebook.routes.attachments import router as attachments_router
 from guidebook.routes.notifications import router as notifications_router
 from guidebook.sse import (
     router as sse_router,
@@ -398,6 +399,7 @@ async def skip_update(
 app.include_router(auth_router)
 app.include_router(databases_router)
 app.include_router(records_router)
+app.include_router(attachments_router)
 app.include_router(settings_router)
 app.include_router(global_settings_router)
 app.include_router(notifications_router)

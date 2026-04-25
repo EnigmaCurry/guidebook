@@ -24,6 +24,11 @@
   let origTitle = "";
   let origContent = "";
   let origTags = "";
+  let attachments = [];
+  let uploadingFiles = false;
+  let attachmentError = "";
+  let fileInput;
+  let dragOver = false;
 
   // --- Column definitions ---
   const defaultColumnOrder = ["timestamp", "title", "tags", "content", "updated_at"];
@@ -302,6 +307,8 @@
     formContent = "";
     formTags = "";
     error = "";
+    attachments = [];
+    attachmentError = "";
     showForm = true;
     dispatch("editchange", null);
     await tick();
@@ -319,6 +326,7 @@
         formTags = origTags = r.tags || "";
         showForm = true;
         formDirty = false;
+        fetchAttachments(r.id);
       }
     } catch {}
   }
@@ -329,9 +337,11 @@
     formContent = origContent = r.content || "";
     formTags = origTags = r.tags || "";
     error = "";
+    attachmentError = "";
     showForm = true;
     formDirty = false;
     dispatch("editchange", r.id);
+    fetchAttachments(r.id);
   }
 
   async function saveRecord() {
@@ -391,6 +401,8 @@
     formContent = "";
     formTags = "";
     error = "";
+    attachments = [];
+    attachmentError = "";
     formDirty = false;
     dispatch("navigate", "records");
   }
@@ -419,6 +431,83 @@
     if (key === "timestamp" || key === "updated_at") return formatTimestamp(v);
     return String(v);
   }
+
+  // --- Attachments ---
+  async function fetchAttachments(recordId) {
+    attachmentError = "";
+    try {
+      const res = await fetch(`/api/records/${recordId}/attachments/`);
+      if (res.ok) attachments = await res.json();
+    } catch {}
+  }
+
+  async function uploadFiles(files) {
+    if (!formId || !files.length) return;
+    uploadingFiles = true;
+    attachmentError = "";
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f);
+    try {
+      const res = await fetch(`/api/records/${formId}/attachments/`, {
+        method: "POST",
+        body: fd,
+      });
+      if (res.ok) {
+        await fetchAttachments(formId);
+      } else {
+        const data = await res.json().catch(() => null);
+        attachmentError = data?.detail || "Upload failed";
+      }
+    } catch (e) {
+      attachmentError = e.message || "Upload failed";
+    }
+    uploadingFiles = false;
+  }
+
+  async function deleteAttachment(attId) {
+    try {
+      await fetch(`/api/records/${formId}/attachments/${attId}`, { method: "DELETE" });
+      await fetchAttachments(formId);
+    } catch {}
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    dragOver = false;
+    if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
+  }
+
+  function handlePaste(e) {
+    if (!formId) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files = [];
+    for (const item of items) {
+      if (item.kind === "file") {
+        const f = item.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      uploadFiles(files);
+    }
+  }
+
+  function handleFileInput(e) {
+    if (e.target.files?.length) uploadFiles(e.target.files);
+    e.target.value = "";
+  }
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  function attDownloadUrl(att) {
+    return `/api/records/${formId}/attachments/${att.id}/download`;
+  }
 </script>
 
 
@@ -438,7 +527,7 @@
 
   {#if showForm}
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="record-form" on:keydown={e => { if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); saveRecord(); } }}>
+    <div class="record-form" on:keydown={e => { if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); saveRecord(); } }} on:paste={handlePaste}>
       <h3>{formId ? "Edit Record" : "New Record"}</h3>
       <div class="form-field">
         <label for="rec-title">Title</label>
@@ -452,6 +541,42 @@
         <label for="rec-tags">Tags</label>
         <input id="rec-tags" type="text" bind:value={formTags} placeholder="Tags (optional, comma-separated)" />
       </div>
+      {#if formId}
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div class="attachments-section" class:drag-active={dragOver}
+             on:dragover|preventDefault={() => { dragOver = true; }}
+             on:dragleave={() => { dragOver = false; }}
+             on:drop={handleDrop}>
+          <label>Attachments</label>
+          {#if attachments.length > 0}
+            <div class="attachment-list">
+              {#each attachments as att (att.id)}
+                <div class="attachment-item">
+                  {#if att.content_type.startsWith("image/")}
+                    <a href={attDownloadUrl(att)} target="_blank">
+                      <img src={attDownloadUrl(att)} alt={att.filename} class="attachment-thumb" />
+                    </a>
+                  {/if}
+                  <a href={attDownloadUrl(att)} target="_blank" class="attachment-name">{att.filename}</a>
+                  <span class="attachment-size">{formatFileSize(att.size)}</span>
+                  <button class="attachment-delete-btn" on:click|stopPropagation={() => deleteAttachment(att.id)}>x</button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+          <div class="attachment-upload">
+            <button class="attachment-choose-btn" on:click={() => fileInput.click()}>Choose files</button>
+            <span class="drop-hint">or drag &amp; drop / paste</span>
+            <input bind:this={fileInput} type="file" multiple style="display:none" on:change={handleFileInput} />
+          </div>
+          {#if uploadingFiles}
+            <p class="status">Uploading...</p>
+          {/if}
+          {#if attachmentError}
+            <p class="error">{attachmentError}</p>
+          {/if}
+        </div>
+      {/if}
       {#if error}
         <p class="error">{error}</p>
       {/if}
@@ -749,5 +874,107 @@
 
   tr.editing {
     background: var(--row-editing);
+  }
+
+  /* --- Attachments --- */
+
+  .attachments-section {
+    border: 1px dashed var(--border, #3a3b3f);
+    border-radius: 6px;
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    transition: border-color 0.15s;
+  }
+
+  .attachments-section.drag-active {
+    border-color: var(--accent, #00ff88);
+    background: rgba(0, 255, 136, 0.04);
+  }
+
+  .attachments-section > label {
+    font-size: 0.75rem;
+    color: var(--text-dim, #888);
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  .attachment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .attachment-thumb {
+    max-height: 60px;
+    max-width: 80px;
+    border-radius: 4px;
+    object-fit: cover;
+  }
+
+  .attachment-name {
+    color: var(--accent, #00ff88);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 200px;
+  }
+
+  .attachment-name:hover {
+    text-decoration: underline;
+  }
+
+  .attachment-size {
+    color: var(--text-dim, #888);
+    font-size: 0.75rem;
+    flex-shrink: 0;
+  }
+
+  .attachment-delete-btn {
+    background: none;
+    border: none;
+    color: #cc3333;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0 0.3rem;
+    flex-shrink: 0;
+  }
+
+  .attachment-delete-btn:hover {
+    color: #ff4444;
+  }
+
+  .attachment-upload {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .attachment-choose-btn {
+    background: none;
+    border: 1px solid var(--border, #3a3b3f);
+    color: var(--text-dim, #888);
+    border-radius: 4px;
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+    font-size: 0.8rem;
+  }
+
+  .attachment-choose-btn:hover {
+    border-color: var(--accent, #00ff88);
+    color: var(--text, #eaeaea);
+  }
+
+  .drop-hint {
+    font-size: 0.75rem;
+    color: var(--text-dim, #888);
   }
 </style>

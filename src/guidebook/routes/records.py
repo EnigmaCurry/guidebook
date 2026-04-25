@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_serializer, field_validator
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import Record, get_session
+from guidebook.db import Attachment, Record, get_session
 from guidebook.sse import _get_shutdown_event
 
 logger = logging.getLogger("guidebook")
@@ -195,6 +195,12 @@ async def update_record(
 
 @router.delete("/all")
 async def delete_all_records(session: AsyncSession = Depends(get_session)):
+    from guidebook.routes.attachments import cleanup_record_attachments
+
+    records = (await session.execute(select(Record))).scalars().all()
+    for r in records:
+        cleanup_record_attachments(r)
+    await session.execute(delete(Attachment))
     result = await session.execute(delete(Record))
     await session.commit()
     logger.info("Deleted all records: %d removed", result.rowcount)
@@ -204,9 +210,16 @@ async def delete_all_records(session: AsyncSession = Depends(get_session)):
 
 @router.delete("/{record_id}", status_code=204)
 async def delete_record(record_id: int, session: AsyncSession = Depends(get_session)):
+    from guidebook.routes.attachments import (
+        cleanup_record_attachments,
+        delete_attachments_for_record,
+    )
+
     record = await session.get(Record, record_id)
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
+    cleanup_record_attachments(record)
+    await delete_attachments_for_record(record_id, session)
     await session.delete(record)
     await session.commit()
     _broadcast_records_changed()
