@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 AUTH_COOKIE_NAME = "guidebook_token"
 AUTH_COOKIE_MAX_AGE = 365 * 24 * 3600  # 1 year
+LOGIN_LINK_TTL = 300  # 5 minutes
 
 # Set at startup by main.py
 REQUIRE_AUTH = False
@@ -332,6 +333,12 @@ async def login_with_token(
     tok = await _validate_token(gdb, token_str)
     if not tok:
         raise HTTPException(401, "Invalid or expired token")
+
+    # Check if unused login link has expired
+    if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
+        await gdb.delete(tok)
+        await gdb.commit()
+        raise HTTPException(401, "Login link has expired")
 
     if tok.is_transfer:
         # Transfer token: find the original session that created us and revoke it
