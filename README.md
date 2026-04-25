@@ -16,6 +16,7 @@ tags) as a starting point — replace it with your own data model and UI.
 
 - **Personal by default**: TLS, single-session auth, and one-time login links out of the box
 - **Records**: Generic CRUD records (title, content, tags) — replace with your own data model
+- **Scratchpad**: Ephemeral shared notepad synced in real time across all connected clients via SSE
 - **Multi-database**: Multiple projects with separate SQLite databases and a database picker
 - **Themes**: Dark, light, amber, green, blue, and custom theme builder
 - **Auto-updates**: Self-updating from GitHub releases
