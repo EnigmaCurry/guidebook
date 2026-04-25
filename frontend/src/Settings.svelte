@@ -1444,7 +1444,7 @@
   <div class="tab-scroll"><div class="tab-content" use:masonry>
   <section class="settings-section">
     <h3>Authentication</h3>
-    <p class="hint">Authentication is always enabled. Only browsers with a valid session cookie can access the server. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn it off.</p>
+    <p class="hint">Authentication is currently enforced. Only browsers with a valid session cookie can access the app. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off.</p>
   </section>
 
 
