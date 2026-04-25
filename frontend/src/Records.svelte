@@ -207,8 +207,12 @@
 
   $: if (showForm && !formDirty && !formId && !formTitle) {
     // showForm was set externally (e.g. + button in App.svelte)
-    formDirty = true;
     tick().then(() => document.getElementById("rec-title")?.focus());
+  }
+
+  // Mark form dirty only when a new record has actual content
+  $: if (showForm && !formId && (formTitle || formContent || formTags)) {
+    formDirty = true;
   }
 
   onMount(() => {
@@ -242,7 +246,6 @@
     formTags = "";
     error = "";
     showForm = true;
-    formDirty = true;
     dispatch("editchange", null);
     await tick();
     document.getElementById("rec-title")?.focus();
