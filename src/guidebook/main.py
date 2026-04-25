@@ -205,7 +205,9 @@ async def http_middleware(request: Request, call_next):
                     )
 
     response: Response = await call_next(request)
-    if not path.startswith("/api/"):
+    if path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    else:
         response.headers["Cache-Control"] = "no-cache"
     if response.status_code >= 400:
         logger.warning(
