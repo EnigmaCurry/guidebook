@@ -58,6 +58,7 @@
   let prefill = null;
   let formDirty = false;
   let dualShowForm = !!editId || (page === "dual" && (window.location.hash.slice(1) === "/add"));
+  let recordsRef = null;
   let databaseRight = false;
   let dualSplit = 50;
   let draggingSplit = false;
@@ -922,6 +923,25 @@
     } else if (e.key === "?") {
       e.preventDefault();
       navigate("about");
+    } else if (e.key === "ArrowDown" && recordsRef) {
+      e.preventDefault();
+      recordsRef.selectNext();
+    } else if (e.key === "ArrowUp" && recordsRef) {
+      e.preventDefault();
+      recordsRef.selectPrev();
+    } else if (e.key === "Enter" && recordsRef) {
+      e.preventDefault();
+      recordsRef.openSelected();
+    } else if (e.key === "Escape" && recordsRef) {
+      recordsRef.cancelIfClean();
+    } else if ((e.key === "PageDown" || e.key === "PageUp" || e.key === "Home" || e.key === "End") && recordsRef) {
+      const tw = document.querySelector(".table-wrap");
+      if (tw) {
+        e.preventDefault();
+        if (e.key === "Home") tw.scrollTo({ top: 0, behavior: "smooth" });
+        else if (e.key === "End") tw.scrollTo({ top: tw.scrollHeight, behavior: "smooth" });
+        else tw.scrollBy({ top: e.key === "PageDown" ? tw.clientHeight : -tw.clientHeight, behavior: "smooth" });
+      }
     }
   }
 
@@ -1110,7 +1130,7 @@
   {#if page === "dual"}
     <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={databaseRight}>
       <div class="dual-pane" style="flex: 0 0 {dualSplit}%">
-        <Records showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} bind:formDirty on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
+        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} bind:formDirty on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
       </div>
       <!-- svelte-ignore a11y-no-static-element-interactions -->
       <div class="dual-divider" on:mousedown={onDividerDown} on:touchstart={onDividerDown}></div>
@@ -1123,9 +1143,9 @@
   {:else}
     <div class="page-content">
     {#if page === "records"}
-      <Records showForm={false} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} />
+      <Records bind:this={recordsRef} showForm={false} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} />
     {:else if page === "add"}
-      <Records showForm={true} editId={editId} {prefill} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => navigate(e.detail)} on:prefillconsumed={() => prefill = null} />
+      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => navigate(e.detail)} on:prefillconsumed={() => prefill = null} />
     {:else if page === "query"}
       <Query initialSql={querySql} />
     {:else if page === "notifications"}

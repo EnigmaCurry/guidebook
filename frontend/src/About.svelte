@@ -31,9 +31,12 @@
       <tr><td class="key">5</td><td>About</td></tr>
       <tr><td class="key">N</td><td>New Record</td></tr>
       <tr><td class="key">W</td><td>Toggle dual pane</td></tr>
+      <tr><td class="key">/</td><td>Focus search</td></tr>
+      <tr><td class="key">↑ ↓</td><td>Select row</td></tr>
+      <tr><td class="key">Enter</td><td>Edit selected row / blur search</td></tr>
       <tr><td class="key">?</td><td>This page</td></tr>
       <tr><td class="key">Ctrl+Enter</td><td>Save record (in form)</td></tr>
-      <tr><td class="key">Esc</td><td>Close menu / cancel</td></tr>
+      <tr><td class="key">Esc</td><td>Close menu / cancel form</td></tr>
     </tbody>
   </table>
 

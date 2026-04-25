@@ -20,6 +20,10 @@
   let saving = false;
   let error = "";
   let tableWrapEl;
+  let selectedIndex = -1;
+  let origTitle = "";
+  let origContent = "";
+  let origTags = "";
 
   // --- Column definitions ---
   const defaultColumnOrder = ["timestamp", "title", "tags", "content", "updated_at"];
@@ -210,8 +214,11 @@
     tick().then(() => document.getElementById("rec-title")?.focus());
   }
 
-  // Mark form dirty only when a new record has actual content
+  // Mark form dirty when content differs from original
   $: if (showForm && !formId && (formTitle || formContent || formTags)) {
+    formDirty = true;
+  }
+  $: if (showForm && formId && (formTitle !== origTitle || formContent !== origContent || formTags !== origTags)) {
     formDirty = true;
   }
 
@@ -224,6 +231,39 @@
       fetchRecords();
     });
     recordsEventSource.onerror = () => {};
+  }
+
+  export function selectNext() {
+    if (sortedRecords.length === 0) return;
+    selectedIndex = selectedIndex < sortedRecords.length - 1 ? selectedIndex + 1 : 0;
+    scrollToSelected();
+  }
+
+  export function selectPrev() {
+    if (sortedRecords.length === 0) return;
+    selectedIndex = selectedIndex > 0 ? selectedIndex - 1 : sortedRecords.length - 1;
+    scrollToSelected();
+  }
+
+  export function openSelected() {
+    if (selectedIndex >= 0 && selectedIndex < sortedRecords.length) {
+      editRecord(sortedRecords[selectedIndex]);
+    }
+  }
+
+  export function cancelIfClean() {
+    if (showForm && !formDirty) {
+      cancelForm();
+      return true;
+    }
+    return false;
+  }
+
+  function scrollToSelected() {
+    tick().then(() => {
+      const row = tableWrapEl?.querySelector("tr.selected");
+      if (row) row.scrollIntoView({ block: "nearest" });
+    });
   }
 
   onMount(() => {
@@ -243,6 +283,7 @@
       const res = await fetch(url);
       if (res.ok) {
         records = await res.json();
+        selectedIndex = -1;
         await tick();
         autoSizeColumns();
       }
@@ -273,23 +314,23 @@
       if (res.ok) {
         const r = await res.json();
         formId = r.id;
-        formTitle = r.title || "";
-        formContent = r.content || "";
-        formTags = r.tags || "";
+        formTitle = origTitle = r.title || "";
+        formContent = origContent = r.content || "";
+        formTags = origTags = r.tags || "";
         showForm = true;
-        formDirty = true;
+        formDirty = false;
       }
     } catch {}
   }
 
   function editRecord(r) {
     formId = r.id;
-    formTitle = r.title || "";
-    formContent = r.content || "";
-    formTags = r.tags || "";
+    formTitle = origTitle = r.title || "";
+    formContent = origContent = r.content || "";
+    formTags = origTags = r.tags || "";
     error = "";
     showForm = true;
-    formDirty = true;
+    formDirty = false;
     dispatch("editchange", r.id);
   }
 
@@ -345,6 +386,7 @@
   function cancelForm() {
     showForm = false;
     formId = null;
+    selectedIndex = -1;
     formTitle = "";
     formContent = "";
     formTags = "";
@@ -379,18 +421,6 @@
   }
 </script>
 
-<svelte:window on:keydown={e => {
-  if (tableWrapEl && (e.key === "PageDown" || e.key === "PageUp" || e.key === "Home" || e.key === "End")) {
-    const active = document.activeElement;
-    const inForm = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT");
-    if (!inForm) {
-      e.preventDefault();
-      if (e.key === "Home") tableWrapEl.scrollTo({ top: 0, behavior: "smooth" });
-      else if (e.key === "End") tableWrapEl.scrollTo({ top: tableWrapEl.scrollHeight, behavior: "smooth" });
-      else tableWrapEl.scrollBy({ top: e.key === "PageDown" ? tableWrapEl.clientHeight : -tableWrapEl.clientHeight, behavior: "smooth" });
-    }
-  }
-}} />
 
 <div class="records-page">
   <div class="records-header">
@@ -401,7 +431,7 @@
         placeholder="Search records..."
         bind:value={searchQuery}
         on:input={onSearchInput}
-        on:keydown={e => { if (e.key === "Escape") e.target.blur(); }}
+        on:keydown={e => { if (e.key === "Escape" || e.key === "Enter") e.target.blur(); }}
       />
     </div>
   </div>
@@ -468,9 +498,9 @@
           </tr>
         </thead>
         <tbody>
-          {#each sortedRecords as r (r.id)}
+          {#each sortedRecords as r, i (r.id)}
             <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <tr class="clickable" class:editing={formId === r.id} title={relativeTime(r.timestamp)} on:click={() => editRecord(r)}>
+            <tr class="clickable" class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => editRecord(r)}>
               {#each columns as col (col.key)}
                 {#if col.key === "title"}
                   <td class="title-cell">{r.title}</td>
@@ -709,6 +739,12 @@
 
   tbody tr:hover {
     background: var(--row-hover);
+  }
+
+  tr.selected {
+    background: var(--row-hover);
+    outline: 1px solid var(--accent, #00ff88);
+    outline-offset: -1px;
   }
 
   tr.editing {
