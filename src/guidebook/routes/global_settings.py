@@ -63,17 +63,14 @@ async def upsert_global_setting(
             status_code=400,
             detail=f"Key '{key}' is not a valid global setting",
         )
-    result = await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
-    setting = result.scalar_one_or_none()
-    if setting:
-        if setting.value == data.value:
-            return _redact(setting)
-        setting.value = data.value
-    else:
-        setting = GlobalSetting(key=key, value=data.value)
-        gdb.add(setting)
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    stmt = sqlite_insert(GlobalSetting).values(key=key, value=data.value)
+    stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": data.value})
+    await gdb.execute(stmt)
     await gdb.commit()
-    await gdb.refresh(setting)
+    result = await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
+    setting = result.scalar_one()
     log_value = "***" if key in HIDDEN_KEYS else data.value
     logger.info("Global setting changed: %s = %s", key, log_value)
 

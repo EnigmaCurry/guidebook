@@ -40,13 +40,11 @@ async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
 
 
 async def _set_setting(gdb: AsyncSession, key: str, value: str) -> None:
-    row = (
-        await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
-    ).scalar_one_or_none()
-    if row:
-        row.value = value
-    else:
-        gdb.add(GlobalSetting(key=key, value=value))
+    from sqlalchemy.dialects.sqlite import insert
+
+    stmt = insert(GlobalSetting).values(key=key, value=value)
+    stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": value})
+    await gdb.execute(stmt)
 
 
 async def _is_auth_enabled(gdb: AsyncSession) -> bool:
@@ -377,7 +375,10 @@ async def login_with_token(
         tok.last_seen_at = time.time()
         tok.label = "Logged in session"
         await gdb.commit()
-        await create_notification("New session logged in", "A new browser session was authenticated via login link.")
+        try:
+            await create_notification("New session logged in", "A new browser session was authenticated via login link.")
+        except Exception:
+            logger.warning("Failed to create login notification")
         logger.info("New session logged in via token")
 
     response.set_cookie(
