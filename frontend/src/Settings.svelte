@@ -118,6 +118,7 @@
   let authAuthenticated = false;
   let authEnvRequired = false;
   let authSlots = 1;
+  let authLinkTtl = 300;
   let authSessions = [];
   let authLoading = true;
   let authTokenUrl = "";
@@ -137,6 +138,7 @@
         authAuthenticated = data.authenticated;
         authEnvRequired = data.env_require_auth;
         authSlots = data.slots;
+        authLinkTtl = data.login_link_ttl;
       }
     } catch {}
     authLoading = false;
@@ -201,6 +203,20 @@
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ auth_slots: v }),
+      });
+    } catch {}
+    await loadAuthStatus();
+  }
+
+  async function saveAuthLinkTtl() {
+    authError = "";
+    const v = Math.max(30, parseInt(authLinkTtl) || 300);
+    authLinkTtl = v;
+    try {
+      await fetch("/api/auth/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login_link_ttl: v }),
       });
     } catch {}
     await loadAuthStatus();
@@ -288,6 +304,7 @@
     return `${Math.floor(diff / 86400)}d ago`;
   }
 
+  $: authTtlLabel = authLinkTtl >= 3600 ? `${Math.floor(authLinkTtl / 3600)} hour${Math.floor(authLinkTtl / 3600) !== 1 ? "s" : ""}` : authLinkTtl >= 60 ? `${Math.floor(authLinkTtl / 60)} minute${Math.floor(authLinkTtl / 60) !== 1 ? "s" : ""}` : `${authLinkTtl} seconds`;
   $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); }
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
 
@@ -1550,6 +1567,11 @@
       <input id="auth_slots" type="number" min="0" bind:value={authSlots} on:blur={saveAuthSlots} on:change={saveAuthSlots} autocomplete="off" style="max-width: 5rem" />
     </div>
     <p class="hint">Controls how many browser sessions can be logged in simultaneously. Default is 1.</p>
+    <div class="setting-row">
+      <label for="login_link_ttl">Login link TTL (seconds)</label>
+      <input id="login_link_ttl" type="number" min="30" bind:value={authLinkTtl} on:blur={saveAuthLinkTtl} on:change={saveAuthLinkTtl} autocomplete="off" style="max-width: 6rem" />
+    </div>
+    <p class="hint">How long a generated login or transfer link stays valid. Default is 300 (5 minutes).</p>
   </section>
 
   <section class="settings-section">
@@ -1586,7 +1608,7 @@
         <input type="text" value={authTokenUrl} readonly on:click={(e) => e.target.select()} />
         <button class="copy-btn" class:copied={copiedField === 'token'} on:click={() => copyToClipboard(authTokenUrl, 'token')}>{copiedField === 'token' ? 'Copied!' : 'Copy'}</button>
       </div>
-      <p class="hint">Share this link with the new browser. It expires in 5 minutes and is consumed on first use.</p>
+      <p class="hint">Share this link with the new browser. It expires in {authTtlLabel} and is consumed on first use.</p>
     {/if}
   </section>
 
@@ -1603,7 +1625,7 @@
         <input type="text" value={authTransferUrl} readonly on:click={(e) => e.target.select()} />
         <button class="copy-btn" class:copied={copiedField === 'transfer'} on:click={() => copyToClipboard(authTransferUrl, 'transfer')}>{copiedField === 'transfer' ? 'Copied!' : 'Copy'}</button>
       </div>
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one. Expires in 5 minutes.</p>
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one. Expires in {authTtlLabel}.</p>
     {/if}
   </section>
   {/if}

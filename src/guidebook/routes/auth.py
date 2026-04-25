@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 AUTH_COOKIE_NAME = "guidebook_token"
 AUTH_COOKIE_MAX_AGE = 365 * 24 * 3600  # 1 year
-LOGIN_LINK_TTL = 300  # 5 minutes
+LOGIN_LINK_TTL_DEFAULT = 300  # 5 minutes
 
 # Set at startup by main.py
 REQUIRE_AUTH = False
@@ -65,6 +65,16 @@ async def _get_slots(gdb: AsyncSession) -> int:
     return 1
 
 
+async def _get_login_ttl(gdb: AsyncSession) -> int:
+    val = await _get_setting(gdb, "login_link_ttl")
+    if val is not None:
+        try:
+            return max(30, int(val))
+        except ValueError:
+            pass
+    return LOGIN_LINK_TTL_DEFAULT
+
+
 async def _token_count(gdb: AsyncSession) -> int:
     result = await gdb.execute(
         select(func.count()).select_from(AuthToken).where(AuthToken.is_transfer == 0)
@@ -110,6 +120,7 @@ class AuthStatusResponse(BaseModel):
     env_require_auth: bool
     slots: int
     session_count: int
+    login_link_ttl: int
 
 
 @router.get("/status")
@@ -128,6 +139,7 @@ async def auth_status(
         authenticated = True  # no auth needed
     count = await _token_count(gdb)
     slots = await _get_slots(gdb)
+    login_ttl = await _get_login_ttl(gdb)
     return AuthStatusResponse(
         enabled=enabled,
         required=REQUIRE_AUTH or _env_require_auth(),
@@ -136,6 +148,7 @@ async def auth_status(
         env_require_auth=_env_require_auth(),
         slots=slots,
         session_count=count,
+        login_link_ttl=login_ttl,
     )
 
 
@@ -335,7 +348,8 @@ async def login_with_token(
         raise HTTPException(401, "Invalid or expired token")
 
     # Check if unused login link has expired
-    if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
+    login_ttl = await _get_login_ttl(gdb)
+    if tok.last_seen_at is None and (time.time() - tok.created_at) > login_ttl:
         await gdb.delete(tok)
         await gdb.commit()
         raise HTTPException(401, "Login link has expired")
@@ -420,6 +434,7 @@ async def logout(
 class AuthSettingsUpdate(BaseModel):
     auth_enabled: bool | None = None
     auth_slots: int | None = None
+    login_link_ttl: int | None = None
 
 
 @router.put("/settings")
@@ -466,6 +481,12 @@ async def update_auth_settings(
             raise HTTPException(400, "Slots must be >= 0")
         await _set_setting(gdb, "auth_slots", str(data.auth_slots))
         logger.info("Auth slots: %d", data.auth_slots)
+
+    if data.login_link_ttl is not None:
+        if data.login_link_ttl < 30:
+            raise HTTPException(400, "TTL must be >= 30 seconds")
+        await _set_setting(gdb, "login_link_ttl", str(data.login_link_ttl))
+        logger.info("Login link TTL: %d", data.login_link_ttl)
 
     await gdb.commit()
     return {"status": "ok"}
