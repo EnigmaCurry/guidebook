@@ -44,6 +44,7 @@ from guidebook.routes.settings import (
 from guidebook.routes.query import router as query_router
 from guidebook.routes.global_settings import router as global_settings_router
 from guidebook.routes.update import router as update_router
+from guidebook.routes.scratchpad import router as scratchpad_router
 from guidebook._build_info import BUILD_GITHUB_ACTIONS, BUILD_ORIGIN_REPO, GIT_SHA
 
 logger = logging.getLogger("guidebook")
@@ -402,6 +403,7 @@ app.include_router(global_settings_router)
 app.include_router(notifications_router)
 app.include_router(query_router)
 app.include_router(update_router)
+app.include_router(scratchpad_router)
 app.include_router(sse_router)
 
 static_dir = _resource_path("static")

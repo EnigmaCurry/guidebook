@@ -7,6 +7,7 @@
   import DatabasePicker from "./DatabasePicker.svelte";
   import Welcome from "./Welcome.svelte";
   import Query from "./Query.svelte";
+  import Scratchpad from "./Scratchpad.svelte";
   import Icon from "@iconify/svelte";
   import iconBook from "@iconify-icons/twemoji/open-book";
   import iconBell from "@iconify-icons/twemoji/bell";
@@ -29,6 +30,7 @@
       const sp = qm >= 0 ? new URLSearchParams(hash.slice(qm + 1)) : null;
       return { page: "query", editId: null, dualRight: null, querySql: sp?.get("sql") || "" };
     }
+    if (hash === "/scratchpad") return { page: "scratchpad", editId: null, dualRight: null };
     if (hash === "/notifications") return { page: isWide() ? "dual" : "notifications", editId: null, dualRight: "notifications" };
     if (hash === "/database" || hash === "/records") return { page: isWide() ? "dual" : "records", editId: null, dualRight: null };
     if (hash === "/add") return { page: isWide() ? "dual" : "add", editId: null, dualRight: null };
@@ -796,7 +798,7 @@
     if (p === "dual") {
       window.location.hash = `/dual/${dualRightPage}`;
     } else {
-      const paths = { records: "/records", add: "/add", query: "/query", notifications: "/notifications", settings: settingsTab ? `/settings/${settingsTab}` : "/settings", about: "/about", picker: "/picker" };
+      const paths = { records: "/records", add: "/add", query: "/query", notifications: "/notifications", scratchpad: "/scratchpad", settings: settingsTab ? `/settings/${settingsTab}` : "/settings", about: "/about", picker: "/picker" };
       window.location.hash = paths[p] || "/";
     }
     setTimeout(() => { navigating = false; }, 0);
@@ -1085,6 +1087,7 @@
           <button class="menu-item" class:active={page === "add"} on:click={() => navigate("add")}>New Record</button>
           <button class="menu-item" class:active={page === "notifications" || (page === "dual" && dualRightPage === "notifications")} on:click={() => navigate("notifications")}>Notifications{#if unreadCount > 0} ({unreadCount}){/if}</button>
           {#if sqlQueryEnabled}<button class="menu-item" class:active={page === "query"} on:click={() => navigate("query")}>SQL Query</button>{/if}
+          <button class="menu-item" class:active={page === "scratchpad"} on:click={() => navigate("scratchpad")}>Scratchpad</button>
           <button class="menu-item" class:active={page === "settings"} on:click={() => navigate("settings")}>Settings</button>
           <button class="menu-item" class:active={page === "about"} on:click={() => navigate("about")}>About</button>
           {#if pickerMode}
@@ -1121,6 +1124,8 @@
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}
       <Settings databaseName={currentDatabase} pickerMode={pickerMode} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} {authRefreshTrigger} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); databaseOpen = false; currentDatabase = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchDatabaseRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchDatabaseRight(); await fetchSqlQueryEnabled(); fetchShutdownMenuEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} />
+    {:else if page === "scratchpad"}
+      <Scratchpad />
     {:else if page === "about"}
       <About />
     {/if}
