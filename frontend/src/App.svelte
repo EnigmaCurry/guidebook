@@ -969,14 +969,11 @@
 
 <main class:picker-mode={pickerMode && !logbookOpen} class:dual-mode={page === "dual"} class:query-mode={page === "query"} class:settings-mode={page === "settings"}>
   {#if authBlocked}
-    <div class="welcome-container">
-      <div class="welcome-card">
-        <h2>Access Restricted</h2>
-        <p>This Guidebook instance requires authentication. You need a login link from the owner to access it.</p>
-        {#if authLoginError}
-          <p style="color: #ff4444; font-size: 0.85rem;">{authLoginError}</p>
-        {/if}
-      </div>
+    <div class="auth-blocked">
+      <p>You need a login link from the owner to access this site.</p>
+      {#if authLoginError}
+        <p class="auth-blocked-error">{authLoginError}</p>
+      {/if}
     </div>
   {:else if serverShutdown}
     <div class="welcome-container">
@@ -1584,6 +1581,21 @@
     color: var(--danger, #e74c3c);
   }
 
+  .auth-blocked {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #111;
+    color: #999;
+    font-family: sans-serif;
+    font-size: 0.95rem;
+  }
+  .auth-blocked-error {
+    color: #ff4444;
+    font-size: 0.85rem;
+  }
   .welcome-container {
     display: flex;
     align-items: center;

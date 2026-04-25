@@ -195,9 +195,12 @@ async def http_middleware(request: Request, call_next):
 
                     return HTMLResponse(
                         status_code=401,
-                        content="<html><body><h2>Access Restricted</h2>"
-                        "<p>This Guidebook instance requires authentication. "
-                        "You need a login link from the owner to access it.</p>"
+                        content="<html><head><style>"
+                        "body{background:#111;color:#999;font-family:sans-serif;"
+                        "display:flex;align-items:center;justify-content:center;"
+                        "min-height:100vh;margin:0;font-size:.95rem}"
+                        "</style></head><body>"
+                        "<p>You need a login link from the owner to access this site.</p>"
                         "</body></html>",
                     )
 
