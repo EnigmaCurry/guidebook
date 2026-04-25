@@ -10,6 +10,7 @@
   export let initialTab = null;
   export let highlightSection = null;
   export let clientCount = 0;
+  export let authRefreshTrigger = 0;
 
   const dispatch = createEventDispatcher();
 
@@ -287,6 +288,7 @@
     return `${Math.floor(diff / 86400)}d ago`;
   }
 
+  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); }
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
 
   async function loadDbInfo() {
@@ -1584,7 +1586,7 @@
         <input type="text" value={authTokenUrl} readonly on:click={(e) => e.target.select()} />
         <button class="copy-btn" class:copied={copiedField === 'token'} on:click={() => copyToClipboard(authTokenUrl, 'token')}>{copiedField === 'token' ? 'Copied!' : 'Copy'}</button>
       </div>
-      <p class="hint">Share this link with the new browser. It will be consumed on first use.</p>
+      <p class="hint">Share this link with the new browser. It expires in 5 minutes and is consumed on first use.</p>
     {/if}
   </section>
 
@@ -1601,7 +1603,7 @@
         <input type="text" value={authTransferUrl} readonly on:click={(e) => e.target.select()} />
         <button class="copy-btn" class:copied={copiedField === 'transfer'} on:click={() => copyToClipboard(authTransferUrl, 'transfer')}>{copiedField === 'transfer' ? 'Copied!' : 'Copy'}</button>
       </div>
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one.</p>
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one. Expires in 5 minutes.</p>
     {/if}
   </section>
   {/if}
