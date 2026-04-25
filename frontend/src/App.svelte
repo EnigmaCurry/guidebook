@@ -883,9 +883,9 @@
   }
 
   function onGlobalKeydown(e) {
-    // Ignore if typing in an input/textarea/select
+    // Ignore if typing in an input/textarea/select/button
     const tag = e.target.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
 
     if (e.key === "1") {
       e.preventDefault();
