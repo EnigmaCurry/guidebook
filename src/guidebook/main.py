@@ -594,7 +594,7 @@ def run() -> None:
         "--port",
         type=int,
         default=None,
-        help="Port to listen on (default: auto-select starting from 8073)",
+        help="Port to listen on (default: auto-select starting from 4280)",
     )
     parser.add_argument(
         "--require-auth",
@@ -683,7 +683,7 @@ def run() -> None:
                         "host", os.environ.get("GUIDEBOOK_HOST", "127.0.0.1")
                     )
                     lock_info.setdefault(
-                        "port", int(os.environ.get("GUIDEBOOK_PORT", "8073"))
+                        "port", int(os.environ.get("GUIDEBOOK_PORT", "4280"))
                     )
                 _check_running_instance(
                     lock_info["host"],
@@ -757,7 +757,7 @@ def run() -> None:
             pass
         if not host:
             host = "127.0.0.1"
-    port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "8073"))
+    port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "4280"))
 
     # Check if guidebook is already running on this port
     no_browser = args.no_browser or os.environ.get(

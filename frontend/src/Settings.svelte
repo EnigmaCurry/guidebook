@@ -50,7 +50,7 @@
   // Global settings state
   let global_default_pick_mode = true;
   let global_default_host = "127.0.0.1";
-  let global_default_port = "8073";
+  let global_default_port = "4280";
   let global_default_logbook_name = "guidebook";
   let global_open_browser_on_startup = true;
   let global_auto_shutdown_delay = "300";
@@ -973,7 +973,7 @@
         for (const s of data) {
           if (s.key === "default_pick_mode") global_default_pick_mode = s.value !== "false";
           if (s.key === "default_host") global_default_host = s.value || "127.0.0.1";
-          if (s.key === "default_port") global_default_port = s.value || "8073";
+          if (s.key === "default_port") global_default_port = s.value || "4280";
           if (s.key === "default_logbook_name") global_default_logbook_name = s.value || "guidebook";
           if (s.key === "open_browser_on_startup") global_open_browser_on_startup = s.value !== "false";
           if (s.key === "auto_shutdown_delay") global_auto_shutdown_delay = s.value || "300";
@@ -1675,7 +1675,7 @@
     <div class="setting-row">
       <label for="global_browser_url">Browser URL Override</label>
       <input id="global_browser_url" type="text" bind:value={global_browser_url_override} on:blur={() => saveGlobalSetting("browser_url_override", global_browser_url_override.trim())} autocomplete="off" placeholder="e.g. https://guidebook.local" style="max-width: 20rem" disabled={!global_open_browser_on_startup} />
-      <span class="hint">Custom URL opened in browser on startup (for proxies/TLS). Leave blank for http://127.0.0.1:{global_default_port || "8073"}.</span>
+      <span class="hint">Custom URL opened in browser on startup (for proxies/TLS). Leave blank for http://127.0.0.1:{global_default_port || "4280"}.</span>
     </div>
   </section>
 
