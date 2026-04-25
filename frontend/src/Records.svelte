@@ -30,6 +30,7 @@
   let fileInput;
   let dragOver = false;
   let previewUrl = null;
+  let previewType = "image";
 
   // --- Column definitions ---
   const defaultColumnOrder = ["timestamp", "title", "tags", "content", "updated_at"];
@@ -557,11 +558,19 @@
                   {#if att.content_type.startsWith("image/")}
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-                    <img src={attDownloadUrl(att)} alt={att.filename} class="attachment-thumb" on:click={() => { previewUrl = attDownloadUrl(att); }} />
+                    <img src={attDownloadUrl(att)} alt={att.filename} class="attachment-thumb" on:click={() => { previewUrl = attDownloadUrl(att); previewType = "image"; }} />
                   {/if}
-                  <a href={attDownloadUrl(att)} target="_blank" class="attachment-name">{att.filename}</a>
-                  <span class="attachment-size">{formatFileSize(att.size)}</span>
-                  <button class="attachment-delete-btn" on:click|stopPropagation={() => deleteAttachment(att.id)}>x</button>
+                  <div class="attachment-info">
+                    <a href={attDownloadUrl(att)} target="_blank" class="attachment-name">{att.filename}</a>
+                    <span class="attachment-size">{formatFileSize(att.size)}</span>
+                    <button class="attachment-delete-btn" on:click|stopPropagation={() => deleteAttachment(att.id)}>x</button>
+                  </div>
+                  {#if att.content_type.startsWith("audio/")}
+                    <audio controls preload="metadata" src={attDownloadUrl(att)} class="attachment-audio"></audio>
+                  {:else if att.content_type.startsWith("video/")}
+                    <video controls preload="metadata" src={attDownloadUrl(att)} class="attachment-video"
+                      on:click|stopPropagation={() => { previewUrl = attDownloadUrl(att); previewType = "video"; }}></video>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -650,8 +659,13 @@
 {#if previewUrl}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="lightbox" on:click={() => { previewUrl = null; }}>
-    <img src={previewUrl} alt="Preview" />
+  <div class="lightbox" on:click|self={() => { previewUrl = null; }}>
+    {#if previewType === "video"}
+      <!-- svelte-ignore a11y-media-has-caption -->
+      <video controls autoplay src={previewUrl} class="lightbox-video"></video>
+    {:else}
+      <img src={previewUrl} alt="Preview" />
+    {/if}
   </div>
 {/if}
 
@@ -919,8 +933,8 @@
 
   .attachment-item {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 0.4rem;
     font-size: 0.8rem;
   }
 
@@ -947,11 +961,32 @@
     cursor: pointer;
   }
 
-  .lightbox img {
+  .lightbox img,
+  .lightbox-video {
     max-width: 90vw;
     max-height: 90vh;
     object-fit: contain;
     border-radius: 4px;
+  }
+
+  .attachment-audio {
+    width: 100%;
+    max-width: 300px;
+    height: 36px;
+  }
+
+  .attachment-video {
+    max-width: 300px;
+    max-height: 180px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .attachment-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
   }
 
   .attachment-name {
