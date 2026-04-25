@@ -191,7 +191,6 @@
 
   async function handleWelcomeComplete(e) {
     welcomeAcknowledged = true;
-    switchingDatabase = true; // prevent database-changed SSE from reloading
     const database = e.detail.database;
     if (database) {
       currentDatabase = database;
@@ -548,7 +547,7 @@
       applyThemeFromState(_themeState);
     });
     eventSource.addEventListener("database-changed", () => {
-      if (switchingDatabase) return; // this client initiated the switch
+      if (switchingDatabase || !welcomeAcknowledged) return;
       // Navigate home before reloading — the new database may not support the current page
       window.location.hash = "/";
       setTimeout(() => location.reload(), 100);
