@@ -28,6 +28,8 @@ from guidebook.db import (
     init_db,
     global_async_session,
 )
+from guidebook.routes.auth import router as auth_router
+import guidebook.routes.auth as _auth_module
 from guidebook.routes.logbooks import router as logbooks_router
 from guidebook.routes.records import router as records_router
 from guidebook.routes.notifications import router as notifications_router
@@ -142,17 +144,49 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan)
 
 
+# Paths that bypass auth checking
+_AUTH_EXEMPT_PREFIXES = (
+    "/api/auth/",
+    "/api/version",
+    "/api/global-settings/welcome_acknowledged",
+    "/api/global-settings/auth_",
+    "/api/logbooks/mode",
+    "/api/logbooks/current",
+)
+_AUTH_EXEMPT_EXACT = {"/api/version"}
+
+
 @app.middleware("http")
 async def http_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Auth check for API routes
+    if path.startswith("/api/") and not any(
+        path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES
+    ):
+        from guidebook.routes.auth import check_auth
+        from guidebook.db import db_manager
+
+        if db_manager._global_session_factory:
+            async with db_manager._global_session_factory() as gdb:
+                ok = await check_auth(request, gdb)
+                if not ok:
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Authentication required"},
+                    )
+
     response: Response = await call_next(request)
-    if not request.url.path.startswith("/api/"):
+    if not path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-cache"
     if response.status_code >= 400:
         logger.warning(
             '%s - "%s %s" %s',
             request.client.host,
             request.method,
-            request.url.path,
+            path,
             response.status_code,
         )
     return response
@@ -349,6 +383,7 @@ async def skip_update(
     return {"status": "skipped", "version": latest}
 
 
+app.include_router(auth_router)
 app.include_router(logbooks_router)
 app.include_router(records_router)
 app.include_router(settings_router)
@@ -536,11 +571,18 @@ def run() -> None:
         "--port",
         type=int,
         default=None,
-        help="Port to listen on (default: auto-select starting from 4280)",
+        help="Port to listen on (default: auto-select starting from 8073)",
+    )
+    parser.add_argument(
+        "--require-auth",
+        action="store_true",
+        help="Require authentication (lock to browser session)",
     )
     args = parser.parse_args()
 
     global NO_SHUTDOWN
+    if args.require_auth:
+        _auth_module.REQUIRE_AUTH = True
     if args.name and args.name.startswith("__"):
         print(
             "Error: logbook name must not start with '__' (reserved for system databases)"
@@ -568,7 +610,7 @@ def run() -> None:
                         "host", os.environ.get("GUIDEBOOK_HOST", "127.0.0.1")
                     )
                     lock_info.setdefault(
-                        "port", int(os.environ.get("GUIDEBOOK_PORT", "4280"))
+                        "port", int(os.environ.get("GUIDEBOOK_PORT", "8073"))
                     )
                 _check_running_instance(
                     lock_info["host"],
@@ -642,7 +684,7 @@ def run() -> None:
             pass
         if not host:
             host = "127.0.0.1"
-    port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "4280"))
+    port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "8073"))
 
     # Check if guidebook is already running on this port
     no_browser = args.no_browser or os.environ.get(

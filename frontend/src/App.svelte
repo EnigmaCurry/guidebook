@@ -127,8 +127,55 @@
   let logbookOpen = false;
   let currentLogbook = "";
   let pendingLogbook = "";
-  let showDatabaseSwitcher = false;
-  let switcherDatabases = [];
+  let showLogbookSwitcher = false;
+  let switcherLogbooks = [];
+  let authBlocked = false; // true when server returns 401
+  let authLoginError = "";
+
+  async function handleAuthToken() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("auth_token");
+    if (!token) return false;
+    // Remove token from URL
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auth_token");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (res.ok) {
+        // Logged in — reload to start fresh with the cookie
+        location.reload();
+        return true;
+      } else {
+        const data = await res.json().catch(() => null);
+        authLoginError = data?.detail || "Login failed";
+        authBlocked = true;
+        return true;
+      }
+    } catch (e) {
+      authLoginError = "Login failed: " + e.message;
+      authBlocked = true;
+      return true;
+    }
+  }
+
+  async function checkAuthStatus() {
+    try {
+      const res = await fetch("/api/auth/status");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.enabled && data.configured && !data.authenticated) {
+          authBlocked = true;
+          return false;
+        }
+      }
+    } catch {}
+    return true;
+  }
 
   async function checkWelcome() {
     try {
@@ -338,22 +385,22 @@
     location.reload();
   }
 
-  async function openDatabaseSwitcher() {
+  async function openLogbookSwitcher() {
     try {
       const res = await fetch("/api/logbooks/");
       if (res.ok) {
         const data = await res.json();
-        switcherDatabases = data.filter(lb => lb.name !== currentLogbook && !lb.locked);
+        switcherLogbooks = data.filter(lb => lb.name !== currentLogbook && !lb.locked);
       }
     } catch {}
-    showDatabaseSwitcher = true;
+    showLogbookSwitcher = true;
   }
 
-  let switchingDatabase = false;
+  let switchingLogbook = false;
 
-  async function switchDatabase(name) {
-    showDatabaseSwitcher = false;
-    switchingDatabase = true;
+  async function switchLogbook(name) {
+    showLogbookSwitcher = false;
+    switchingLogbook = true;
     try {
       await fetch("/api/logbooks/close", { method: "POST" });
       const res = await fetch("/api/logbooks/open", {
@@ -366,7 +413,7 @@
           location.reload();
         }
     } catch {}
-    switchingDatabase = false;
+    switchingLogbook = false;
   }
 
   let serverShutdown = false;
@@ -495,7 +542,7 @@
       applyThemeFromState(_themeState);
     });
     eventSource.addEventListener("logbook-changed", () => {
-      if (switchingDatabase) return; // this client initiated the switch
+      if (switchingLogbook) return; // this client initiated the switch
       // Navigate home before reloading — the new logbook may not support the current page
       window.location.hash = "/";
       setTimeout(() => location.reload(), 100);
@@ -865,6 +912,12 @@
     clockInterval = setInterval(() => { utcNow = new Date().toISOString().slice(0, 19).replace("T", " ") + "z"; }, 1000);
     window.addEventListener("hashchange", onHashChange);
     window.addEventListener("resize", onResize);
+    // Handle auth token from URL (login link)
+    const tokenHandled = await handleAuthToken();
+    if (tokenHandled) return;
+    // Check if auth blocks us
+    const authOk = await checkAuthStatus();
+    if (!authOk) return;
     connectSSE(); // connect early to prevent auto-shutdown during welcome
     await checkWelcome();
     if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
@@ -912,10 +965,21 @@
 </script>
 
 <main class:picker-mode={pickerMode && !logbookOpen} class:dual-mode={page === "dual"} class:query-mode={page === "query"} class:settings-mode={page === "settings"}>
-  {#if serverShutdown}
+  {#if authBlocked}
     <div class="welcome-container">
       <div class="welcome-card">
-        <p>{logbookClosed ? "This database has been closed." : "Server has shut down."}</p>
+        <h2>Access Restricted</h2>
+        <p>This Guidebook instance requires authentication. You need a login link from the owner to access it.</p>
+        {#if authLoginError}
+          <p style="color: #ff4444; font-size: 0.85rem;">{authLoginError}</p>
+        {/if}
+        <button class="welcome-btn" on:click={() => location.reload()}>Retry</button>
+      </div>
+    </div>
+  {:else if serverShutdown}
+    <div class="welcome-container">
+      <div class="welcome-card">
+        <p>{logbookClosed ? "This logbook has been closed." : "Server has shut down."}</p>
         <button class="welcome-btn" on:click={reloadIfAlive}>Reconnect</button>
       </div>
     </div>
@@ -924,16 +988,14 @@
   {:else if pendingLogbook}
     <header>
       <div class="header-left">
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <h1 class="app-title"><span class="title-full">Guidebook</span><span class="title-short">GB</span>{#if appVersion}<span class="app-version" on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}</span>{/if}</h1>
+        <h1 class="app-title"><span class="title-full">Guidebook</span><span class="title-short">GB</span>{#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}</h1>
       </div>
       <span class="utc-clock">{utcNow}</span>
     </header>
     <div class="welcome-container">
       <div class="welcome-card">
         <h2>Create New Logbook?</h2>
-        <p>The database <strong>{pendingLogbook}</strong> does not exist yet. Would you like to create it?</p>
+        <p>The logbook <strong>{pendingLogbook}</strong> does not exist yet. Would you like to create it?</p>
         <div class="welcome-buttons">
           <button class="welcome-btn confirm" on:click={confirmPendingLogbook}>Yes, create it</button>
           <button class="welcome-btn decline" on:click={declinePendingLogbook}>No, shut down</button>
@@ -951,18 +1013,14 @@
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
         <h1 class="app-title" on:click={goHome} style="cursor: pointer"><span class="title-full">Guidebook</span><span class="title-short">GB</span></h1>
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
         {#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}
       </div>
       {#if customHeader}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <span class="custom-header" on:click={() => { settingsTab = "appearance"; settingsHighlight = "content"; navigate("settings"); }} style="cursor: pointer">{customHeader}{#if currentLogbook}<span class="database-name" class:database-switchable={pickerMode} title={pickerMode ? "Switch database" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openDatabaseSwitcher(); }}>{currentLogbook}</span>{/if}</span>
+        <span class="custom-header" on:click={() => { settingsTab = "appearance"; settingsHighlight = "content"; navigate("settings"); }} style="cursor: pointer">{customHeader}{#if currentLogbook}<span class="logbook-name" class:logbook-switchable={pickerMode} title={pickerMode ? "Switch logbook" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openLogbookSwitcher(); }}>{currentLogbook}</span>{/if}</span>
       {:else if currentLogbook}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <span class="database-name" class:database-switchable={pickerMode} title={pickerMode ? "Switch database" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openDatabaseSwitcher(); }}>{currentLogbook}</span>
+        <span class="logbook-name" class:logbook-switchable={pickerMode} title={pickerMode ? "Switch logbook" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openLogbookSwitcher(); }}>{currentLogbook}</span>
       {/if}
     </div>
     <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -1000,7 +1058,7 @@
           <button class="menu-item" class:active={page === "about"} on:click={() => navigate("about")}>About</button>
           {#if pickerMode}
             <div class="menu-separator"></div>
-            <button class="menu-item close-database" on:click={closeLogbook}>Close Database</button>
+            <button class="menu-item close-logbook" on:click={closeLogbook}>Close Logbook</button>
           {/if}
           {#if shutdownMenuEnabled && !noShutdown}
             <div class="menu-separator"></div>
@@ -1035,30 +1093,30 @@
     {:else if page === "notifications"}
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}
-      <Settings logbookName={currentLogbook} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); logbookOpen = false; currentLogbook = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchLogbookRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchLogbookRight(); await fetchSqlQueryEnabled(); fetchShutdownMenuEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} />
+      <Settings logbookName={currentLogbook} pickerMode={pickerMode} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); logbookOpen = false; currentLogbook = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchLogbookRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchLogbookRight(); await fetchSqlQueryEnabled(); fetchShutdownMenuEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} />
     {:else if page === "about"}
       <About />
     {/if}
     </div>
   {/if}
   {/if}
-{#if showDatabaseSwitcher}
+{#if showLogbookSwitcher}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="switcher-overlay" on:click|self={() => showDatabaseSwitcher = false}>
+  <div class="switcher-overlay" on:click|self={() => showLogbookSwitcher = false}>
     <div class="switcher-panel">
-      <h3>Switch Database</h3>
-      {#if switcherDatabases.length > 0}
+      <h3>Switch Logbook</h3>
+      {#if switcherLogbooks.length > 0}
         <div class="switcher-list">
-          {#each switcherDatabases as lb}
-            <button class="switcher-item" on:click={() => switchDatabase(lb.name)}>{lb.name}</button>
+          {#each switcherLogbooks as lb}
+            <button class="switcher-item" on:click={() => switchLogbook(lb.name)}>{lb.name}</button>
           {/each}
         </div>
       {:else}
-        <p class="switcher-empty">No other databases available</p>
+        <p class="switcher-empty">No other logbooks available</p>
       {/if}
       <div class="switcher-actions">
-        <button class="switcher-cancel" on:click={() => showDatabaseSwitcher = false}>Cancel</button>
+        <button class="switcher-cancel" on:click={() => showLogbookSwitcher = false}>Cancel</button>
       </div>
     </div>
   </div>
@@ -1234,7 +1292,7 @@
   }
 
   .app-version,
-  .database-name {
+  .logbook-name {
     display: block;
     color: var(--text-muted);
     font-size: 0.6rem;
@@ -1242,12 +1300,12 @@
     line-height: 1;
     margin-top: 0.05rem;
   }
-  .database-switchable {
+  .logbook-switchable {
     cursor: pointer;
     text-decoration: underline;
     text-decoration-style: dotted;
   }
-  .database-switchable:hover {
+  .logbook-switchable:hover {
     color: var(--accent);
   }
   .switcher-overlay {
@@ -1514,7 +1572,7 @@
     margin: 0.25rem 0;
   }
 
-  .menu-item.close-database {
+  .menu-item.close-logbook {
     color: var(--text-muted);
   }
 

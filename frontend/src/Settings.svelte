@@ -5,7 +5,8 @@
   import "vanilla-colorful/hex-color-picker.js";
 
   export let logbookName = "";
-  let needsSetup = false;
+  export let pickerMode = false;
+  export let needsSetup = false;
   export let initialTab = null;
   export let highlightSection = null;
   export let clientCount = 0;
@@ -49,7 +50,7 @@
   // Global settings state
   let global_default_pick_mode = true;
   let global_default_host = "127.0.0.1";
-  let global_default_port = "4280";
+  let global_default_port = "8073";
   let global_default_logbook_name = "guidebook";
   let global_open_browser_on_startup = true;
   let global_auto_shutdown_delay = "300";
@@ -62,7 +63,7 @@
   // Store global default values for use as placeholders
   let globalPlaceholders = {};
 
-  const validTabs = ["features", "appearance", "updates", "data", "global"];
+  const validTabs = ["features", "appearance", "updates", "data", "auth", "global"];
   let activeTab = (initialTab && validTabs.includes(initialTab)) ? initialTab : "features";
   let settingsLoaded = false;
 
@@ -108,6 +109,174 @@
   let autoBackupMax = 10;
   let backupSaveTimer = null;
   let backupSettingsReady = false;
+
+  // Authentication
+  let authEnabled = false;
+  let authRequired = false;
+  let authConfigured = false;
+  let authAuthenticated = false;
+  let authEnvRequired = false;
+  let authSlots = 1;
+  let authSessions = [];
+  let authLoading = true;
+  let authTokenUrl = "";
+  let authTransferUrl = "";
+  let authError = "";
+  let authGenerating = false;
+  let authTransferring = false;
+
+  async function loadAuthStatus() {
+    try {
+      const res = await fetch("/api/auth/status");
+      if (res.ok) {
+        const data = await res.json();
+        authEnabled = data.enabled;
+        authRequired = data.required;
+        authConfigured = data.configured;
+        authAuthenticated = data.authenticated;
+        authEnvRequired = data.env_require_auth;
+        authSlots = data.slots;
+      }
+    } catch {}
+    authLoading = false;
+  }
+
+  async function loadAuthSessions() {
+    try {
+      const res = await fetch("/api/auth/sessions");
+      if (res.ok) {
+        authSessions = await res.json();
+      }
+    } catch {}
+  }
+
+  async function toggleAuth() {
+    authError = "";
+    if (authEnabled) {
+      // Enabling — lock to this browser
+      try {
+        const res = await fetch("/api/auth/enable-and-lock", { method: "POST" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          authError = data?.detail || "Failed to enable auth";
+          authEnabled = false;
+          return;
+        }
+      } catch (e) {
+        authError = e.message;
+        authEnabled = false;
+        return;
+      }
+    } else {
+      // Disabling
+      try {
+        const res = await fetch("/api/auth/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ auth_enabled: false }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          authError = data?.detail || "Failed to disable auth";
+          authEnabled = true;
+          return;
+        }
+      } catch (e) {
+        authError = e.message;
+        authEnabled = true;
+        return;
+      }
+    }
+    await loadAuthStatus();
+    await loadAuthSessions();
+  }
+
+  async function saveAuthSlots() {
+    authError = "";
+    const v = Math.max(0, parseInt(authSlots) || 1);
+    authSlots = v;
+    try {
+      await fetch("/api/auth/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auth_slots: v }),
+      });
+    } catch {}
+  }
+
+  async function generateLoginToken() {
+    authError = "";
+    authGenerating = true;
+    authTokenUrl = "";
+    try {
+      const res = await fetch("/api/auth/generate-token", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        authTokenUrl = data.login_url;
+      } else {
+        const data = await res.json().catch(() => null);
+        authError = data?.detail || "Failed to generate token";
+      }
+    } catch (e) {
+      authError = e.message;
+    }
+    authGenerating = false;
+    await loadAuthSessions();
+  }
+
+  async function generateTransferToken() {
+    authError = "";
+    authTransferring = true;
+    authTransferUrl = "";
+    try {
+      const res = await fetch("/api/auth/transfer", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        authTransferUrl = data.login_url;
+      } else {
+        const data = await res.json().catch(() => null);
+        authError = data?.detail || "Failed to generate transfer token";
+      }
+    } catch (e) {
+      authError = e.message;
+    }
+    authTransferring = false;
+    await loadAuthSessions();
+  }
+
+  async function deleteSession(id) {
+    authError = "";
+    try {
+      const res = await fetch(`/api/auth/sessions/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        authError = data?.detail || "Failed to delete session";
+      }
+    } catch (e) {
+      authError = e.message;
+    }
+    await loadAuthSessions();
+    await loadAuthStatus();
+  }
+
+  async function copyToClipboard(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {}
+  }
+
+  function formatAuthTime(epoch) {
+    if (!epoch) return "never";
+    const d = new Date(epoch * 1000);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 1000);
+    if (diff < 60) return "just now";
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    return `${Math.floor(diff / 86400)}d ago`;
+  }
+
+  $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
 
   async function loadDbInfo() {
     try {
@@ -271,10 +440,10 @@
         dispatch("deleted", { shutdown: data.shutdown });
       } else {
         const data = await res.json();
-        deleteError = data.detail || "Failed to delete database";
+        deleteError = data.detail || "Failed to delete logbook";
       }
     } catch {
-      deleteError = "Failed to delete database";
+      deleteError = "Failed to delete logbook";
     }
     deleting = false;
   }
@@ -794,7 +963,7 @@
         for (const s of data) {
           if (s.key === "default_pick_mode") global_default_pick_mode = s.value !== "false";
           if (s.key === "default_host") global_default_host = s.value || "127.0.0.1";
-          if (s.key === "default_port") global_default_port = s.value || "4280";
+          if (s.key === "default_port") global_default_port = s.value || "8073";
           if (s.key === "default_logbook_name") global_default_logbook_name = s.value || "guidebook";
           if (s.key === "open_browser_on_startup") global_open_browser_on_startup = s.value !== "false";
           if (s.key === "auto_shutdown_delay") global_auto_shutdown_delay = s.value || "300";
@@ -952,6 +1121,8 @@
     loadDbInfo();
     loadBackupStatus();
     fetchNoShutdown();
+    loadAuthStatus();
+    loadAuthSessions();
   });
 
   onDestroy(() => {
@@ -967,6 +1138,7 @@
     <button class="tab" class:active={activeTab === "appearance"} on:click={() => switchTab("appearance")}>Appearance</button>
     <button class="tab" class:active={activeTab === "updates"} on:click={() => switchTab("updates")}>Updates</button>
     <button class="tab" class:active={activeTab === "data"} on:click={() => switchTab("data")}>Data</button>
+    <button class="tab" class:active={activeTab === "auth"} on:click={() => switchTab("auth")}>Auth</button>
     <button class="tab" class:active={activeTab === "global"} on:click={() => switchTab("global")}>Global</button>
   </div>
 
@@ -1020,7 +1192,6 @@
     <h3>Theme</h3>
     <p class="hint">Theme changes sync live to all open windows. Try opening Guidebook side-by-side in another window to preview your changes on any page.</p>
     <div class="setting-row toggle-row">
-      <!-- svelte-ignore a11y-label-has-associated-control -->
       <label>Mode</label>
       <div class="theme-mode-switch">
         <button class="mode-btn" class:active={themeMode === "preset"} on:click={() => { themeMode = "preset"; onThemeModeChange(); }}>Preset</button>
@@ -1042,24 +1213,24 @@
     {:else}
     <div class="color-pickers">
       <div class="color-picker-group">
-        <label for="color-bg">Background</label>
+        <label>Background</label>
         <hex-color-picker use:colorPicker={{ getValue: () => customBg, setValue: (v) => { customBg = v; } }}></hex-color-picker>
-        <input id="color-bg" type="text" class="color-hex-input" bind:value={customBg} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
+        <input type="text" class="color-hex-input" bind:value={customBg} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
       </div>
       <div class="color-picker-group">
-        <label for="color-text">Text</label>
+        <label>Text</label>
         <hex-color-picker use:colorPicker={{ getValue: () => customText, setValue: (v) => { customText = v; } }}></hex-color-picker>
-        <input id="color-text" type="text" class="color-hex-input" bind:value={customText} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
+        <input type="text" class="color-hex-input" bind:value={customText} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
       </div>
       <div class="color-picker-group">
-        <label for="color-accent">Accent</label>
+        <label>Accent</label>
         <hex-color-picker use:colorPicker={{ getValue: () => customAccent, setValue: (v) => { customAccent = v; } }}></hex-color-picker>
-        <input id="color-accent" type="text" class="color-hex-input" bind:value={customAccent} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
+        <input type="text" class="color-hex-input" bind:value={customAccent} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
       </div>
       <div class="color-picker-group">
-        <label for="color-secondary">Secondary</label>
+        <label>Secondary</label>
         <hex-color-picker use:colorPicker={{ getValue: () => customSecondary, setValue: (v) => { customSecondary = v; } }}></hex-color-picker>
-        <input id="color-secondary" type="text" class="color-hex-input" bind:value={customSecondary} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
+        <input type="text" class="color-hex-input" bind:value={customSecondary} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
       </div>
     </div>
     {/if}
@@ -1151,7 +1322,7 @@
     <div class="setting-row toggle-row">
       <label>
         <input type="checkbox" bind:checked={logbook_right} on:change={onLogbookRightChange} disabled={!wide_mode_enabled} />
-        Records on right side
+        Logbook on right side
       </label>
     </div>
   </section>
@@ -1250,7 +1421,7 @@
 
   <section class="settings-section">
     <h3>Backup</h3>
-    <p class="hint">Backup settings are configured separately for each database.</p>
+    <p class="hint">Backup settings are configured separately for each logbook.</p>
     {#if dbInfo}
       <p class="hint">Database: {dbInfo.path} ({formatSize(dbInfo.size)})</p>
       <p class="hint">Backups: {dbInfo.directory}</p>
@@ -1271,12 +1442,12 @@
     </div>
     {#if autoBackupEnabled}
       <div class="setting-row">
-        <label for="backup-interval">Interval (hours)</label>
-        <input id="backup-interval" type="number" min="1" max="720" bind:value={autoBackupHours} on:input={saveAutoBackupSettings} style="width: 5rem" />
+        <label>Interval (hours)</label>
+        <input type="number" min="1" max="720" bind:value={autoBackupHours} on:input={saveAutoBackupSettings} style="width: 5rem" />
       </div>
       <div class="setting-row">
-        <label for="backup-max">Keep max</label>
-        <input id="backup-max" type="number" min="1" max="100" bind:value={autoBackupMax} on:input={saveAutoBackupSettings} style="width: 5rem" />
+        <label>Keep max</label>
+        <input type="number" min="1" max="100" bind:value={autoBackupMax} on:input={saveAutoBackupSettings} style="width: 5rem" />
       </div>
     {/if}
     {#if backupStatus}
@@ -1316,7 +1487,7 @@
         <input id="danger-confirm" type="text" bind:value={dangerConfirmName} placeholder={logbookName} autocomplete="off" />
       </div>
       <div class="danger-separator"></div>
-      <p class="danger-text">Delete all entries from <strong>{logbookName}</strong> but keep the database and settings.</p>
+      <p class="danger-text">Delete all entries from <strong>{logbookName}</strong> but keep the logbook and settings.</p>
       {#if clearError}
         <p class="danger-error">{clearError}</p>
       {/if}
@@ -1326,13 +1497,13 @@
         </button>
       </div>
       <div class="danger-separator"></div>
-      <p class="danger-text">Permanently delete the database <strong>{logbookName}</strong> and all its data. This cannot be undone.</p>
+      <p class="danger-text">Permanently delete the logbook <strong>{logbookName}</strong> and all its data. This cannot be undone.</p>
       {#if deleteError}
         <p class="danger-error">{deleteError}</p>
       {/if}
       <div class="setting-row">
         <button class="danger-btn" on:click={deleteLogbook} disabled={deleting || dangerConfirmName !== logbookName}>
-          {deleting ? "Deleting..." : "Delete Database"}
+          {deleting ? "Deleting..." : "Delete Logbook"}
         </button>
       </div>
     </section>
@@ -1340,20 +1511,110 @@
   </div></div>
   {/if}
 
+  {#if activeTab === "auth"}
+  <div class="tab-scroll"><div class="tab-content" use:masonry>
+  <section class="settings-section">
+    <h3>Authentication</h3>
+    <div class="setting-row toggle-row">
+      <label>
+        <input type="checkbox" bind:checked={authEnabled} on:change={toggleAuth} disabled={authEnvRequired && authEnabled} />
+        Require authentication
+      </label>
+    </div>
+    {#if authEnvRequired}
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced on by GUIDEBOOK_REQUIRE_AUTH environment variable or --require-auth flag.</p>
+    {/if}
+    <p class="hint">When enabled, only browsers with a valid session cookie can access the server.</p>
+  </section>
+
+  {#if authEnabled}
+  <section class="settings-section">
+    <h3>Session Slots</h3>
+    <div class="setting-row">
+      <label for="auth_slots">Maximum sessions (0 = unlimited)</label>
+      <input id="auth_slots" type="number" min="0" bind:value={authSlots} on:blur={saveAuthSlots} autocomplete="off" style="max-width: 5rem" />
+    </div>
+    <p class="hint">Controls how many browser sessions can be logged in simultaneously. Default is 1.</p>
+  </section>
+
+  <section class="settings-section">
+    <h3>Active Sessions</h3>
+    {#if authSessions.length === 0}
+      <p class="hint">No active sessions.</p>
+    {:else}
+      <div class="session-list">
+        {#each authSessions as session (session.id)}
+          <div class="session-item" class:session-current={session.is_current}>
+            <div class="session-info">
+              <span class="session-label">{session.label}{#if session.is_current} <strong>(current)</strong>{/if}{#if session.is_transfer} <em>(transfer pending)</em>{/if}</span>
+              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}</span>
+            </div>
+            {#if !session.is_current}
+              <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </section>
+
+  <section class="settings-section">
+    <h3>Generate Login Link</h3>
+    <p class="hint">Generate a one-time login URL to share with another browser. The new session will count against your slot limit.</p>
+    <div class="setting-row">
+      <button on:click={generateLoginToken} disabled={authGenerating || (authSlots > 0 && authAvailableSlots <= 0)}>
+        {authGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 ? `No slots available (${authSlots}/${authSlots} used)` : "Generate Login Link"}
+      </button>
+    </div>
+    {#if authTokenUrl}
+      <div class="token-url-box">
+        <input type="text" value={authTokenUrl} readonly on:click={(e) => e.target.select()} />
+        <button class="copy-btn" on:click={() => copyToClipboard(authTokenUrl)}>Copy</button>
+      </div>
+      <p class="hint">Share this link with the new browser. It will be consumed on first use.</p>
+    {/if}
+  </section>
+
+  <section class="settings-section">
+    <h3>Transfer Session</h3>
+    <p class="hint">Move your current session to a new browser. Your current session will be logged out as soon as the new browser logs in.</p>
+    <div class="setting-row">
+      <button class="warning-btn" on:click={generateTransferToken} disabled={authTransferring}>
+        {authTransferring ? "Generating..." : "Generate Transfer Link"}
+      </button>
+    </div>
+    {#if authTransferUrl}
+      <div class="token-url-box">
+        <input type="text" value={authTransferUrl} readonly on:click={(e) => e.target.select()} />
+        <button class="copy-btn" on:click={() => copyToClipboard(authTransferUrl)}>Copy</button>
+      </div>
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one.</p>
+    {/if}
+  </section>
+  {/if}
+
+  {#if authError}
+    <section class="settings-section">
+      <p class="danger-error">{authError}</p>
+    </section>
+  {/if}
+  </div></div>
+  {/if}
+
   {#if activeTab === "global"}
-  <div class="tab-scroll"><p class="hint" style="max-width:1100px;margin:0 auto;width:100%;box-sizing:border-box">Global defaults are used when a per-database setting is not set. Changes here apply across all databases.</p>
+  <div class="tab-scroll"><p class="hint" style="max-width:1100px;margin:0 auto;width:100%;box-sizing:border-box">Global defaults are used when a per-logbook setting is not set. Changes here apply across all logbooks.</p>
   <div class="tab-content" use:masonry>
 
   <section class="settings-section">
-    <h3>Database</h3>
+    <h3>Logbook</h3>
     <div class="setting-row toggle-row">
       <label>
         <input type="checkbox" bind:checked={global_default_pick_mode} on:change={() => saveGlobalSetting("default_pick_mode", global_default_pick_mode ? "true" : "false")} />
-        Ask which database to open on start
+        Ask which logbook to open on start
       </label>
     </div>
     <div class="setting-row">
-      <label for="global_default_logbook">Default Database Name</label>
+      <label for="global_default_logbook">Default Logbook Name</label>
       {#if availableLogbooks.length > 0}
         <select id="global_default_logbook" bind:value={global_default_logbook_name} on:change={() => saveGlobalSetting("default_logbook_name", global_default_logbook_name)} style="max-width: 14rem">
           {#each availableLogbooks as name}
@@ -1361,9 +1622,9 @@
           {/each}
         </select>
       {:else}
-        <span class="hint">No databases exist yet</span>
+        <span class="hint">No logbooks exist yet</span>
       {/if}
-      <span class="hint">Database opened when running guidebook without arguments</span>
+      <span class="hint">Logbook opened when running guidebook without arguments</span>
     </div>
   </section>
 
@@ -1380,7 +1641,7 @@
       </span>
       <span class="hint">Bind address. Use <code>0.0.0.0</code> to listen on all interfaces. Override with <code>GUIDEBOOK_HOST</code> env var.</span>
       {#if global_default_host.trim() && global_default_host.trim() !== "127.0.0.1"}
-        <span class="hint" style="color: var(--warning-color, #e6a700); font-weight: bold;">Warning: guidebook has no authentication. Serving on a public network is not recommended.</span>
+        <span class="hint" style="color: var(--warning-color, #e6a700); font-weight: bold;">Warning: Serving on a public network is not recommended unless authentication is enabled (Settings &rarr; Auth).</span>
       {/if}
     </div>
     <div class="setting-row">
@@ -1396,7 +1657,7 @@
     <div class="setting-row">
       <label for="global_browser_url">Browser URL Override</label>
       <input id="global_browser_url" type="text" bind:value={global_browser_url_override} on:blur={() => saveGlobalSetting("browser_url_override", global_browser_url_override.trim())} autocomplete="off" placeholder="e.g. https://guidebook.local" style="max-width: 20rem" disabled={!global_open_browser_on_startup} />
-      <span class="hint">Custom URL opened in browser on startup (for proxies/TLS). Leave blank for http://127.0.0.1:{global_default_port || "4280"}.</span>
+      <span class="hint">Custom URL opened in browser on startup (for proxies/TLS). Leave blank for http://127.0.0.1:{global_default_port || "8073"}.</span>
     </div>
   </section>
 
@@ -1438,6 +1699,7 @@
     overflow: hidden;
   }
   .settings > h2,
+  .settings > .setup-hint,
   .settings > .tab-bar {
     max-width: 1100px;
     width: 100%;
@@ -1894,5 +2156,79 @@
   .sha-link {
     font-family: monospace;
     color: var(--accent);
+  }
+  .session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .session-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-input);
+  }
+  .session-current {
+    border-color: var(--accent);
+  }
+  .session-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .session-label {
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+  .session-meta {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+  .session-delete {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    background: #ff4444;
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .session-delete:hover {
+    background: #cc3333;
+  }
+  .token-url-box {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+    align-items: center;
+  }
+  .token-url-box input {
+    flex: 1;
+    font-size: 0.75rem !important;
+    padding: 0.3rem 0.5rem;
+    background: var(--bg-deep, #111);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: monospace;
+  }
+  .copy-btn {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.6rem;
+    background: var(--btn-secondary);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .copy-btn:hover {
+    background: var(--btn-secondary-hover);
   }
 </style>

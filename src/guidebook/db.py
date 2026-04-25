@@ -37,6 +37,10 @@ GLOBAL_ONLY_KEYS = {
     "default_logbook_name",
     "browser_url_override",
     "open_browser_on_startup",
+    "auth_enabled",
+    "auth_required",
+    "auth_slots",
+    "auth_configured",
 }
 
 
@@ -155,6 +159,17 @@ class GlobalLastOpened(GlobalBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     opened_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class AuthToken(GlobalBase):
+    __tablename__ = "auth_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False, default="")
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    last_seen_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_transfer: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class DatabaseLockError(Exception):
