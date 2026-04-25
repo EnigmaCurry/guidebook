@@ -573,6 +573,7 @@ environment variables (overridden by command line options):
   GUIDEBOOK_DISABLE_AUTH    Disable authentication (default: false)
   GUIDEBOOK_AUTH_SLOTS      Max concurrent sessions (default: 1)
   GUIDEBOOK_AUTH_TTL        Session cookie TTL in seconds (default: 10 years)
+  GUIDEBOOK_ALLOW_TRANSFER  Enable session transfer (default: false)
   GUIDEBOOK_NO_TLS          Disable TLS (default: false)
 """
     parser = argparse.ArgumentParser(
@@ -639,6 +640,11 @@ environment variables (overridden by command line options):
         help="Set session cookie TTL in seconds (default: 10 years)",
     )
     parser.add_argument(
+        "--allow-transfer",
+        action="store_true",
+        help="Enable session transfer (move session to another browser)",
+    )
+    parser.add_argument(
         "--no-tls",
         action="store_true",
         help="Disable TLS (serve plain HTTP instead of HTTPS)",
@@ -648,6 +654,10 @@ environment variables (overridden by command line options):
     global NO_SHUTDOWN
     if args.disable_auth:
         _auth_module.DISABLE_AUTH = True
+    if args.allow_transfer or os.environ.get(
+        "GUIDEBOOK_ALLOW_TRANSFER", ""
+    ).lower() in ("1", "true", "yes"):
+        _auth_module.ALLOW_TRANSFER = True
     # Apply --auth-slots / GUIDEBOOK_AUTH_SLOTS
     if args.auth_slots is not None:
         _auth_module.AUTH_SLOTS = args.auth_slots

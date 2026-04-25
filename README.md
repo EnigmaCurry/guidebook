@@ -47,6 +47,7 @@ Open http://localhost:4280 in your browser.
 | `GUIDEBOOK_DISABLE_AUTH` | Disable authentication (allow unauthenticated access) | `false` |
 | `GUIDEBOOK_AUTH_SLOTS` | Max concurrent sessions | `1` |
 | `GUIDEBOOK_AUTH_TTL` | Session cookie TTL in seconds | `315360000` (10 years) |
+| `GUIDEBOOK_ALLOW_TRANSFER` | Enable session transfer | `false` |
 | `GUIDEBOOK_NO_TLS` | Disable TLS (serve plain HTTP) | `false` |
 
 ## Development

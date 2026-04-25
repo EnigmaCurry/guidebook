@@ -23,7 +23,8 @@ LOGIN_LINK_TTL = 300  # 5 minutes (hardcoded)
 # Set at startup by main.py
 DISABLE_AUTH = False
 AUTH_SLOTS: int = 1  # --auth-slots (default 1)
-AUTH_TTL: int = AUTH_COOKIE_MAX_AGE_DEFAULT  # --auth-ttl (default 1 year)
+AUTH_TTL: int = AUTH_COOKIE_MAX_AGE_DEFAULT  # --auth-ttl (default 10 years)
+ALLOW_TRANSFER: bool = False  # --allow-transfer
 
 
 def _env_disable_auth() -> bool:
@@ -98,6 +99,7 @@ class AuthStatusResponse(BaseModel):
     authenticated: bool
     slots: int
     session_count: int
+    allow_transfer: bool
 
 
 @router.get("/status")
@@ -121,6 +123,7 @@ async def auth_status(
         authenticated=authenticated,
         slots=AUTH_SLOTS,
         session_count=count,
+        allow_transfer=ALLOW_TRANSFER,
     )
 
 
@@ -258,6 +261,8 @@ async def transfer_session(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Generate a transfer token — logs out current session when new one logs in."""
+    if not ALLOW_TRANSFER:
+        raise HTTPException(400, "Session transfer is disabled. Use --allow-transfer at startup to enable it.")
     enabled = await _is_auth_enabled(gdb)
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")

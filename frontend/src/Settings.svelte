@@ -105,6 +105,7 @@
   let authConfigured = false;
   let authAuthenticated = false;
   let authSlots = 1;
+  let authAllowTransfer = false;
   let authSessions = [];
   let authLoading = true;
   let authTokenUrl = "";
@@ -122,6 +123,7 @@
         authConfigured = data.configured;
         authAuthenticated = data.authenticated;
         authSlots = data.slots;
+        authAllowTransfer = data.allow_transfer;
       }
     } catch {}
     authLoading = false;
@@ -1489,6 +1491,7 @@
     {/if}
   </section>
 
+  {#if authAllowTransfer}
   <section class="settings-section">
     <h3>Transfer Session</h3>
     <p class="hint">Move your current session to a new browser. Your current session will be logged out as soon as the new browser logs in.</p>
@@ -1505,6 +1508,7 @@
       <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one. Expires in 5 minutes.</p>
     {/if}
   </section>
+  {/if}
 
   <section class="settings-section">
     <h3>Logout</h3>
