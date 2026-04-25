@@ -121,15 +121,11 @@ async def get_setting(
 async def upsert_setting(
     key: str, data: SettingValue, session: AsyncSession = Depends(get_session)
 ):
-    result = await session.execute(select(Setting).where(Setting.key == key))
-    setting = result.scalar_one_or_none()
-    if setting:
-        if setting.value == data.value:
-            return setting
-        setting.value = data.value
-    else:
-        setting = Setting(key=key, value=data.value)
-        session.add(setting)
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    stmt = sqlite_insert(Setting).values(key=key, value=data.value)
+    stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": data.value})
+    await session.execute(stmt)
     await session.commit()
     log_value = "***" if key in HIDDEN_KEYS else data.value
     logger.info("Setting changed: %s = %s", key, log_value)
