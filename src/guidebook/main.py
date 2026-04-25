@@ -699,12 +699,14 @@ environment variables (overridden by command line options):
         conn.execute(
             "CREATE TABLE IF NOT EXISTS auth_tokens "
             "(id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, label TEXT NOT NULL DEFAULT '', "
-            "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, is_transfer INTEGER NOT NULL DEFAULT 0)"
+            "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, last_ip TEXT, "
+            "is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
-        try:
-            conn.execute("ALTER TABLE auth_tokens ADD COLUMN expires_at REAL")
-        except sqlite3.OperationalError:
-            pass
+        for col in ("expires_at REAL", "last_ip TEXT"):
+            try:
+                conn.execute(f"ALTER TABLE auth_tokens ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
         conn.execute(
             "CREATE TABLE IF NOT EXISTS settings "
             "(id INTEGER NOT NULL PRIMARY KEY, key VARCHAR NOT NULL UNIQUE, value VARCHAR)"

@@ -1458,7 +1458,7 @@
           <div class="session-item" class:session-current={session.is_current}>
             <div class="session-info">
               <span class="session-label">{session.label}{#if session.is_current} <strong>(current)</strong>{/if}{#if session.is_transfer} <em>(transfer pending)</em>{/if}</span>
-              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
+              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.last_ip} — IP {session.last_ip}{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
             </div>
             {#if !session.is_current}
               <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>

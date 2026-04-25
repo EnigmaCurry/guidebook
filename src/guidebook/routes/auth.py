@@ -84,8 +84,9 @@ async def check_auth(request: Request, gdb: AsyncSession) -> bool:
     token = await _validate_token(gdb, token_str)
     if not token:
         return False
-    # Update last_seen
+    # Update last_seen and IP
     token.last_seen_at = time.time()
+    token.last_ip = request.client.host if request.client else None
     await gdb.commit()
     return True
 
@@ -127,6 +128,7 @@ class SessionResponse(BaseModel):
     created_at: float
     last_seen_at: float | None
     expires_at: float | None
+    last_ip: str | None
     is_current: bool
     is_transfer: bool
 
@@ -147,6 +149,7 @@ async def list_sessions(
                 created_at=tok.created_at,
                 last_seen_at=tok.last_seen_at,
                 expires_at=tok.expires_at,
+                last_ip=tok.last_ip,
                 is_current=tok.token == current_token,
                 is_transfer=tok.is_transfer == 1,
             )
