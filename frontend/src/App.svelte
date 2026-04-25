@@ -974,19 +974,20 @@
       <div class="auth-confirm-panel">
         <h1>Create Session</h1>
         <p class="auth-confirm-desc">You are about to lock in a long-term browser session with Guidebook. This browser will be the only one able to access the app unless additional sessions are granted.</p>
-        <div class="auth-confirm-url-box">
-          <label>One-time login URL (copy to open in a different browser instead)</label>
-          <div class="auth-confirm-url-row">
-            <input type="text" value={authConfirmUrl} readonly on:click={(e) => e.target.select()} />
-            <button class="auth-confirm-copy" on:click={() => { navigator.clipboard.writeText(authConfirmUrl).catch(() => {}); }}>Copy</button>
-          </div>
-        </div>
         {#if authLoginError}
           <p class="auth-confirm-error">{authLoginError}</p>
         {/if}
         <button class="auth-confirm-btn" on:click={confirmAuthLogin} disabled={authConfirming}>
           {authConfirming ? "Creating session..." : "Create Session"}
         </button>
+        <div class="auth-confirm-separator"><span>or</span></div>
+        <div class="auth-confirm-url-box">
+          <label>Copy this one-time login URL to open in a different browser</label>
+          <div class="auth-confirm-url-row">
+            <input type="text" value={authConfirmUrl} readonly on:click={(e) => e.target.select()} />
+            <button class="auth-confirm-copy" on:click={() => { navigator.clipboard.writeText(authConfirmUrl).catch(() => {}); }}>Copy</button>
+          </div>
+        </div>
       </div>
     </div>
   {:else if authBlocked}
@@ -1624,8 +1625,22 @@
     line-height: 1.5;
     margin: 0 0 1.5rem;
   }
+  .auth-confirm-separator {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+    color: var(--text-dim, #888);
+    font-size: 0.8rem;
+  }
+  .auth-confirm-separator::before,
+  .auth-confirm-separator::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--border, #3a3b3f);
+  }
   .auth-confirm-url-box {
-    margin-bottom: 1.5rem;
+    margin-bottom: 0;
   }
   .auth-confirm-url-box label {
     display: block;
