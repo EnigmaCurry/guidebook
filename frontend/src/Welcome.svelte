@@ -8,7 +8,6 @@
   let saving = false;
   let error = "";
   let step = "database"; // "database" or "auth"
-  let authDisabled = false; // forced off by env/CLI
   let authConfigured = false;
   let authLoading = true;
 
@@ -28,7 +27,6 @@
       const res = await fetch("/api/auth/status");
       if (res.ok) {
         const data = await res.json();
-        authDisabled = data.disabled;
         authConfigured = data.configured;
       }
     } catch {}
@@ -69,8 +67,8 @@
           return;
         }
       }
-      // Skip auth step if already configured or auth is disabled
-      if (authConfigured || authDisabled) {
+      // Skip auth step if already configured
+      if (authConfigured) {
         saving = false;
         dispatch("complete", { database: databaseName || "guidebook" });
         return;
@@ -91,24 +89,6 @@
       if (!res.ok) {
         const data = await res.json().catch(() => null);
         error = data?.detail || "Failed to lock session";
-        saving = false;
-        return;
-      }
-      dispatch("complete", { database: databaseName.trim() || "guidebook" });
-    } catch (e) {
-      error = e.message || "Something went wrong";
-      saving = false;
-    }
-  }
-
-  async function skipAuth() {
-    saving = true;
-    error = "";
-    try {
-      const res = await fetch("/api/auth/skip", { method: "POST" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        error = data?.detail || "Failed to skip auth";
         saving = false;
         return;
       }
@@ -184,23 +164,12 @@
       </div>
     {:else if step === "auth"}
       <h1>Session Security</h1>
-      <p class="subtitle">Authentication is enabled by default. Lock your session to this browser to continue.</p>
+      <p class="subtitle">Lock your session to this browser to continue.</p>
       <div class="auth-options">
-        <div class="auth-option">
-          <button class="auth-btn lock-btn" on:click={lockSession} disabled={saving}>
-            {saving ? "Locking..." : "Lock to this browser"}
-          </button>
-          <p class="auth-desc">Creates a secure cookie that restricts access to only this browser session. You can grant access to additional browsers from the settings page.</p>
-        </div>
-        <div class="auth-separator">
-          <span>or</span>
-        </div>
-        <div class="auth-option">
-          <button class="auth-btn skip-auth-btn" on:click={skipAuth} disabled={saving}>
-            Skip — no authentication
-          </button>
-          <p class="auth-desc warning-text">Anyone on the network will be able to access your server. Only choose this if you trust all devices on your network.</p>
-        </div>
+        <button class="auth-btn lock-btn" on:click={lockSession} disabled={saving}>
+          {saving ? "Locking..." : "Lock to this browser"}
+        </button>
+        <p class="auth-desc">Creates a secure cookie that restricts access to only this browser session. You can grant access to additional browsers from the settings page.</p>
       </div>
 
       {#if error}
@@ -362,39 +331,10 @@
     opacity: 0.9;
   }
 
-  .skip-auth-btn {
-    background: var(--bg-input, #5a5c6a);
-    color: var(--text, #eaeaea);
-    border: 1px solid var(--border, #3a3b3f);
-  }
-
-  .skip-auth-btn:hover:not(:disabled) {
-    background: var(--border, #3a3b3f);
-  }
-
   .auth-desc {
     font-size: 0.75rem;
     color: var(--text-dim, #888);
     margin: 0;
     line-height: 1.4;
-  }
-
-  .warning-text {
-    color: #e6a700;
-  }
-
-  .auth-separator {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    color: var(--text-dim, #888);
-    font-size: 0.8rem;
-  }
-
-  .auth-separator::before,
-  .auth-separator::after {
-    content: "";
-    flex: 1;
-    border-top: 1px solid var(--border, #3a3b3f);
   }
 </style>

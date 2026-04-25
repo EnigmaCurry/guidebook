@@ -72,10 +72,7 @@ async def _set_setting(gdb: AsyncSession, key: str, value: str) -> None:
 async def _is_auth_enabled(gdb: AsyncSession) -> bool:
     if DISABLE_AUTH or _env_disable_auth():
         return False
-    val = await _get_setting(gdb, "auth_enabled")
-    if val is not None:
-        return val == "true"
-    return True  # enabled by default
+    return True
 
 
 def _effective_forced_slots() -> int | None:
@@ -151,10 +148,8 @@ async def check_auth(request: Request, gdb: AsyncSession) -> bool:
 
 class AuthStatusResponse(BaseModel):
     enabled: bool
-    disabled: bool  # forced off by env/CLI
-    configured: bool  # user has made their choice
+    configured: bool  # initial setup completed
     authenticated: bool
-    env_disable_auth: bool
     slots: int
     slots_forced: bool
     session_count: int
@@ -181,10 +176,8 @@ async def auth_status(
     login_ttl = await _get_login_ttl(gdb)
     return AuthStatusResponse(
         enabled=enabled,
-        disabled=DISABLE_AUTH or _env_disable_auth(),
         configured=configured,
         authenticated=authenticated,
-        env_disable_auth=_env_disable_auth(),
         slots=slots,
         slots_forced=_effective_forced_slots() is not None,
         session_count=count,
@@ -242,7 +235,6 @@ async def lock_session(
         existing = await _validate_token(gdb, current_token)
         if existing:
             # Already locked — just mark as configured
-            await _set_setting(gdb, "auth_enabled", "true")
             await _set_setting(gdb, "auth_configured", "true")
             await gdb.commit()
             return LockResponse(status="already_locked")
@@ -258,7 +250,6 @@ async def lock_session(
             is_transfer=0,
         )
     )
-    await _set_setting(gdb, "auth_enabled", "true")
     await _set_setting(gdb, "auth_configured", "true")
     await gdb.commit()
 
@@ -272,18 +263,6 @@ async def lock_session(
     )
     logger.info("Session locked to browser")
     return LockResponse(status="locked", token=token_str)
-
-
-@router.post("/skip")
-async def skip_auth(
-    gdb: AsyncSession = Depends(get_global_session),
-):
-    """Skip auth — acknowledge the warning."""
-    await _set_setting(gdb, "auth_enabled", "false")
-    await _set_setting(gdb, "auth_configured", "true")
-    await gdb.commit()
-    logger.info("Authentication skipped by user")
-    return {"status": "skipped"}
 
 
 class GenerateTokenResponse(BaseModel):
@@ -476,7 +455,6 @@ async def logout(
 
 
 class AuthSettingsUpdate(BaseModel):
-    auth_enabled: bool | None = None
     auth_slots: int | None = None
     login_link_ttl: int | None = None
 
@@ -488,32 +466,6 @@ async def update_auth_settings(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Update auth settings."""
-    if data.auth_enabled is not None:
-        await _set_setting(
-            gdb, "auth_enabled", "true" if data.auth_enabled else "false"
-        )
-
-        # If enabling auth and no token exists, create one for current browser
-        if data.auth_enabled:
-            count = await _token_count(gdb)
-            if count == 0:
-                token_str = secrets.token_urlsafe(48)
-                now = time.time()
-                gdb.add(
-                    AuthToken(
-                        token=token_str,
-                        label="Initial session",
-                        created_at=now,
-                        last_seen_at=now,
-                        is_transfer=0,
-                    )
-                )
-                # We'll need to set the cookie in the response
-                # But since this is a settings update, the frontend will handle it
-                await _set_setting(gdb, "auth_configured", "true")
-
-        logger.info("Auth enabled: %s", data.auth_enabled)
-
     if data.auth_slots is not None:
         if _effective_forced_slots() is not None:
             raise HTTPException(400, "Session slots are forced by --auth-slots or GUIDEBOOK_AUTH_SLOTS")
@@ -534,46 +486,3 @@ async def update_auth_settings(
     return {"status": "ok"}
 
 
-@router.post("/enable-and-lock")
-async def enable_and_lock(
-    request: Request,
-    response: Response,
-    gdb: AsyncSession = Depends(get_global_session),
-):
-    """Enable auth and lock to current browser in one step (used from settings)."""
-    current_token = _get_current_token(request)
-
-    # If already has a valid token, just enable
-    if current_token:
-        existing = await _validate_token(gdb, current_token)
-        if existing:
-            await _set_setting(gdb, "auth_enabled", "true")
-            await _set_setting(gdb, "auth_configured", "true")
-            await gdb.commit()
-            return {"status": "already_locked"}
-
-    token_str = secrets.token_urlsafe(48)
-    now = time.time()
-    gdb.add(
-        AuthToken(
-            token=token_str,
-            label="Initial session",
-            created_at=now,
-            last_seen_at=now,
-            is_transfer=0,
-        )
-    )
-    await _set_setting(gdb, "auth_enabled", "true")
-    await _set_setting(gdb, "auth_configured", "true")
-    await gdb.commit()
-
-    response.set_cookie(
-        AUTH_COOKIE_NAME,
-        token_str,
-        max_age=AUTH_COOKIE_MAX_AGE,
-        httponly=True,
-        samesite="lax",
-        path="/",
-    )
-    logger.info("Auth enabled and session locked from settings")
-    return {"status": "locked"}

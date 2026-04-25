@@ -149,7 +149,6 @@ _AUTH_EXEMPT_PREFIXES = (
     "/api/auth/",
     "/api/version",
     "/api/global-settings/welcome_acknowledged",
-    "/api/global-settings/auth_",
     "/api/databases/mode",
     "/api/databases/current",
 )
@@ -678,9 +677,6 @@ def run() -> None:
             conn.execute(
                 "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, is_transfer) VALUES (?, ?, ?, ?, ?)",
                 (token_str, "Initial session", now, now, 0),
-            )
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_enabled', 'true')"
             )
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_configured', 'true')"

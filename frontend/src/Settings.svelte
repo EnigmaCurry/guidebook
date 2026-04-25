@@ -113,10 +113,8 @@
 
   // Authentication
   let authEnabled = false;
-  let authDisabled = false;
   let authConfigured = false;
   let authAuthenticated = false;
-  let authEnvDisabled = false;
   let authSlots = 1;
   let authSlotsForced = false;
   let authLinkTtl = 300;
@@ -135,10 +133,8 @@
       if (res.ok) {
         const data = await res.json();
         authEnabled = data.enabled;
-        authDisabled = data.disabled;
         authConfigured = data.configured;
         authAuthenticated = data.authenticated;
-        authEnvDisabled = data.env_disable_auth;
         authSlots = data.slots;
         authSlotsForced = data.slots_forced;
         authLinkTtl = data.login_link_ttl;
@@ -155,48 +151,6 @@
         authSessions = await res.json();
       }
     } catch {}
-  }
-
-  async function toggleAuth() {
-    authError = "";
-    if (authEnabled) {
-      // Enabling — lock to this browser
-      try {
-        const res = await fetch("/api/auth/enable-and-lock", { method: "POST" });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          authError = data?.detail || "Failed to enable auth";
-          authEnabled = false;
-          return;
-        }
-      } catch (e) {
-        console.log("[auth] enable-and-lock error:", e);
-        authError = e.message;
-        authEnabled = false;
-        return;
-      }
-    } else {
-      // Disabling
-      try {
-        const res = await fetch("/api/auth/settings", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ auth_enabled: false }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          authError = data?.detail || "Failed to disable auth";
-          authEnabled = true;
-          return;
-        }
-      } catch (e) {
-        authError = e.message;
-        authEnabled = true;
-        return;
-      }
-    }
-    await loadAuthStatus();
-    await loadAuthSessions();
   }
 
   async function saveAuthSlots() {
@@ -1552,19 +1506,9 @@
   <div class="tab-scroll"><div class="tab-content" use:masonry>
   <section class="settings-section">
     <h3>Authentication</h3>
-    <div class="setting-row toggle-row">
-      <label>
-        <input type="checkbox" bind:checked={authEnabled} on:change={toggleAuth} disabled={authDisabled && !authEnabled} />
-        Require authentication
-      </label>
-    </div>
-    {#if authDisabled}
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced off by GUIDEBOOK_DISABLE_AUTH environment variable or --disable-auth flag.</p>
-    {/if}
-    <p class="hint">When enabled, only browsers with a valid session cookie can access the server.</p>
+    <p class="hint">Authentication is always enabled. Only browsers with a valid session cookie can access the server. Use <code style="font-size: 0.75rem">--disable-auth</code> at startup to turn it off.</p>
   </section>
 
-  {#if authEnabled}
   <section class="settings-section">
     <h3>Session Slots</h3>
     <div class="setting-row">
@@ -1639,7 +1583,6 @@
       <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one. Expires in {authTtlLabel}.</p>
     {/if}
   </section>
-  {/if}
 
   <section class="settings-section">
     <h3>Logout</h3>
