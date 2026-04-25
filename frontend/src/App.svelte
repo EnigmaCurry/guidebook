@@ -140,7 +140,26 @@
     const params = new URLSearchParams(window.location.search);
     const token = params.get("auth_token");
     if (!token) return false;
-    // Store the full URL for display, then show confirmation screen
+    // Check if the token is still valid before showing confirmation
+    try {
+      const res = await fetch("/api/auth/check-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.valid) {
+          // Token already used or expired — show access denied
+          const url = new URL(window.location.href);
+          url.searchParams.delete("auth_token");
+          window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+          authBlocked = true;
+          return true;
+        }
+      }
+    } catch {}
+    // Token is valid — show confirmation screen
     authConfirmUrl = window.location.href;
     authConfirmToken = token;
     // Remove token from URL bar (but keep it in state)

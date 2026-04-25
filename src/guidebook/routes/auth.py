@@ -237,6 +237,26 @@ async def transfer_session(
     return GenerateTokenResponse(token=token_str, login_url=login_url)
 
 
+@router.post("/check-token")
+async def check_token(
+    request: Request,
+    gdb: AsyncSession = Depends(get_global_session),
+):
+    """Check if a login token is still valid (without consuming it)."""
+    body = await request.json()
+    token_str = body.get("token", "")
+    if not token_str:
+        return {"valid": False}
+    tok = await _validate_token(gdb, token_str)
+    if not tok:
+        return {"valid": False}
+    if tok.last_seen_at is not None and not tok.is_transfer:
+        return {"valid": False}
+    if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
+        return {"valid": False}
+    return {"valid": True}
+
+
 class LoginResponse(BaseModel):
     status: str
 
