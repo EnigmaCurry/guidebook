@@ -46,6 +46,20 @@
   }
 
   let sendTimer = null;
+  let copyLabel = "Copy";
+
+  function copyContent() {
+    navigator.clipboard.writeText(content).then(() => {
+      copyLabel = "Copied!";
+      setTimeout(() => { copyLabel = "Copy"; }, 1500);
+    }).catch(() => {});
+  }
+
+  function clearContent() {
+    content = "";
+    onInput();
+    if (textareaEl) textareaEl.focus();
+  }
 
   function onInput() {
     suppressNextUpdate = true;
@@ -73,6 +87,10 @@
 <div class="scratchpad-container">
   <h2>Scratchpad</h2>
   <p class="hint">Ephemeral shared notepad — not saved to disk.</p>
+  <div class="toolbar">
+    <button class="btn" on:click={copyContent}>{copyLabel}</button>
+    <button class="btn" on:click={clearContent}>Clear</button>
+  </div>
   <textarea
     bind:this={textareaEl}
     bind:value={content}
@@ -99,6 +117,24 @@
     margin: 0 0 0.75rem;
     font-size: 0.85rem;
     color: var(--text-dim, #888);
+  }
+  .toolbar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .btn {
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    background: var(--bg-card);
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .btn:hover {
+    background: var(--btn-secondary);
   }
   textarea {
     flex: 1;
