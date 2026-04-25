@@ -180,6 +180,18 @@
 
   async function checkWelcome() {
     try {
+      // If any databases exist, the welcome was already completed
+      const dbRes = await fetch("/api/databases/list");
+      if (dbRes.ok) {
+        const databases = await dbRes.json();
+        if (databases.length > 0) {
+          welcomeAcknowledged = true;
+          welcomeChecked = true;
+          return;
+        }
+      }
+    } catch {}
+    try {
       const res = await fetch("/api/global-settings/welcome_acknowledged");
       if (res.ok) {
         const data = await res.json();
@@ -924,14 +936,9 @@
     const authOk = await checkAuthStatus();
     if (!authOk) return;
     connectSSE(); // connect early to prevent auto-shutdown during welcome
+    await checkWelcome();
+    if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
     await checkDatabaseMode();
-    // If a database is already open, skip the welcome screen
-    if (databaseOpen) {
-      welcomeAcknowledged = true;
-    } else {
-      await checkWelcome();
-      if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
-    }
     setDatabase(currentDatabase);
     dualSplit = parseFloat(storageGet("dualSplit")) || 50;
     if (databaseOpen) {
