@@ -521,6 +521,7 @@
     const files = e.dataTransfer.files;
     const firstFileName = files[0].name.replace(/\.[^.]+$/, "") || "Untitled";
     try {
+      // Create the record
       const res = await fetch("/api/records/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -528,21 +529,17 @@
       });
       if (!res.ok) return;
       const record = await res.json();
-      editRecord(record);
-      await fetchRecords();
-      await tick();
+
+      // Upload attachments before opening the form (which may destroy this component)
       const fd = new FormData();
       for (const f of files) fd.append("files", f);
-      uploadingFiles = true;
-      const upRes = await fetch(`/api/records/${record.id}/attachments/`, {
+      await fetch(`/api/records/${record.id}/attachments/`, {
         method: "POST",
         body: fd,
       });
-      if (upRes.ok) await fetchAttachments(record.id);
-      uploadingFiles = false;
-      await tick();
-      const titleEl = document.getElementById("rec-title");
-      if (titleEl) { titleEl.focus(); titleEl.select(); }
+
+      // Now open the edit form — this may navigate and destroy this component
+      editRecord(record);
     } catch {}
   }
 </script>
