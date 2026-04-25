@@ -93,12 +93,12 @@
   h2 {
     margin: 0 0 0.25rem;
     font-size: 1.2rem;
-    color: var(--heading-color, inherit);
+    color: var(--text, inherit);
   }
   .hint {
     margin: 0 0 0.75rem;
     font-size: 0.85rem;
-    opacity: 0.6;
+    color: var(--text-dim, #888);
   }
   textarea {
     flex: 1;
@@ -108,19 +108,19 @@
     font-family: inherit;
     font-size: 0.95rem;
     line-height: 1.5;
-    border: 1px solid var(--border-color, #ccc);
+    border: 1px solid var(--border-input, var(--border, #3a3b3f));
     border-radius: 6px;
-    background: var(--input-bg, #fff);
-    color: var(--text-color, #222);
+    background: var(--bg-input, transparent);
+    color: var(--text, #eaeaea);
     resize: vertical;
     box-sizing: border-box;
   }
   textarea:focus {
     outline: none;
-    border-color: var(--accent-color, #4a90d9);
-    box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.2);
+    border-color: var(--accent);
   }
   textarea::placeholder {
-    opacity: 0.4;
+    color: var(--text-dim, #888);
+    opacity: 0.6;
   }
 </style>
