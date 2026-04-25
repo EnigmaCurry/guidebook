@@ -1,0 +1,79 @@
+---
+name: release
+description: "Release a new version: bump version, generate changelog, tag, and push"
+allowed-tools: Bash(git *, gh *, uv *, cd *), Read, Edit, Write, AskUserQuestion
+---
+
+# Release New Version
+
+## Arguments
+
+- `NEW_VERSION` — the version to release (e.g. `v0.3.0`). Strip any leading `v` for pyproject.toml (e.g. `0.3.0`).
+
+## Instructions
+
+1. **Verify branch and pull latest:**
+   ```bash
+   git branch --show-current
+   ```
+   If not on `master`, abort with an error. Then pull:
+   ```bash
+   git pull
+   ```
+
+2. **Run tests — abort if any fail:**
+   ```bash
+   uv run pytest
+   ```
+
+3. **Parse current version from pyproject.toml:**
+   Read `pyproject.toml` and extract the current `version` value.
+
+4. **Bump version in pyproject.toml:**
+   Edit `pyproject.toml` to set the new version (without the `v` prefix).
+
+5. **Rebuild uv.lock:**
+   ```bash
+   uv lock
+   ```
+
+6. **Analyze git history since last release:**
+   ```bash
+   git log --oneline v{OLD_VERSION}..HEAD
+   ```
+   (Use the old version tag. If the tag doesn't exist, use `git log --oneline` with a reasonable range.)
+
+7. **Write CHANGELOG.md entry:**
+   - Read `CHANGELOG.md`.
+   - Insert a new entry after the `# Changelog` header (before the first `##` entry) with this format:
+     ```
+     ## v{NEW_VERSION} — {YYYY-MM-DD}
+
+     - Brief, user-facing summary of changes (new features, fixes, improvements)
+     - One bullet per logical change
+     - Skip internal refactors, CI tweaks, and dev-only changes unless significant
+
+     ```
+   - Keep entries concise — focus on what a user would care about.
+
+8. **Show the new CHANGELOG entry and ask the user to confirm:**
+   Display the new entry text and ask: "Does this changelog look good? Ready to tag and push?"
+   Wait for confirmation before proceeding. If the user wants edits, make them and re-confirm.
+
+9. **Commit, tag, and push:**
+   ```bash
+   git add pyproject.toml uv.lock CHANGELOG.md
+   git commit -m "Bump version to v{NEW_VERSION} and add changelog"
+   git tag v{NEW_VERSION}
+   git push
+   git push origin v{NEW_VERSION}
+   ```
+
+10. **Watch the GitHub Actions build in the background:**
+    The GitHub Actions workflow creates the release automatically from the tag. Do NOT run `gh release create` or `gh release edit`.
+    ```bash
+    gh run watch $(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
+    ```
+    Run this with `run_in_background: true` so the user isn't blocked. When notified of completion, report the build result.
+
+11. **Report success** with the new version and tag.

@@ -1,0 +1,297 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  check-version:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Verify tag matches pyproject.toml version
+        run: |
+          version=$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pyproject.toml version $version"
+            exit 1
+          fi
+          echo "Version $version matches tag $GITHUB_REF_NAME"
+
+  build:
+    needs: check-version
+    if: always() && (needs.check-version.result == 'success' || needs.check-version.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-amd64
+          - os: ubuntu-24.04-arm
+            target: linux-arm64
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-15-intel
+            target: macos-intel
+          - os: windows-latest
+            target: windows-amd64
+
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Inject build info
+        run: |
+          printf 'BUILD_ORIGIN_REPO = "%s"\nBUILD_GITHUB_ACTIONS = True\nBUILD_GIT_SHA = "%s"\nGIT_SHA = BUILD_GIT_SHA\n' "${{ github.repository }}" "${GITHUB_SHA::8}" > src/guidebook/_build_info.py
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          pip install .
+
+      - name: Convert icon for Windows
+        if: runner.os == 'Windows'
+        run: pip install Pillow && python -c "from PIL import Image; img = Image.open('guidebook.png'); img.save('guidebook.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+      - name: Build binary
+        run: pyinstaller guidebook.spec
+
+      - name: Rename binary (unix)
+        if: runner.os != 'Windows'
+        run: mv dist/guidebook dist/guidebook-${{ matrix.target }}
+
+      - name: Rename binary (windows)
+        if: runner.os == 'Windows'
+        run: mv dist/guidebook.exe dist/guidebook-${{ matrix.target }}.exe
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: guidebook-${{ matrix.target }}
+          path: dist/guidebook-*
+
+  macos-pkg:
+    needs: build
+    if: always() && (needs.build.result == 'success')
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: guidebook-macos-arm64
+          path: binaries
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: guidebook-macos-intel
+          path: binaries
+
+      - name: Create universal macOS .pkg installer
+        run: |
+          version=$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+
+          chmod +x binaries/guidebook-macos-arm64 binaries/guidebook-macos-intel
+
+          # Build .app bundle with both binaries
+          mkdir -p Guidebook.app/Contents/MacOS Guidebook.app/Contents/Resources
+          cp binaries/guidebook-macos-arm64 Guidebook.app/Contents/MacOS/guidebook-arm64
+          cp binaries/guidebook-macos-intel Guidebook.app/Contents/MacOS/guidebook-intel
+
+          # Create .icns icon
+          mkdir -p guidebook_icon.iconset
+          sips -z 1024 1024 guidebook.png --out guidebook_icon.iconset/icon_512x512@2x.png
+          sips -z 512 512 guidebook.png --out guidebook_icon.iconset/icon_512x512.png
+          sips -z 512 512 guidebook.png --out guidebook_icon.iconset/icon_256x256@2x.png
+          sips -z 256 256 guidebook.png --out guidebook_icon.iconset/icon_256x256.png
+          sips -z 256 256 guidebook.png --out guidebook_icon.iconset/icon_128x128@2x.png
+          sips -z 128 128 guidebook.png --out guidebook_icon.iconset/icon_128x128.png
+          sips -z 64 64 guidebook.png --out guidebook_icon.iconset/icon_32x32@2x.png
+          sips -z 32 32 guidebook.png --out guidebook_icon.iconset/icon_32x32.png
+          sips -z 32 32 guidebook.png --out guidebook_icon.iconset/icon_16x16@2x.png
+          sips -z 16 16 guidebook.png --out guidebook_icon.iconset/icon_16x16.png
+          iconutil -c icns guidebook_icon.iconset -o Guidebook.app/Contents/Resources/guidebook.icns
+
+          # Create launcher script (auto-detects architecture)
+          printf '%s\n' '#!/bin/bash' \
+            'DIR="$(dirname "$0")"' \
+            'ARCH=$(uname -m)' \
+            'if [ "$ARCH" = "arm64" ]; then' \
+            '    GUIDEBOOK="$DIR/guidebook-arm64"' \
+            'else' \
+            '    GUIDEBOOK="$DIR/guidebook-intel"' \
+            'fi' \
+            'HOST="${GUIDEBOOK_HOST:-127.0.0.1}"' \
+            'PORT="${GUIDEBOOK_PORT:-4280}"' \
+            'URL="${GUIDEBOOK_BROWSER_URL:-}"' \
+            'OPEN_BROWSER=true' \
+            'GLOBAL_DB="$HOME/.local/guidebook/__global.db"' \
+            'if [ -z "$URL" ] && [ -f "$GLOBAL_DB" ] && command -v sqlite3 >/dev/null 2>&1; then' \
+            '    DB_URL=$(sqlite3 "$GLOBAL_DB" "SELECT value FROM settings WHERE key='"'"'browser_url_override'"'"'" 2>/dev/null)' \
+            '    DB_OPEN=$(sqlite3 "$GLOBAL_DB" "SELECT value FROM settings WHERE key='"'"'open_browser_on_startup'"'"'" 2>/dev/null)' \
+            '    [ -n "$DB_URL" ] && URL="$DB_URL"' \
+            '    [ "$DB_OPEN" = "false" ] && OPEN_BROWSER=false' \
+            'fi' \
+            '[ -z "$URL" ] && URL="http://${HOST}:${PORT}"' \
+            'if curl -s -o /dev/null --connect-timeout 1 "${URL}/api/version" 2>/dev/null || curl -s -o /dev/null --connect-timeout 1 "http://${HOST}:${PORT}/api/version" 2>/dev/null; then' \
+            '    [ "$OPEN_BROWSER" = "true" ] && open "${URL}"' \
+            '    exit 0' \
+            'fi' \
+            '("$GUIDEBOOK" --no-browser "$@" &)' \
+            'for i in $(seq 1 30); do' \
+            '    sleep 0.5' \
+            '    if curl -s -o /dev/null --connect-timeout 1 "http://${HOST}:${PORT}/api/version" 2>/dev/null; then' \
+            '        [ "$OPEN_BROWSER" = "true" ] && open "${URL}"' \
+            '        break' \
+            '    fi' \
+            'done' \
+            'wait' > Guidebook.app/Contents/MacOS/launch
+          chmod +x Guidebook.app/Contents/MacOS/launch
+
+          # Create Info.plist
+          cat > Guidebook.app/Contents/Info.plist << PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>launch</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.enigmacurry.guidebook</string>
+              <key>CFBundleName</key>
+              <string>Guidebook</string>
+              <key>CFBundleDisplayName</key>
+              <string>Guidebook</string>
+              <key>CFBundleVersion</key>
+              <string>${version}</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${version}</string>
+              <key>CFBundleIconFile</key>
+              <string>guidebook</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>LSUIElement</key>
+              <true/>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          # Create postinstall script to fix ownership
+          mkdir -p scripts
+          cat > scripts/postinstall << 'POSTINSTALL'
+          #!/bin/bash
+          APP_PATH="/Applications/Guidebook.app"
+          CURRENT_USER=$(stat -f "%Su" /dev/console)
+          chown -R "$CURRENT_USER":staff "$APP_PATH"
+          POSTINSTALL
+          chmod +x scripts/postinstall
+
+          # Build .pkg installer
+          mkdir -p dist pkg-root/Applications
+          cp -R Guidebook.app pkg-root/Applications/
+          pkgbuild \
+            --root pkg-root \
+            --identifier com.enigmacurry.guidebook \
+            --version "${version}" \
+            --install-location / \
+            --scripts scripts \
+            dist/guidebook-macos-universal.pkg
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: guidebook-macos-universal-pkg
+          path: dist/guidebook-macos-universal.pkg
+
+  release:
+    needs: [build, macos-pkg]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          tag="${{ github.ref_name }}"
+          # Extract section between "## vX.Y.Z" and the next "## v" heading
+          changelog=$(awk "/^## ${tag}( |$)/{found=1; next} /^## v/{if(found) exit} found{print}" CHANGELOG.md)
+          # Write to file to preserve formatting
+          echo "$changelog" > /tmp/changelog.md
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -s /tmp/changelog.md ]; then
+            gh release create "${{ github.ref_name }}" artifacts/* --repo "${{ github.repository }}" --generate-notes --notes "$(cat /tmp/changelog.md)"
+          else
+            gh release create "${{ github.ref_name }}" artifacts/* --repo "${{ github.repository }}" --generate-notes
+          fi
+
+  docker:
+    needs: release
+    if: github.repository == 'EnigmaCurry/guidebook'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

@@ -1,0 +1,25 @@
+import { defineConfig } from "vite";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
+
+export default defineConfig({
+  plugins: [svelte({
+    compilerOptions: {
+      customElement: false,
+    },
+    onwarn(warning, handler) {
+      if (warning.code === "custom-element" || (warning.message && warning.message.includes("hex-color-picker"))) return;
+      handler(warning);
+    },
+  })],
+  build: {
+    outDir: "../src/guidebook/static",
+    emptyOutDir: true,
+    chunkSizeWarningLimit: 800,
+  },
+  server: {
+    port: 4281,
+    proxy: {
+      "/api": "http://localhost:4280",
+    },
+  },
+});
