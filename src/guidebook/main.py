@@ -196,12 +196,18 @@ async def http_middleware(request: Request, call_next):
                     return HTMLResponse(
                         status_code=401,
                         content="<html><head><style>"
-                        "body{background:#111;color:#999;font-family:sans-serif;"
+                        "body{background:#111;color:#ccc;font-family:sans-serif;"
                         "display:flex;align-items:center;justify-content:center;"
                         "min-height:100vh;margin:0;font-size:.95rem}"
+                        ".box{max-width:420px;text-align:center;line-height:1.6}"
+                        "code{background:#222;padding:2px 6px;border-radius:3px;font-size:.85rem;color:#e6a700}"
+                        ".dim{color:#777;font-size:.8rem;margin-top:1.2rem}"
                         "</style></head><body>"
+                        '<div class="box">'
                         "<p>You need a login link from the owner to access this site.</p>"
-                        "</body></html>",
+                        '<p class="dim">If you are the owner and have lost access, restart the server with '
+                        "<code>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
+                        "</div></body></html>",
                     )
 
     response: Response = await call_next(request)
@@ -602,9 +608,9 @@ def run() -> None:
         help="Port to listen on (default: auto-select starting from 4280)",
     )
     parser.add_argument(
-        "--require-auth",
+        "--disable-auth",
         action="store_true",
-        help="Require authentication (lock to browser session)",
+        help="Disable authentication (allow unauthenticated access)",
     )
     parser.add_argument(
         "--reset-auth",
@@ -615,33 +621,23 @@ def run() -> None:
         "--auth-slots",
         type=int,
         default=None,
-        help="Force maximum concurrent sessions (overrides settings UI)",
+        help="Set maximum concurrent sessions (default: 1)",
     )
     parser.add_argument(
         "--auth-ttl",
         type=int,
         default=None,
-        help="Force login link TTL in seconds (overrides settings UI)",
+        help="Set login link TTL in seconds (default: 300)",
     )
     args = parser.parse_args()
 
     global NO_SHUTDOWN
-    if args.require_auth or args.reset_auth:
-        _auth_module.REQUIRE_AUTH = True
+    if args.disable_auth:
+        _auth_module.DISABLE_AUTH = True
     if args.auth_slots is not None:
         _auth_module.FORCED_SLOTS = args.auth_slots
     if args.auth_ttl is not None:
         _auth_module.FORCED_LOGIN_TTL = args.auth_ttl
-    auth_forced = _auth_module.REQUIRE_AUTH or _auth_module._env_require_auth()
-    has_forced_detail = (
-        _auth_module._effective_forced_slots() is not None
-        or _auth_module._effective_forced_ttl() is not None
-    )
-    if has_forced_detail and not auth_forced:
-        print(
-            "Error: --auth-slots / --auth-ttl require --require-auth or GUIDEBOOK_REQUIRE_AUTH=true"
-        )
-        sys.exit(1)
     if args.name and args.name.startswith("__"):
         print(
             "Error: database name must not start with '__' (reserved for system databases)"
@@ -651,7 +647,9 @@ def run() -> None:
     if args.no_shutdown:
         NO_SHUTDOWN = True
 
-    if args.reset_auth or args.require_auth:
+    # Auth is enabled by default — generate initial token on first run
+    auth_disabled = _auth_module.DISABLE_AUTH or _auth_module._env_disable_auth()
+    if not auth_disabled or args.reset_auth:
         import secrets
         import sqlite3
 
@@ -692,7 +690,7 @@ def run() -> None:
             if args.reset_auth:
                 print("Auth reset: all sessions cleared, new login token generated.")
             else:
-                print("Auth required: new login token generated.")
+                print("Auth enabled: login token generated for first run.")
 
         conn.close()
 

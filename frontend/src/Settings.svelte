@@ -113,10 +113,10 @@
 
   // Authentication
   let authEnabled = false;
-  let authRequired = false;
+  let authDisabled = false;
   let authConfigured = false;
   let authAuthenticated = false;
-  let authEnvRequired = false;
+  let authEnvDisabled = false;
   let authSlots = 1;
   let authSlotsForced = false;
   let authLinkTtl = 300;
@@ -135,10 +135,10 @@
       if (res.ok) {
         const data = await res.json();
         authEnabled = data.enabled;
-        authRequired = data.required;
+        authDisabled = data.disabled;
         authConfigured = data.configured;
         authAuthenticated = data.authenticated;
-        authEnvRequired = data.env_require_auth;
+        authEnvDisabled = data.env_disable_auth;
         authSlots = data.slots;
         authSlotsForced = data.slots_forced;
         authLinkTtl = data.login_link_ttl;
@@ -1554,12 +1554,12 @@
     <h3>Authentication</h3>
     <div class="setting-row toggle-row">
       <label>
-        <input type="checkbox" bind:checked={authEnabled} on:change={toggleAuth} disabled={authRequired && authEnabled} />
+        <input type="checkbox" bind:checked={authEnabled} on:change={toggleAuth} disabled={authDisabled && !authEnabled} />
         Require authentication
       </label>
     </div>
-    {#if authRequired}
-      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced on by GUIDEBOOK_REQUIRE_AUTH environment variable or --require-auth flag.</p>
+    {#if authDisabled}
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Forced off by GUIDEBOOK_DISABLE_AUTH environment variable or --disable-auth flag.</p>
     {/if}
     <p class="hint">When enabled, only browsers with a valid session cookie can access the server.</p>
   </section>

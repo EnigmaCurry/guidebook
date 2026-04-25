@@ -44,7 +44,7 @@ Open http://localhost:4280 in your browser.
 | `GUIDEBOOK_HOST` | Bind address | `127.0.0.1` |
 | `GUIDEBOOK_PORT` | Port | `4280` |
 | `GUIDEBOOK_BROWSER_URL` | Override browser URL | |
-| `GUIDEBOOK_REQUIRE_AUTH` | Require authentication (cannot be disabled in UI) | `false` |
+| `GUIDEBOOK_DISABLE_AUTH` | Disable authentication (allow unauthenticated access) | `false` |
 | `GUIDEBOOK_AUTH_SLOTS` | Force max concurrent sessions (overrides UI) | |
 | `GUIDEBOOK_AUTH_TTL` | Force login link TTL in seconds (overrides UI) | |
 

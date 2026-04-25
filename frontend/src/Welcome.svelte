@@ -8,7 +8,7 @@
   let saving = false;
   let error = "";
   let step = "database"; // "database" or "auth"
-  let authRequired = false; // forced by env/CLI
+  let authDisabled = false; // forced off by env/CLI
   let authConfigured = false;
   let authLoading = true;
 
@@ -28,7 +28,7 @@
       const res = await fetch("/api/auth/status");
       if (res.ok) {
         const data = await res.json();
-        authRequired = data.required;
+        authDisabled = data.disabled;
         authConfigured = data.configured;
       }
     } catch {}
@@ -69,8 +69,8 @@
           return;
         }
       }
-      // Skip auth step if already configured (e.g. --require-auth)
-      if (authConfigured) {
+      // Skip auth step if already configured or auth is disabled
+      if (authConfigured || authDisabled) {
         saving = false;
         dispatch("complete", { database: databaseName || "guidebook" });
         return;
@@ -184,34 +184,24 @@
       </div>
     {:else if step === "auth"}
       <h1>Session Security</h1>
-      {#if authRequired}
-        <p class="subtitle">Authentication is required for this instance. Lock your session to this browser to continue.</p>
-        <div class="auth-options">
+      <p class="subtitle">Authentication is enabled by default. Lock your session to this browser to continue.</p>
+      <div class="auth-options">
+        <div class="auth-option">
           <button class="auth-btn lock-btn" on:click={lockSession} disabled={saving}>
             {saving ? "Locking..." : "Lock to this browser"}
           </button>
+          <p class="auth-desc">Creates a secure cookie that restricts access to only this browser session. You can grant access to additional browsers from the settings page.</p>
         </div>
-        <p class="hint">This creates a secure cookie that restricts access to only this browser session. You can grant access to additional browsers from the settings page.</p>
-      {:else}
-        <p class="subtitle">Choose how to secure your Guidebook instance.</p>
-        <div class="auth-options">
-          <div class="auth-option">
-            <button class="auth-btn lock-btn" on:click={lockSession} disabled={saving}>
-              {saving ? "Locking..." : "Lock to this browser"}
-            </button>
-            <p class="auth-desc">Creates a secure cookie that restricts access to only this browser session. You can grant access to additional browsers from the settings page.</p>
-          </div>
-          <div class="auth-separator">
-            <span>or</span>
-          </div>
-          <div class="auth-option">
-            <button class="auth-btn skip-auth-btn" on:click={skipAuth} disabled={saving}>
-              Skip — no authentication
-            </button>
-            <p class="auth-desc warning-text">Anyone on the network will be able to access your server. Only choose this if you trust all devices on your network.</p>
-          </div>
+        <div class="auth-separator">
+          <span>or</span>
         </div>
-      {/if}
+        <div class="auth-option">
+          <button class="auth-btn skip-auth-btn" on:click={skipAuth} disabled={saving}>
+            Skip — no authentication
+          </button>
+          <p class="auth-desc warning-text">Anyone on the network will be able to access your server. Only choose this if you trust all devices on your network.</p>
+        </div>
+      </div>
 
       {#if error}
         <p class="error">{error}</p>

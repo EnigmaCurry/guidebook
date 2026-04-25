@@ -21,13 +21,13 @@ AUTH_COOKIE_MAX_AGE = 365 * 24 * 3600  # 1 year
 LOGIN_LINK_TTL_DEFAULT = 300  # 5 minutes
 
 # Set at startup by main.py
-REQUIRE_AUTH = False
+DISABLE_AUTH = False
 FORCED_SLOTS: int | None = None  # --auth-slots override
 FORCED_LOGIN_TTL: int | None = None  # --auth-ttl override
 
 
-def _env_require_auth() -> bool:
-    return os.environ.get("GUIDEBOOK_REQUIRE_AUTH", "").lower() in (
+def _env_disable_auth() -> bool:
+    return os.environ.get("GUIDEBOOK_DISABLE_AUTH", "").lower() in (
         "1",
         "true",
         "yes",
@@ -70,10 +70,12 @@ async def _set_setting(gdb: AsyncSession, key: str, value: str) -> None:
 
 
 async def _is_auth_enabled(gdb: AsyncSession) -> bool:
-    if REQUIRE_AUTH or _env_require_auth():
-        return True
+    if DISABLE_AUTH or _env_disable_auth():
+        return False
     val = await _get_setting(gdb, "auth_enabled")
-    return val == "true"
+    if val is not None:
+        return val == "true"
+    return True  # enabled by default
 
 
 def _effective_forced_slots() -> int | None:
@@ -133,8 +135,8 @@ async def check_auth(request: Request, gdb: AsyncSession) -> bool:
     if not await _is_auth_enabled(gdb):
         return True
     configured = await _get_setting(gdb, "auth_configured")
-    if configured != "true" and not REQUIRE_AUTH:
-        return True  # Not yet configured, allow access (unless forced)
+    if configured != "true":
+        return True  # Not yet configured, allow access for initial setup
     token_str = _get_current_token(request)
     if not token_str:
         return False
@@ -149,10 +151,10 @@ async def check_auth(request: Request, gdb: AsyncSession) -> bool:
 
 class AuthStatusResponse(BaseModel):
     enabled: bool
-    required: bool  # forced by env/CLI
+    disabled: bool  # forced off by env/CLI
     configured: bool  # user has made their choice
     authenticated: bool
-    env_require_auth: bool
+    env_disable_auth: bool
     slots: int
     slots_forced: bool
     session_count: int
@@ -179,10 +181,10 @@ async def auth_status(
     login_ttl = await _get_login_ttl(gdb)
     return AuthStatusResponse(
         enabled=enabled,
-        required=REQUIRE_AUTH or _env_require_auth(),
+        disabled=DISABLE_AUTH or _env_disable_auth(),
         configured=configured,
         authenticated=authenticated,
-        env_require_auth=_env_require_auth(),
+        env_disable_auth=_env_disable_auth(),
         slots=slots,
         slots_forced=_effective_forced_slots() is not None,
         session_count=count,
@@ -277,11 +279,6 @@ async def skip_auth(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Skip auth — acknowledge the warning."""
-    if REQUIRE_AUTH or _env_require_auth():
-        raise HTTPException(
-            400,
-            "Cannot disable auth: GUIDEBOOK_REQUIRE_AUTH is set",
-        )
     await _set_setting(gdb, "auth_enabled", "false")
     await _set_setting(gdb, "auth_configured", "true")
     await gdb.commit()
@@ -492,12 +489,6 @@ async def update_auth_settings(
 ):
     """Update auth settings."""
     if data.auth_enabled is not None:
-        forced = REQUIRE_AUTH or _env_require_auth()
-        if forced and not data.auth_enabled:
-            raise HTTPException(
-                400,
-                "Cannot disable auth: GUIDEBOOK_REQUIRE_AUTH is set",
-            )
         await _set_setting(
             gdb, "auth_enabled", "true" if data.auth_enabled else "false"
         )
