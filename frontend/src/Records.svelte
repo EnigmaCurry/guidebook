@@ -465,6 +465,7 @@
   }
 
   async function deleteAttachment(attId) {
+    if (!confirm("Delete this attachment? This cannot be undone.")) return;
     try {
       await fetch(`/api/records/${formId}/attachments/${attId}`, { method: "DELETE" });
       await fetchAttachments(formId);
