@@ -225,7 +225,7 @@ async def lock_session(
         token_str,
         max_age=AUTH_COOKIE_MAX_AGE,
         httponly=True,
-        samesite="strict",
+        samesite="lax",
         path="/",
     )
     logger.info("Session locked to browser")
@@ -386,7 +386,7 @@ async def login_with_token(
         token_str,
         max_age=AUTH_COOKIE_MAX_AGE,
         httponly=True,
-        samesite="strict",
+        samesite="lax",
         path="/",
     )
     return LoginResponse(status="ok")
@@ -532,7 +532,7 @@ async def enable_and_lock(
         token_str,
         max_age=AUTH_COOKIE_MAX_AGE,
         httponly=True,
-        samesite="strict",
+        samesite="lax",
         path="/",
     )
     logger.info("Auth enabled and session locked from settings")
