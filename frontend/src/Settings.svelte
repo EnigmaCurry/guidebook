@@ -5,8 +5,8 @@
   import "vanilla-colorful/hex-color-picker.js";
 
   export let logbookName = "";
-  export let pickerMode = false;
-  export let needsSetup = false;
+  export const pickerMode = false;
+  export const needsSetup = false;
   export let initialTab = null;
   export let highlightSection = null;
   export let clientCount = 0;
@@ -1202,6 +1202,7 @@
     <h3>Theme</h3>
     <p class="hint">Theme changes sync live to all open windows. Try opening Guidebook side-by-side in another window to preview your changes on any page.</p>
     <div class="setting-row toggle-row">
+      <!-- svelte-ignore a11y-label-has-associated-control -->
       <label>Mode</label>
       <div class="theme-mode-switch">
         <button class="mode-btn" class:active={themeMode === "preset"} on:click={() => { themeMode = "preset"; onThemeModeChange(); }}>Preset</button>
@@ -1221,6 +1222,7 @@
       </div>
     </div>
     {:else}
+    <!-- svelte-ignore a11y-label-has-associated-control -->
     <div class="color-pickers">
       <div class="color-picker-group">
         <label>Background</label>
@@ -1452,12 +1454,12 @@
     </div>
     {#if autoBackupEnabled}
       <div class="setting-row">
-        <label>Interval (hours)</label>
-        <input type="number" min="1" max="720" bind:value={autoBackupHours} on:input={saveAutoBackupSettings} style="width: 5rem" />
+        <label for="backup_interval">Interval (hours)</label>
+        <input id="backup_interval" type="number" min="1" max="720" bind:value={autoBackupHours} on:input={saveAutoBackupSettings} style="width: 5rem" />
       </div>
       <div class="setting-row">
-        <label>Keep max</label>
-        <input type="number" min="1" max="100" bind:value={autoBackupMax} on:input={saveAutoBackupSettings} style="width: 5rem" />
+        <label for="backup_max">Keep max</label>
+        <input id="backup_max" type="number" min="1" max="100" bind:value={autoBackupMax} on:input={saveAutoBackupSettings} style="width: 5rem" />
       </div>
     {/if}
     {#if backupStatus}
@@ -1717,7 +1719,6 @@
     overflow: hidden;
   }
   .settings > h2,
-  .settings > .setup-hint,
   .settings > .tab-bar {
     max-width: 1100px;
     width: 100%;

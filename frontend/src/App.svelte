@@ -990,6 +990,7 @@
   {:else if pendingLogbook}
     <header>
       <div class="header-left">
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <h1 class="app-title"><span class="title-full">Guidebook</span><span class="title-short">GB</span>{#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}</h1>
       </div>
       <span class="utc-clock">{utcNow}</span>
@@ -1015,13 +1016,14 @@
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
         <h1 class="app-title" on:click={goHome} style="cursor: pointer"><span class="title-full">Guidebook</span><span class="title-short">GB</span></h1>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         {#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}
       </div>
       {#if customHeader}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <span class="custom-header" on:click={() => { settingsTab = "appearance"; settingsHighlight = "content"; navigate("settings"); }} style="cursor: pointer">{customHeader}{#if currentLogbook}<span class="logbook-name" class:logbook-switchable={pickerMode} title={pickerMode ? "Switch logbook" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openLogbookSwitcher(); }}>{currentLogbook}</span>{/if}</span>
       {:else if currentLogbook}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         <span class="logbook-name" class:logbook-switchable={pickerMode} title={pickerMode ? "Switch logbook" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openLogbookSwitcher(); }}>{currentLogbook}</span>
       {/if}
     </div>

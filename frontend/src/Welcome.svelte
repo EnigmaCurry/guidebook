@@ -155,7 +155,7 @@
               {/each}
             </select>
           {:else}
-            <input id="w-logbook" type="text" bind:value={logbookName} autocomplete="nope" on:keydown={onNameKeydown} placeholder="guidebook" style="max-width: 14rem" />
+            <input id="w-logbook" type="text" bind:value={logbookName} autocomplete="off" on:keydown={onNameKeydown} placeholder="guidebook" style="max-width: 14rem" />
             {#if nameError}
               <span class="field-error">{nameError}</span>
             {:else}
