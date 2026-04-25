@@ -257,10 +257,17 @@
     const d = new Date(epoch * 1000);
     const now = new Date();
     const diff = Math.floor((now - d) / 1000);
-    if (diff < 60) return "just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
+    if (diff >= 0) {
+      if (diff < 60) return "just now";
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
+    }
+    // Future date
+    const fdiff = -diff;
+    if (fdiff < 3600) return `in ${Math.floor(fdiff / 60)}m`;
+    if (fdiff < 86400) return `in ${Math.floor(fdiff / 3600)}h`;
+    return `in ${Math.floor(fdiff / 86400)}d`;
   }
 
   $: authTtlLabel = authLinkTtl >= 3600 ? `${Math.floor(authLinkTtl / 3600)} hour${Math.floor(authLinkTtl / 3600) !== 1 ? "s" : ""}` : authLinkTtl >= 60 ? `${Math.floor(authLinkTtl / 60)} minute${Math.floor(authLinkTtl / 60) !== 1 ? "s" : ""}` : `${authLinkTtl} seconds`;
@@ -1539,7 +1546,7 @@
           <div class="session-item" class:session-current={session.is_current}>
             <div class="session-info">
               <span class="session-label">{session.label}{#if session.is_current} <strong>(current)</strong>{/if}{#if session.is_transfer} <em>(transfer pending)</em>{/if}</span>
-              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}</span>
+              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
             </div>
             {#if !session.is_current}
               <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>

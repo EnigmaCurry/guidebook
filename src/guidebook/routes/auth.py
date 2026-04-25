@@ -191,6 +191,7 @@ class SessionResponse(BaseModel):
     label: str
     created_at: float
     last_seen_at: float | None
+    expires_at: float | None
     is_current: bool
     is_transfer: bool
 
@@ -210,6 +211,7 @@ async def list_sessions(
                 label=tok.label,
                 created_at=tok.created_at,
                 last_seen_at=tok.last_seen_at,
+                expires_at=tok.expires_at,
                 is_current=tok.token == current_token,
                 is_transfer=tok.is_transfer == 1,
             )
@@ -247,6 +249,7 @@ async def lock_session(
             label="Initial session",
             created_at=now,
             last_seen_at=now,
+            expires_at=now + AUTH_COOKIE_MAX_AGE,
             is_transfer=0,
         )
     )
@@ -374,12 +377,15 @@ async def login_with_token(
         await gdb.commit()
         raise HTTPException(401, "Login link has expired")
 
+    now = time.time()
+    tok.expires_at = now + AUTH_COOKIE_MAX_AGE
+
     if tok.is_transfer:
         # Transfer token: find the original session that created us and revoke it
         # The transfer token itself becomes the new permanent session
         tok.is_transfer = 0
         tok.label = "Transferred session"
-        tok.last_seen_at = time.time()
+        tok.last_seen_at = now
 
         # Delete all other non-transfer tokens (the old session)
         result = await gdb.execute(
@@ -393,7 +399,7 @@ async def login_with_token(
         logger.info("Session transferred to new browser")
     else:
         # Regular login token — just activate it
-        tok.last_seen_at = time.time()
+        tok.last_seen_at = now
         tok.label = "Logged in session"
         await gdb.commit()
         try:

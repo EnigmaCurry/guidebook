@@ -169,6 +169,7 @@ class AuthToken(GlobalBase):
     label: Mapped[str] = mapped_column(String, nullable=False, default="")
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
     last_seen_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_transfer: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 

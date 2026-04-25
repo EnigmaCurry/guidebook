@@ -660,8 +660,13 @@ def run() -> None:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS auth_tokens "
             "(id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, label TEXT NOT NULL DEFAULT '', "
-            "created_at REAL NOT NULL, last_seen_at REAL, is_transfer INTEGER NOT NULL DEFAULT 0)"
+            "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
+        # Add expires_at column if missing (upgrade from older schema)
+        try:
+            conn.execute("ALTER TABLE auth_tokens ADD COLUMN expires_at REAL")
+        except sqlite3.OperationalError:
+            pass
         conn.execute(
             "CREATE TABLE IF NOT EXISTS settings "
             "(id INTEGER NOT NULL PRIMARY KEY, key VARCHAR NOT NULL UNIQUE, value VARCHAR)"
@@ -674,9 +679,11 @@ def run() -> None:
         if existing == 0:
             token_str = secrets.token_urlsafe(48)
             now = time.time()
+            from guidebook.routes.auth import AUTH_COOKIE_MAX_AGE
+
             conn.execute(
-                "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, is_transfer) VALUES (?, ?, ?, ?, ?)",
-                (token_str, "Initial session", now, now, 0),
+                "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, expires_at, is_transfer) VALUES (?, ?, ?, ?, ?, ?)",
+                (token_str, "Initial session", now, now, now + AUTH_COOKIE_MAX_AGE, 0),
             )
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES ('auth_configured', 'true')"
