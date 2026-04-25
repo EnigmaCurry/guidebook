@@ -511,10 +511,48 @@
   function attDownloadUrl(att) {
     return `/api/records/${formId}/attachments/${att.id}/download`;
   }
+
+  let pageDragOver = false;
+
+  async function handlePageDrop(e) {
+    e.preventDefault();
+    pageDragOver = false;
+    if (showForm || !e.dataTransfer?.files?.length) return;
+    const files = e.dataTransfer.files;
+    const firstFileName = files[0].name.replace(/\.[^.]+$/, "") || "Untitled";
+    try {
+      const res = await fetch("/api/records/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: firstFileName }),
+      });
+      if (!res.ok) return;
+      const record = await res.json();
+      editRecord(record);
+      await fetchRecords();
+      await tick();
+      const fd = new FormData();
+      for (const f of files) fd.append("files", f);
+      uploadingFiles = true;
+      const upRes = await fetch(`/api/records/${record.id}/attachments/`, {
+        method: "POST",
+        body: fd,
+      });
+      if (upRes.ok) await fetchAttachments(record.id);
+      uploadingFiles = false;
+      await tick();
+      const titleEl = document.getElementById("rec-title");
+      if (titleEl) { titleEl.focus(); titleEl.select(); }
+    } catch {}
+  }
 </script>
 
 
-<div class="records-page">
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="records-page" class:page-drag-active={pageDragOver && !showForm}
+     on:dragover|preventDefault={() => { if (!showForm) pageDragOver = true; }}
+     on:dragleave|self={() => { pageDragOver = false; }}
+     on:drop={handlePageDrop}>
   <div class="records-header">
     <div class="search-bar">
       <input
@@ -676,6 +714,12 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+  }
+
+  .records-page.page-drag-active {
+    outline: 2px dashed var(--accent, #00ff88);
+    outline-offset: -4px;
+    background: rgba(0, 255, 136, 0.03);
   }
 
   .records-header {
