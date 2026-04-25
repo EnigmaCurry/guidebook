@@ -924,9 +924,14 @@
     const authOk = await checkAuthStatus();
     if (!authOk) return;
     connectSSE(); // connect early to prevent auto-shutdown during welcome
-    await checkWelcome();
-    if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
     await checkDatabaseMode();
+    // If a database is already open, skip the welcome screen
+    if (databaseOpen) {
+      welcomeAcknowledged = true;
+    } else {
+      await checkWelcome();
+      if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
+    }
     setDatabase(currentDatabase);
     dualSplit = parseFloat(storageGet("dualSplit")) || 50;
     if (databaseOpen) {
