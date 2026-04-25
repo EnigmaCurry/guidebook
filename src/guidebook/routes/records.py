@@ -1,16 +1,72 @@
+import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_serializer, field_validator
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from guidebook.db import Record, get_session
+from guidebook.sse import _get_shutdown_event
 
 logger = logging.getLogger("guidebook")
 
 router = APIRouter(prefix="/api/records", tags=["records"])
+
+_subscribers: list[asyncio.Queue[str]] = []
+
+
+def _broadcast_records_changed() -> None:
+    msg = f"event: records-changed\ndata: {json.dumps({})}\n\n"
+    for q in list(_subscribers):
+        try:
+            q.put_nowait(msg)
+        except asyncio.QueueFull:
+            pass
+
+
+async def _sse_generator(queue: asyncio.Queue[str], request: Request):
+    shutdown_evt = _get_shutdown_event()
+    try:
+        while not shutdown_evt.is_set():
+            if await request.is_disconnected():
+                return
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=5)
+                yield msg
+            except asyncio.TimeoutError:
+                yield "event: keepalive\ndata: {}\n\n"
+            if shutdown_evt.is_set():
+                while not queue.empty():
+                    yield queue.get_nowait()
+                return
+    except (asyncio.CancelledError, GeneratorExit):
+        return
+
+
+@router.get("/stream")
+async def records_stream(request: Request):
+    queue: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
+    _subscribers.append(queue)
+
+    async def cleanup_generator():
+        try:
+            async for msg in _sse_generator(queue, request):
+                yield msg
+        except (asyncio.CancelledError, GeneratorExit):
+            pass
+        finally:
+            if queue in _subscribers:
+                _subscribers.remove(queue)
+
+    return StreamingResponse(
+        cleanup_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 class RecordCreate(BaseModel):
@@ -107,6 +163,7 @@ async def create_record(
     session.add(record)
     await session.commit()
     await session.refresh(record)
+    _broadcast_records_changed()
     return record
 
 
@@ -132,6 +189,7 @@ async def update_record(
     record.updated_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(record)
+    _broadcast_records_changed()
     return record
 
 
@@ -140,6 +198,7 @@ async def delete_all_records(session: AsyncSession = Depends(get_session)):
     result = await session.execute(delete(Record))
     await session.commit()
     logger.info("Deleted all records: %d removed", result.rowcount)
+    _broadcast_records_changed()
     return {"deleted": result.rowcount}
 
 
@@ -150,3 +209,4 @@ async def delete_record(record_id: int, session: AsyncSession = Depends(get_sess
         raise HTTPException(status_code=404, detail="Record not found")
     await session.delete(record)
     await session.commit()
+    _broadcast_records_changed()

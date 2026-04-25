@@ -1,5 +1,5 @@
 <script>
-  import { onMount, createEventDispatcher, tick } from "svelte";
+  import { onMount, onDestroy, createEventDispatcher, tick } from "svelte";
   import { storageGet, storageSet } from "./storage.js";
 
   const dispatch = createEventDispatcher();
@@ -215,8 +215,24 @@
     formDirty = true;
   }
 
+  let recordsEventSource = null;
+
+  function connectRecordsSSE() {
+    if (recordsEventSource) recordsEventSource.close();
+    recordsEventSource = new EventSource("/api/records/stream");
+    recordsEventSource.addEventListener("records-changed", () => {
+      fetchRecords();
+    });
+    recordsEventSource.onerror = () => {};
+  }
+
   onMount(() => {
     fetchRecords();
+    connectRecordsSSE();
+  });
+
+  onDestroy(() => {
+    if (recordsEventSource) recordsEventSource.close();
   });
 
   async function fetchRecords() {
