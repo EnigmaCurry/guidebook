@@ -80,8 +80,12 @@
       let pct = databaseRight
         ? 100 - ((clientX - rect.left) / rect.width) * 100
         : ((clientX - rect.left) / rect.width) * 100;
-      if (pct < 10) pct = 10;
-      if (pct > 90) pct = 90;
+      const minPx = 180;
+      const minPct = (minPx / rect.width) * 100;
+      const lo = Math.max(minPct, 10);
+      const hi = Math.min(100 - minPct, 90);
+      if (pct < lo) pct = lo;
+      if (pct > hi) pct = hi;
       dualSplit = pct;
     };
     const onUp = () => {
