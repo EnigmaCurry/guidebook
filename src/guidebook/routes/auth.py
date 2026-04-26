@@ -26,6 +26,8 @@ DISABLE_AUTH = False
 AUTH_SLOTS: int = 1  # --auth-slots (default 1)
 AUTH_TTL: int = AUTH_COOKIE_MAX_AGE_DEFAULT  # --auth-ttl (default 10 years)
 ALLOW_TRANSFER: bool = False  # --allow-transfer
+PROXY_MODE: bool = False  # --proxy
+TLS_ENABLED: bool = True  # True unless --no-tls
 
 # JWT signing secret — loaded at startup by main.py
 JWT_SECRET: str = ""
@@ -366,12 +368,17 @@ async def login_with_token(
 
     # Issue a JWT containing the session ID — this is what goes in the cookie
     jwt_token = _create_jwt(tok.id)
+    if PROXY_MODE:
+        is_secure = request.headers.get("x-forwarded-proto", "").lower() == "https"
+    else:
+        is_secure = TLS_ENABLED
     response.set_cookie(
         AUTH_COOKIE_NAME,
         jwt_token,
         max_age=AUTH_TTL,
         httponly=True,
         samesite="lax",
+        secure=is_secure,
         path="/",
     )
     return LoginResponse(status="ok")

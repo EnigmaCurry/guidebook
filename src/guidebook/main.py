@@ -195,6 +195,25 @@ async def http_middleware(request: Request, call_next):
         response.headers["Cache-Control"] = "no-store"
     else:
         response.headers["Cache-Control"] = "no-cache"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'wasm-unsafe-eval'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; "
+        "connect-src 'self'"
+    )
+    if _auth_module.PROXY_MODE:
+        if request.headers.get("x-forwarded-proto", "").lower() == "https":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+    elif _auth_module.TLS_ENABLED:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
     if response.status_code >= 400:
         logger.warning(
             '%s - "%s %s" %s',
@@ -585,6 +604,7 @@ environment variables (overridden by command line options):
   GUIDEBOOK_AUTH_TTL        Session cookie TTL in seconds (default: 10 years)
   GUIDEBOOK_ALLOW_TRANSFER  Enable session transfer (default: false)
   GUIDEBOOK_NO_TLS          Disable TLS (default: false)
+  GUIDEBOOK_PROXY           Enable reverse proxy mode (default: false)
 """
     parser = argparse.ArgumentParser(
         description="Guidebook - Web Application Template",
@@ -659,6 +679,11 @@ environment variables (overridden by command line options):
         action="store_true",
         help="Disable TLS (serve plain HTTP instead of HTTPS)",
     )
+    parser.add_argument(
+        "--proxy",
+        action="store_true",
+        help="Enable reverse proxy mode (trust X-Forwarded-* headers)",
+    )
     args = parser.parse_args()
 
     global NO_SHUTDOWN
@@ -688,6 +713,20 @@ environment variables (overridden by command line options):
                 _auth_module.AUTH_TTL = max(30, int(val))
             except ValueError:
                 pass
+    # Apply --no-tls / GUIDEBOOK_NO_TLS
+    no_tls = args.no_tls or os.environ.get("GUIDEBOOK_NO_TLS", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    # Apply --proxy / GUIDEBOOK_PROXY
+    proxy_mode = args.proxy or os.environ.get("GUIDEBOOK_PROXY", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    _auth_module.PROXY_MODE = proxy_mode
+    _auth_module.TLS_ENABLED = not no_tls
     if args.name and args.name.startswith("__"):
         print(
             "Error: database name must not start with '__' (reserved for system databases)"
@@ -835,11 +874,6 @@ environment variables (overridden by command line options):
         host = "127.0.0.1"
     port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "4280"))
 
-    no_tls = args.no_tls or os.environ.get("GUIDEBOOK_NO_TLS", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
     scheme = "http" if no_tls else "https"
 
     # Check if guidebook is already running on this port
@@ -886,6 +920,17 @@ environment variables (overridden by command line options):
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
         logger.info("TLS enabled (self-signed certificate)")
 
+    proxy_kwargs = {}
+    if proxy_mode:
+        proxy_kwargs = {"proxy_headers": True, "forwarded_allow_ips": "*"}
+        logger.info("Reverse proxy mode enabled (trusting X-Forwarded-* headers)")
+
     uvicorn.run(
-        app, host=host, port=port, access_log=False, log_config=None, **ssl_kwargs
+        app,
+        host=host,
+        port=port,
+        access_log=False,
+        log_config=None,
+        **ssl_kwargs,
+        **proxy_kwargs,
     )
