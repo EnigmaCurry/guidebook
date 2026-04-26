@@ -171,12 +171,8 @@ async def http_middleware(request: Request, call_next):
                         content={"detail": "Authentication required"},
                     )
 
-    # Auth check for non-API routes (HTML pages, skip hashed static assets)
-    if (
-        not path.startswith("/api/")
-        and not path.startswith("/assets/")
-        and "auth_token" not in request.url.query
-    ):
+    # Auth check for non-API routes (HTML pages and static assets)
+    if not path.startswith("/api/") and "auth_token" not in request.url.query:
         from guidebook.routes.auth import check_auth
         from guidebook.db import db_manager
 
@@ -211,8 +207,10 @@ async def http_middleware(request: Request, call_next):
 
     if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    elif path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     else:
-        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
