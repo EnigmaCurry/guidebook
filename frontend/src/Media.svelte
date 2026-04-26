@@ -4,6 +4,7 @@
   const dispatch = createEventDispatcher();
 
   export let searchQuery = "";
+  export let selectedTags = [];
   export let selectedRecordId = null;
 
   let media = [];
@@ -19,7 +20,7 @@
   $: previewItem = previewIndex >= 0 && previewIndex < displayMedia.length
     ? displayMedia[previewIndex] : null;
 
-  $: searchQuery, typeFilter, fetchMedia();
+  $: searchQuery, selectedTags, typeFilter, fetchMedia();
 
   function downloadUrl(item) {
     return `/api/records/${item.record_id}/attachments/${item.id}/download`;
@@ -36,6 +37,7 @@
     try {
       const params = new URLSearchParams();
       if (searchQuery) params.set("q", searchQuery);
+      if (selectedTags.length > 0) params.set("tags", selectedTags.join(","));
       if (typeFilter !== "all") params.set("type", typeFilter);
       const qs = params.toString();
       const url = "/api/media/" + (qs ? `?${qs}` : "");

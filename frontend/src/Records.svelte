@@ -245,6 +245,7 @@
     }
     selectedTags = selectedTags;
     selectedIndex = -1;
+    dispatch("tagchange", [...selectedTags]);
   }
 
   $: sortedRecords = (() => {

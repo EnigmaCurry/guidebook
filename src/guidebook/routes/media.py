@@ -43,6 +43,7 @@ class MediaItem(BaseModel):
 async def list_media(
     q: str | None = Query(None, description="Search query"),
     type: str | None = Query(None, description="Filter: image, video, audio, document"),
+    tags: str | None = Query(None, description="Comma-separated tags to filter by (AND)"),
     session: AsyncSession = Depends(get_session),
 ):
     stmt = (
@@ -62,6 +63,18 @@ async def list_media(
     else:
         # "all" — no content_type restriction, show every attachment
         pass
+    if tags:
+        for tag in tags.split(","):
+            tag = tag.strip()
+            if tag:
+                stmt = stmt.where(
+                    or_(
+                        Record.tags.ilike(f"{tag},%"),
+                        Record.tags.ilike(f"%, {tag},%"),
+                        Record.tags.ilike(f"%, {tag}"),
+                        Record.tags == tag,
+                    )
+                )
     if q and len(q) >= 2:
         pattern = f"%{q}%"
         stmt = stmt.where(
