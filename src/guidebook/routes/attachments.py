@@ -9,7 +9,7 @@ from pydantic import BaseModel, field_serializer
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import Attachment, Record, DB_DIR, db_manager, get_session
+from guidebook.db import Attachment, Record, DB_DIR, db_manager, get_session, _ensure_data_dir
 from guidebook.routes.records import _broadcast_records_changed
 
 router = APIRouter(
@@ -82,7 +82,7 @@ async def upload_attachments(
 ):
     record = await _get_record(record_id, session)
     att_dir = _attachments_dir(record.uuid)
-    att_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_data_dir(att_dir)
 
     existing = {p.name for p in att_dir.iterdir()} if att_dir.exists() else set()
     created = []

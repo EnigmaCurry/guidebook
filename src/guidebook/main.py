@@ -702,9 +702,9 @@ environment variables (overridden by command line options):
         import secrets
         import sqlite3
 
-        from guidebook.db import META_DB_PATH
+        from guidebook.db import META_DB_PATH, _ensure_data_dir
 
-        META_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _ensure_data_dir(META_DB_PATH.parent)
         conn = sqlite3.connect(str(META_DB_PATH))
         conn.execute(
             "CREATE TABLE IF NOT EXISTS auth_tokens "
@@ -807,9 +807,9 @@ environment variables (overridden by command line options):
         or (sys.platform == "darwin" and not sys.stderr.isatty())
     )
     if _log_to_file:
-        from guidebook.db import DB_DIR
+        from guidebook.db import DB_DIR, _ensure_data_dir
 
-        DB_DIR.mkdir(parents=True, exist_ok=True)
+        _ensure_data_dir(DB_DIR)
         handler = logging.FileHandler(DB_DIR / "guidebook.log", encoding="utf-8")
         handler.setFormatter(
             logging.Formatter(
