@@ -171,8 +171,12 @@ async def http_middleware(request: Request, call_next):
                         content={"detail": "Authentication required"},
                     )
 
-    # Auth check for non-API routes (HTML pages and static assets)
-    if not path.startswith("/api/") and "auth_token" not in request.url.query:
+    # Auth check for non-API routes (HTML pages, skip hashed static assets)
+    if (
+        not path.startswith("/api/")
+        and not path.startswith("/assets/")
+        and "auth_token" not in request.url.query
+    ):
         from guidebook.routes.auth import check_auth
         from guidebook.db import db_manager
 
