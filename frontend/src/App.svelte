@@ -1300,6 +1300,7 @@
     flex-direction: column;
     min-height: 0;
     max-width: none;
+    margin: 0;
   }
 
   :global(main.picker-mode) {
