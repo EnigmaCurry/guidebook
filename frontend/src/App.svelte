@@ -1154,7 +1154,7 @@
   {:else}
     <div class="page-content">
     {#if page === "records"}
-      <Records bind:this={recordsRef} showForm={false} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
+      <Records bind:this={recordsRef} showForm={false} initialSearchQuery={mediaSearchQuery} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
     {:else if page === "add"}
       <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
     {:else if page === "query"}

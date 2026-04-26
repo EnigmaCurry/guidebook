@@ -12,7 +12,8 @@
 
   let records = [];
   let loading = true;
-  let searchQuery = "";
+  export let initialSearchQuery = "";
+  let searchQuery = initialSearchQuery;
   let searchTimeout = null;
   let formTitle = "";
   let formContent = "";
