@@ -605,20 +605,20 @@ def run() -> None:
 
     env_help = """
 environment variables (overridden by command line options):
-  GUIDEBOOK_DB              Database name to open (default: guidebook)
-  GUIDEBOOK_PICKER          Enable database picker mode (default: false)
-  GUIDEBOOK_NO_BROWSER      Skip opening browser (default: false)
-  GUIDEBOOK_NO_SHUTDOWN     Disable shutdown endpoint (default: false)
-  GUIDEBOOK_HOST            Bind address (default: 127.0.0.1)
-  GUIDEBOOK_PORT            Port (default: 4280)
-  GUIDEBOOK_BROWSER_URL     Override browser URL
-  GUIDEBOOK_DISABLE_AUTH    Disable authentication (default: false)
-  GUIDEBOOK_AUTH_SLOTS      Max concurrent sessions (default: 1)
-  GUIDEBOOK_AUTH_TTL        Session cookie TTL (e.g. 30d, 24h, 3600; default: 30d)
-  GUIDEBOOK_AUTH_RENEW_COOLDOWN  Min time before cookie renewal (default: 24h)
-  GUIDEBOOK_ALLOW_TRANSFER  Enable session transfer (default: false)
-  GUIDEBOOK_NO_TLS          Disable TLS (default: false)
-  GUIDEBOOK_PROXY           Enable reverse proxy mode (default: false)
+  GUIDEBOOK_DB                    Database name to open (default: guidebook)
+  GUIDEBOOK_PICKER                Enable database picker mode (default: false)
+  GUIDEBOOK_NO_BROWSER            Skip opening browser (default: false)
+  GUIDEBOOK_NO_SHUTDOWN           Disable shutdown endpoint (default: false)
+  GUIDEBOOK_HOST                  Bind address (default: 127.0.0.1)
+  GUIDEBOOK_PORT                  Port (default: 4280)
+  GUIDEBOOK_BROWSER_URL           Override browser URL
+  GUIDEBOOK_DISABLE_AUTH          Disable authentication (default: false)
+  GUIDEBOOK_AUTH_SLOTS            Max concurrent sessions (default: 1)
+  GUIDEBOOK_AUTH_TTL              Session cookie TTL (e.g. 30d, 24h, 3600; default: 30d)
+  GUIDEBOOK_AUTH_RENEW_COOLDOWN   Min time before cookie renewal (default: 24h)
+  GUIDEBOOK_ALLOW_TRANSFER        Enable session transfer (default: false)
+  GUIDEBOOK_NO_TLS                Disable TLS (default: false)
+  GUIDEBOOK_PROXY                 Enable reverse proxy mode (default: false)
 """
     parser = argparse.ArgumentParser(
         description="Guidebook - Web Application Template",
