@@ -1299,6 +1299,7 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    max-width: none;
   }
 
   :global(main.picker-mode) {
