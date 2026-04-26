@@ -1743,6 +1743,9 @@
   .dual-narrow .dual-divider {
     display: none;
   }
+  .dual-narrow .dual-pane:first-child {
+    flex: 1 1 100% !important;
+  }
   .dual-narrow .dual-pane:last-child {
     display: none;
   }
