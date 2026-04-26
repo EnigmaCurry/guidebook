@@ -31,8 +31,31 @@
   let attachmentError = "";
   let fileInput;
   let dragOver = false;
-  let previewUrl = null;
-  let previewType = "image";
+  let previewIndex = -1;
+
+  $: previewableAttachments = attachments.filter(a =>
+    a.content_type.startsWith("image/") ||
+    a.content_type.startsWith("video/") ||
+    a.content_type.startsWith("audio/")
+  );
+
+  $: previewAtt = previewIndex >= 0 && previewIndex < previewableAttachments.length
+    ? previewableAttachments[previewIndex] : null;
+
+  function openPreview(att) {
+    const idx = previewableAttachments.findIndex(a => a.id === att.id);
+    if (idx >= 0) previewIndex = idx;
+  }
+
+  function previewNext() {
+    if (previewableAttachments.length === 0) return;
+    previewIndex = (previewIndex + 1) % previewableAttachments.length;
+  }
+
+  function previewPrev() {
+    if (previewableAttachments.length === 0) return;
+    previewIndex = (previewIndex - 1 + previewableAttachments.length) % previewableAttachments.length;
+  }
 
   // --- Column definitions ---
   const defaultColumnOrder = ["timestamp", "title", "tags", "content", "updated_at"];
@@ -416,6 +439,7 @@
     error = "";
     attachments = [];
     attachmentError = "";
+    previewIndex = -1;
     formDirty = false;
     if (wasAutoCreated) await fetchRecords();
     dispatch("navigate", "records");
@@ -607,12 +631,15 @@
                   {#if att.content_type.startsWith("image/")}
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-                    <img src={attDownloadUrl(att)} alt={att.filename} class="attachment-thumb" on:click={() => { previewUrl = attDownloadUrl(att); previewType = "image"; }} />
+                    <img src={attDownloadUrl(att)} alt={att.filename} class="attachment-thumb" on:click={() => openPreview(att)} />
                   {:else if att.content_type.startsWith("audio/")}
-                    <audio controls preload="metadata" src={attDownloadUrl(att)} class="attachment-audio"></audio>
+                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+                    <div class="attachment-thumb audio-thumb" on:click={() => openPreview(att)}>&#9835;</div>
                   {:else if att.content_type.startsWith("video/")}
-                    <video controls preload="metadata" src={attDownloadUrl(att)} class="attachment-video"
-                      on:click|stopPropagation={() => { previewUrl = attDownloadUrl(att); previewType = "video"; }}></video>
+                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+                    <video preload="metadata" src={attDownloadUrl(att)} class="attachment-thumb" on:click={() => openPreview(att)}></video>
                   {/if}
                   <div class="attachment-info">
                     <a href={attDownloadUrl(att)} target="_blank" class="attachment-name">{att.filename}</a>
@@ -704,20 +731,40 @@
   {/if}
 </div>
 
-{#if previewUrl}
+{#if previewAtt}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
-  <div class="lightbox" on:click|self={() => { previewUrl = null; }}>
-    {#if previewType === "video"}
-      <!-- svelte-ignore a11y-media-has-caption -->
-      <video controls autoplay src={previewUrl} class="lightbox-video"></video>
-    {:else}
-      <img src={previewUrl} alt="Preview" />
+  <div class="lightbox" on:click|self={() => { previewIndex = -1; }}>
+    {#if previewableAttachments.length > 1}
+      <button class="lightbox-arrow lightbox-prev" on:click|stopPropagation={previewPrev}>&lsaquo;</button>
+    {/if}
+    <div class="lightbox-content">
+      {#if previewAtt.content_type.startsWith("video/")}
+        <!-- svelte-ignore a11y-media-has-caption -->
+        <video controls autoplay src={attDownloadUrl(previewAtt)} class="lightbox-media"></video>
+      {:else if previewAtt.content_type.startsWith("audio/")}
+        <div class="lightbox-audio-wrap">
+          <div class="lightbox-audio-icon">&#9835;</div>
+          <div class="lightbox-audio-name">{previewAtt.filename}</div>
+          <audio controls autoplay src={attDownloadUrl(previewAtt)} class="lightbox-audio"></audio>
+        </div>
+      {:else}
+        <img src={attDownloadUrl(previewAtt)} alt={previewAtt.filename} />
+      {/if}
+    </div>
+    {#if previewableAttachments.length > 1}
+      <button class="lightbox-arrow lightbox-next" on:click|stopPropagation={previewNext}>&rsaquo;</button>
     {/if}
   </div>
 {/if}
 
-<svelte:window on:keydown={e => { if (e.key === "Escape" && previewUrl) { e.preventDefault(); previewUrl = null; } }} />
+<svelte:window on:keydown={e => {
+  if (previewAtt) {
+    if (e.key === "Escape") { e.preventDefault(); previewIndex = -1; }
+    else if (e.key === "ArrowRight") { e.preventDefault(); previewNext(); }
+    else if (e.key === "ArrowLeft") { e.preventDefault(); previewPrev(); }
+  }
+}} />
 
 <style>
   .records-page {
@@ -1006,6 +1053,20 @@
     opacity: 0.8;
   }
 
+  .audio-thumb {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-card, #2a2d3e);
+    border: 1px solid var(--border, #3a3b3f);
+    font-size: 1.5rem;
+    color: var(--accent, #00ff88);
+  }
+
+  /* --- Lightbox --- */
+
   .lightbox {
     position: fixed;
     inset: 0;
@@ -1015,27 +1076,66 @@
     justify-content: center;
     z-index: 1000;
     cursor: pointer;
+    gap: 0.5rem;
+    padding: 1rem;
   }
 
-  .lightbox img,
-  .lightbox-video {
-    max-width: 90vw;
-    max-height: 90vh;
+  .lightbox-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    cursor: default;
+  }
+
+  .lightbox-content img,
+  .lightbox-media {
+    max-width: 85vw;
+    max-height: 85vh;
     object-fit: contain;
     border-radius: 4px;
   }
 
-  .attachment-audio {
-    width: 100%;
-    max-width: 300px;
-    height: 36px;
+  .lightbox-audio-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    cursor: default;
   }
 
-  .attachment-video {
-    max-width: 300px;
-    max-height: 180px;
-    border-radius: 4px;
+  .lightbox-audio-icon {
+    font-size: 4rem;
+    color: var(--accent, #00ff88);
+  }
+
+  .lightbox-audio-name {
+    color: var(--text, #eaeaea);
+    font-size: 1rem;
+  }
+
+  .lightbox-audio {
+    width: 400px;
+    max-width: 80vw;
+  }
+
+  .lightbox-arrow {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 3rem;
     cursor: pointer;
+    padding: 0.5rem;
+    line-height: 1;
+    flex-shrink: 0;
+    user-select: none;
+    transition: color 0.15s;
+  }
+
+  .lightbox-arrow:hover {
+    color: #fff;
   }
 
   .attachment-info {
