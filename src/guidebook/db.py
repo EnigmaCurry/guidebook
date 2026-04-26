@@ -15,6 +15,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 logger = logging.getLogger("guidebook")
 
+
 def _default_data_dir() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "guidebook"
@@ -23,7 +24,10 @@ def _default_data_dir() -> Path:
         if appdata:
             return Path(appdata) / "guidebook"
         return Path.home() / "AppData" / "Roaming" / "guidebook"
-    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "guidebook"
+    return (
+        Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+        / "guidebook"
+    )
 
 
 DB_DIR = _default_data_dir()
@@ -220,6 +224,18 @@ class AuthToken(GlobalBase):
     jwt_nonce: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
+class ClientCert(GlobalBase):
+    __tablename__ = "client_certs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    serial_number: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False, default="")
+    issued_at: Mapped[float] = mapped_column(Float, nullable=False)
+    expires_at: Mapped[float] = mapped_column(Float, nullable=False)
+    revoked_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fingerprint_sha256: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class DatabaseLockError(Exception):
     """Raised when the database is already locked by another process."""
 
@@ -337,6 +353,24 @@ DATABASE_MIGRATIONS: list = []
 # --- Global DB migrations ---
 
 GLOBAL_MIGRATIONS: list = []
+
+
+def _global_migration_1_client_certs(conn):
+    """Create client_certs table for mTLS support."""
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS client_certs ("
+        "id INTEGER PRIMARY KEY, "
+        "serial_number VARCHAR NOT NULL UNIQUE, "
+        "label VARCHAR NOT NULL DEFAULT '', "
+        "issued_at REAL NOT NULL, "
+        "expires_at REAL NOT NULL, "
+        "revoked_at REAL, "
+        "fingerprint_sha256 VARCHAR NOT NULL"
+        ")"
+    )
+
+
+GLOBAL_MIGRATIONS.append(_global_migration_1_client_certs)
 
 
 class DatabaseManager:

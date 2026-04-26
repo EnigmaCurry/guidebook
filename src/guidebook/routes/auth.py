@@ -161,6 +161,9 @@ class AuthStatusResponse(BaseModel):
     slots: int
     session_count: int
     allow_transfer: bool
+    tls_enabled: bool
+    proxy_mode: bool
+    mtls_mode: str
 
 
 @router.get("/status")
@@ -177,12 +180,16 @@ async def auth_status(
     if not enabled:
         authenticated = True  # no auth needed
     count = await _token_count(gdb)
+    mtls_mode = await _get_setting(gdb, "mtls_mode") or "disabled"
     return AuthStatusResponse(
         enabled=enabled,
         authenticated=authenticated,
         slots=AUTH_SLOTS,
         session_count=count,
         allow_transfer=ALLOW_TRANSFER,
+        tls_enabled=TLS_ENABLED,
+        proxy_mode=PROXY_MODE,
+        mtls_mode=mtls_mode,
     )
 
 

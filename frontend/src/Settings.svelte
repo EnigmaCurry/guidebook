@@ -225,8 +225,110 @@
     return `in ${Math.floor(fdiff / 86400)}d`;
   }
 
-  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); }
+  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); }
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
+
+  // mTLS
+  let mtlsMode = "disabled";
+  let mtlsTlsEnabled = true;
+  let mtlsProxyMode = false;
+  let mtlsCaInitialized = false;
+  let mtlsCerts = [];
+  let mtlsGenerating = false;
+  let mtlsError = "";
+  let mtlsShowCertModal = false;
+  let mtlsCertDownloadToken = "";
+  let mtlsCertPassword = "";
+  let mtlsCertFingerprint = "";
+  let mtlsCertLabel = "";
+  let mtlsActivating = false;
+
+  async function loadMtlsStatus() {
+    try {
+      const res = await fetch("/api/auth/mtls/status");
+      if (res.ok) {
+        const data = await res.json();
+        mtlsMode = data.mode;
+        mtlsTlsEnabled = data.tls_enabled;
+        mtlsProxyMode = data.proxy_mode;
+        mtlsCaInitialized = data.ca_initialized;
+        mtlsCerts = data.certs;
+      }
+    } catch {}
+  }
+
+  async function generateClientCert() {
+    mtlsError = "";
+    mtlsGenerating = true;
+    try {
+      const res = await fetch("/api/auth/mtls/generate-cert", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        mtlsCertDownloadToken = data.download_token;
+        mtlsCertPassword = data.password;
+        mtlsCertFingerprint = data.fingerprint;
+        mtlsCertLabel = data.label;
+        mtlsShowCertModal = true;
+      } else {
+        const data = await res.json().catch(() => null);
+        mtlsError = data?.detail || "Failed to generate certificate";
+      }
+    } catch (e) {
+      mtlsError = e.message;
+    }
+    mtlsGenerating = false;
+    await loadMtlsStatus();
+  }
+
+  function dismissCertModal() {
+    mtlsShowCertModal = false;
+    mtlsCertDownloadToken = "";
+    mtlsCertPassword = "";
+    mtlsCertFingerprint = "";
+    mtlsCertLabel = "";
+  }
+
+  function downloadCert() {
+    if (mtlsCertDownloadToken) {
+      window.open(`/api/auth/mtls/download/${mtlsCertDownloadToken}`, "_blank");
+    }
+  }
+
+  async function revokeClientCert(certId) {
+    mtlsError = "";
+    try {
+      const res = await fetch(`/api/auth/mtls/certs/${certId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        mtlsError = data?.detail || "Failed to revoke certificate";
+      }
+    } catch (e) {
+      mtlsError = e.message;
+    }
+    await loadMtlsStatus();
+  }
+
+  async function activateMtls(mode) {
+    mtlsError = "";
+    mtlsActivating = true;
+    try {
+      const res = await fetch("/api/auth/mtls/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      if (res.ok) {
+        await loadMtlsStatus();
+        await loadAuthStatus();
+      } else {
+        const data = await res.json().catch(() => null);
+        mtlsError = data?.detail || "Failed to activate mTLS";
+      }
+    } catch (e) {
+      mtlsError = e.message;
+    }
+    mtlsActivating = false;
+  }
 
   async function loadDbInfo() {
     try {
@@ -1051,6 +1153,7 @@
     fetchNoShutdown();
     loadAuthStatus();
     loadAuthSessions();
+    loadMtlsStatus();
   });
 
   onDestroy(() => {
@@ -1445,7 +1548,89 @@
   <div class="tab-scroll"><div class="tab-content" use:masonry>
   <section class="settings-section">
     <h3>Authentication</h3>
-    <p class="hint">Authentication is currently enforced. Only browsers with a valid session cookie can access the app. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off.</p>
+    <p class="hint">Authentication is currently enforced. Only browsers with a valid session cookie{#if mtlsMode !== "disabled"} or mTLS client certificate{/if} can access the app. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off.</p>
+  </section>
+
+  <section class="settings-section">
+    <h3>Client Certificates (mTLS)</h3>
+    {#if !mtlsTlsEnabled}
+      <p class="hint">mTLS is unavailable because TLS is disabled. Remove <code style="font-size: 0.75rem; white-space: nowrap">--no-tls</code> to enable.</p>
+    {:else if mtlsProxyMode}
+      <p class="hint">mTLS is unavailable in proxy mode. Configure mTLS at your reverse proxy instead.</p>
+    {:else}
+      <p class="hint">
+        mTLS mode: <strong>{mtlsMode}</strong>
+        {#if mtlsMode === "disabled"}
+          — Client certificate authentication is not active.
+        {:else if mtlsMode === "optional"}
+          — Both cookie and client certificate authentication are accepted.
+        {:else if mtlsMode === "required"}
+          — Only client certificates are accepted. Cookie auth is disabled.
+        {/if}
+      </p>
+
+      <div class="setting-row" style="gap: 0.5rem; flex-wrap: wrap;">
+        {#if mtlsMode === "disabled"}
+          <button on:click={() => activateMtls("optional")} disabled={mtlsActivating}>
+            {mtlsActivating ? "Activating..." : "Enable mTLS (Optional)"}
+          </button>
+        {:else if mtlsMode === "optional"}
+          <button on:click={() => activateMtls("required")} disabled={mtlsActivating}>
+            {mtlsActivating ? "Activating..." : "Require mTLS Only"}
+          </button>
+          <button class="warning-btn" on:click={() => activateMtls("disabled")} disabled={mtlsActivating}>
+            Disable mTLS
+          </button>
+        {:else if mtlsMode === "required"}
+          <button class="warning-btn" on:click={() => activateMtls("optional")} disabled={mtlsActivating}>
+            Downgrade to Optional
+          </button>
+          <button class="danger-btn" on:click={() => activateMtls("disabled")} disabled={mtlsActivating}>
+            Disable mTLS
+          </button>
+        {/if}
+      </div>
+      {#if mtlsMode !== "disabled"}
+        <p class="hint" style="margin-top: 0.5rem; color: var(--warning-color, #e6a700);">Mode changes require a server restart to take effect.</p>
+      {/if}
+
+      {#if mtlsMode !== "disabled" || mtlsCerts.length > 0}
+        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Generate Client Certificate</h4>
+        <div class="setting-row">
+          <button on:click={generateClientCert} disabled={mtlsGenerating}>
+            {mtlsGenerating ? "Generating..." : "Generate Client Certificate"}
+          </button>
+        </div>
+      {/if}
+
+      {#if mtlsCerts.length > 0}
+        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Issued Certificates</h4>
+        <div class="session-list">
+          {#each mtlsCerts as cert (cert.id)}
+            <div class="session-item" class:session-revoked={cert.revoked_at}>
+              <div class="session-info">
+                <span class="session-label">
+                  {cert.label}
+                  {#if cert.revoked_at}<em style="color: var(--danger-color, #cc3333);"> (revoked)</em>{/if}
+                </span>
+                <span class="session-meta">
+                  Fingerprint: {cert.fingerprint_sha256.slice(0, 16)}...
+                  — Issued {formatAuthTime(cert.issued_at)}
+                  — Expires {formatAuthTime(cert.expires_at)}
+                </span>
+              </div>
+              {#if !cert.revoked_at}
+                <button class="session-delete" on:click={() => revokeClientCert(cert.id)} title="Revoke this certificate">Revoke</button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {/if}
+
+    {#if mtlsError}
+      <p class="danger-error" style="margin-top: 0.5rem;">{mtlsError}</p>
+    {/if}
   </section>
 
 
@@ -1526,6 +1711,52 @@
   {/if}
 
 </div>
+
+{#if mtlsShowCertModal}
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="mtls-modal-backdrop" on:click={dismissCertModal}>
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="mtls-modal" on:click|stopPropagation>
+    <div class="mtls-modal-header">
+      <h3>Client Certificate Generated</h3>
+      <button class="modal-close" on:click={dismissCertModal}>&times;</button>
+    </div>
+    <div class="mtls-modal-body">
+      <p style="color: var(--warning-color, #e6a700); font-weight: bold; margin-bottom: 1rem;">
+        This information will not be shown again. The download link is single-use.
+      </p>
+      <div style="margin-bottom: 1rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Label</span>
+        <div style="font-family: monospace;">{mtlsCertLabel}</div>
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Fingerprint (SHA-256)</span>
+        <div style="font-family: monospace; font-size: 0.8rem; word-break: break-all;">{mtlsCertFingerprint}</div>
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Import Password</span>
+        <div class="token-url-box">
+          <input type="text" value={mtlsCertPassword} readonly on:click={(e) => e.target.select()} />
+          <button class="copy-btn" class:copied={copiedField === 'mtls-pw'} on:click={() => copyToClipboard(mtlsCertPassword, 'mtls-pw')}>{copiedField === 'mtls-pw' ? 'Copied!' : 'Copy'}</button>
+        </div>
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <button on:click={downloadCert} style="width: 100%;">Download .p12 Certificate</button>
+      </div>
+      <p class="hint">
+        1. Download the .p12 file above.<br>
+        2. Import it into your browser's certificate store using the password shown.<br>
+        3. When prompted by the server, select this certificate.
+      </p>
+    </div>
+    <div class="mtls-modal-footer">
+      <button on:click={dismissCertModal}>Done</button>
+    </div>
+  </div>
+</div>
+{/if}
 
 <style>
   .settings {
@@ -2070,5 +2301,48 @@
     background: var(--success-color, #2ea043);
     color: #fff;
     border-color: var(--success-color, #2ea043);
+  }
+
+  /* mTLS modal */
+  .mtls-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mtls-modal {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    max-width: 480px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .mtls-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .mtls-modal-header h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .mtls-modal-body {
+    padding: 1rem;
+  }
+  .mtls-modal-footer {
+    padding: 1rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+  }
+  .session-revoked {
+    opacity: 0.5;
   }
 </style>
