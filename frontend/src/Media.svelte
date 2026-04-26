@@ -86,7 +86,7 @@
   {#if loading && media.length === 0}
     <p class="status">Loading media...</p>
   {:else if displayMedia.length === 0}
-    <p class="status">{searchQuery || selectedRecordId ? "No media matches your filter." : "No media attachments yet."}</p>
+    <p class="status">{searchQuery || selectedRecordId || selectedTags.length > 0 || typeFilter !== "all" ? "No media attachments matching filters." : "No media attachments yet."}</p>
   {:else}
     <div class="media-grid">
       {#each displayMedia as item, i (item.id)}
