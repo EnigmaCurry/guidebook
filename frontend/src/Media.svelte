@@ -170,6 +170,7 @@
 
   .media-filter-bar {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0.25rem;
     padding: 0.25rem 0.25rem 0.5rem;
