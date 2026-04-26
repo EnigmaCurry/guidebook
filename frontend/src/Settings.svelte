@@ -2359,8 +2359,14 @@
   }
   .mtls-radio input[type="radio"] {
     margin: 0;
-    flex-shrink: 0;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
     cursor: pointer;
+  }
+  .mtls-radio span {
+    flex: 1;
+    min-width: 0;
   }
   .mtls-radio input[type="radio"]:disabled {
     cursor: wait;
