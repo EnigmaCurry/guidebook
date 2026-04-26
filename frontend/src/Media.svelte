@@ -102,6 +102,7 @@
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="lightbox" on:click|self={() => { previewIndex = -1; }}>
+    <button class="lightbox-close" on:click|stopPropagation={() => { previewIndex = -1; }}>&times;</button>
     {#if displayMedia.length > 1}
       <button class="lightbox-arrow lightbox-prev" on:click|stopPropagation={previewPrev}>&lsaquo;</button>
     {/if}
@@ -295,6 +296,23 @@
   .lightbox-audio {
     width: 400px;
     max-width: 80vw;
+  }
+
+  .lightbox-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 2.5rem;
+    cursor: pointer;
+    z-index: 10;
+    line-height: 1;
+  }
+
+  .lightbox-close:hover {
+    color: #fff;
   }
 
   .lightbox-arrow {
