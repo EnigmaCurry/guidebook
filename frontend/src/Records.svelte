@@ -445,6 +445,7 @@
     formId = null;
     formAutoCreated = false;
     selectedIndex = -1;
+    dispatch("editchange", null);
     dispatch("selectionchange", null);
     formTitle = "";
     formContent = "";
