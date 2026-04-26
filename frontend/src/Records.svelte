@@ -640,6 +640,11 @@
              on:dragleave={() => { dragOver = false; }}
              on:drop={handleDrop}>
           <label>Attachments</label>
+          <div class="attachment-upload">
+            <button class="attachment-choose-btn" on:click={() => fileInput.click()}>Choose files</button>
+            <span class="drop-hint">or drag &amp; drop / paste</span>
+            <input bind:this={fileInput} type="file" multiple style="display:none" on:change={handleFileInput} />
+          </div>
           {#if attachments.length > 0}
             <div class="attachment-list">
               {#each attachments as att (att.id)}
@@ -666,11 +671,6 @@
               {/each}
             </div>
           {/if}
-          <div class="attachment-upload">
-            <button class="attachment-choose-btn" on:click={() => fileInput.click()}>Choose files</button>
-            <span class="drop-hint">or drag &amp; drop / paste</span>
-            <input bind:this={fileInput} type="file" multiple style="display:none" on:change={handleFileInput} />
-          </div>
           {#if uploadingFiles}
             <p class="status">Uploading...</p>
           {/if}
@@ -1048,7 +1048,9 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
-    margin-bottom: 0.5rem;
+    margin-top: 0.5rem;
+    max-height: 270px;
+    overflow-y: auto;
   }
 
   .attachment-item {
