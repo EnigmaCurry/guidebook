@@ -1147,23 +1147,27 @@
 
   .attachment-list {
     display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
+    flex-direction: row;
+    gap: 0.5rem;
     margin-top: 0.5rem;
-    max-height: 270px;
-    overflow-y: auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.25rem;
   }
 
   .attachment-item {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    align-items: center;
+    gap: 0.25rem;
     font-size: 0.8rem;
+    flex-shrink: 0;
+    width: 80px;
   }
 
   .attachment-thumb {
-    max-height: 60px;
-    max-width: 80px;
+    width: 80px;
+    height: 60px;
     border-radius: 4px;
     object-fit: cover;
     cursor: pointer;
@@ -1277,9 +1281,11 @@
 
   .attachment-info {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.1rem;
     min-width: 0;
+    width: 100%;
   }
 
   .attachment-name {
@@ -1288,7 +1294,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 200px;
+    max-width: 80px;
+    font-size: 0.65rem;
   }
 
   .attachment-name:hover {
