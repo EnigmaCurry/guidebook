@@ -12,6 +12,7 @@ from guidebook.db import (
     GLOBAL_DEFAULTABLE_KEYS,
     GlobalSetting,
     Setting,
+    _ensure_data_dir,
     db_manager,
     get_global_session,
     get_session,
@@ -155,7 +156,7 @@ async def backup_database():
 
     backup_dir = db_path.parent / "backups"
     try:
-        backup_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_data_dir(backup_dir)
     except OSError as e:
         raise HTTPException(
             status_code=400, detail=f"Cannot create directory: {backup_dir}: {e}"
@@ -307,7 +308,7 @@ async def _auto_backup_loop(initial_delay: float = 5):
                 db_path = db_manager.db_path
                 if db_path and db_path.exists():
                     backup_dir = db_path.parent / "backups"
-                    backup_dir.mkdir(parents=True, exist_ok=True)
+                    _ensure_data_dir(backup_dir)
                     ts = now.strftime("%Y-%m-%d_%H%M%Sz")
                     name = f"{db_path.stem}_autobackup_{ts}{db_path.suffix}"
                     dest = backup_dir / name

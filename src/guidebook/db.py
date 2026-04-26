@@ -16,6 +16,22 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 logger = logging.getLogger("guidebook")
 
 DB_DIR = Path.home() / ".local" / "guidebook"
+
+
+def _ensure_data_dir(path: Path) -> None:
+    """Create a directory with owner-only permissions (0o700).
+
+    Uses chmod after mkdir because mkdir's mode argument is subject to umask.
+    """
+    path.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32":
+        path.chmod(0o700)
+
+
+def _secure_file(path: Path) -> None:
+    """Set owner-only read/write permissions (0o600) on a file."""
+    if sys.platform != "win32" and path.exists():
+        path.chmod(0o600)
 META_DB_PATH = DB_DIR / "__global.db"
 _LAST_OPENED_FILE = DB_DIR / "last_opened.json"
 
@@ -54,8 +70,9 @@ def _read_last_opened() -> dict[str, float]:
 def _record_last_opened(name: str) -> None:
     data = _read_last_opened()
     data[name] = time.time()
-    _LAST_OPENED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _ensure_data_dir(_LAST_OPENED_FILE.parent)
     _LAST_OPENED_FILE.write_text(json.dumps(data))
+    _secure_file(_LAST_OPENED_FILE)
 
 
 def _lock_exclusive(f) -> None:
@@ -269,7 +286,7 @@ def _backup_before_migration(db_path: Path, current_version: int, target_version
     import shutil
 
     backup_dir = db_path.parent / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    _ensure_data_dir(backup_dir)
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%Sz")
     backup_name = f"{db_path.stem}_premigrate_v{current_version}_to_v{target_version}_{ts}{db_path.suffix}"
     backup_path = backup_dir / backup_name
@@ -460,7 +477,7 @@ class DatabaseManager:
     async def open(self, db_path: str | Path) -> None:
         await self.close()
         db_path = Path(db_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
+        _ensure_data_dir(db_path.parent)
         self._acquire_lock(db_path)
         self.db_path = db_path
         # Back up before migration if needed
@@ -503,6 +520,7 @@ class DatabaseManager:
             async with self.engine.begin() as conn:
                 await conn.execute(text("VACUUM"))
                 logger.info("Vacuumed database after migration")
+        _secure_file(db_path)
         async with self.engine.connect() as conn:
             sv = await conn.run_sync(lambda c: _get_schema_version(c, "settings"))
         await self.record_last_opened(db_path.stem)
@@ -520,7 +538,7 @@ class DatabaseManager:
         """Open the shared __global.db with WAL mode for multi-process safety."""
         if self.global_engine is not None:
             return
-        META_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _ensure_data_dir(META_DB_PATH.parent)
         # Back up before migration if needed
         if META_DB_PATH.exists() and GLOBAL_MIGRATIONS:
             import sqlite3
@@ -550,6 +568,7 @@ class DatabaseManager:
             await conn.run_sync(
                 lambda c: _run_migrations(c, GLOBAL_MIGRATIONS, "settings")
             )
+        _secure_file(META_DB_PATH)
         # Migrate last_opened.json if it exists
         await self._migrate_last_opened()
         async with self.global_engine.connect() as conn:
@@ -659,8 +678,20 @@ def cleanup_stale_locks() -> None:
             pass  # Genuinely locked by another process
 
 
+def _secure_existing_data() -> None:
+    """Fix permissions on existing data directory contents (migration for existing installs)."""
+    if sys.platform == "win32" or not DB_DIR.exists():
+        return
+    for item in DB_DIR.iterdir():
+        if item.is_dir():
+            item.chmod(0o700)
+        elif item.is_file():
+            item.chmod(0o600)
+
+
 async def init_db() -> None:
-    DB_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_data_dir(DB_DIR)
+    _secure_existing_data()
     cleanup_stale_locks()
     await db_manager.open_global()
     if db_manager.picker_mode:
