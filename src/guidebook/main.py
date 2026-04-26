@@ -151,7 +151,7 @@ def _rate_limit_429(retry_after: int) -> Response:
 
 @app.middleware("http")
 async def http_middleware(request: Request, call_next):
-    from guidebook.ratelimit import auth_limiter, query_limiter, upload_limiter
+    from guidebook.ratelimit import auth_limiter
 
     path = request.url.path
     client_ip = request.client.host if request.client else "unknown"
@@ -161,24 +161,6 @@ async def http_middleware(request: Request, call_next):
         allowed, retry_after = auth_limiter.check(client_ip)
         if not allowed:
             return _rate_limit_429(retry_after)
-
-    # Rate limit: query endpoints
-    if path.startswith("/api/query/") or path == "/api/query":
-        allowed, retry_after = query_limiter.check(client_ip)
-        if not allowed:
-            return _rate_limit_429(retry_after)
-        query_limiter.record(client_ip)
-
-    # Rate limit: upload endpoints
-    if (
-        request.method == "POST"
-        and "/attachments" in path
-        and path.startswith("/api/records/")
-    ):
-        allowed, retry_after = upload_limiter.check(client_ip)
-        if not allowed:
-            return _rate_limit_429(retry_after)
-        upload_limiter.record(client_ip)
 
     # Auth check for API routes
     if path.startswith("/api/") and not any(

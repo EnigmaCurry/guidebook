@@ -62,9 +62,3 @@ class RateLimiter:
 
 # Auth: 5 failed attempts per 5-minute window
 auth_limiter = RateLimiter(max_requests=5, window_seconds=300)
-
-# Query: 10 requests per minute
-query_limiter = RateLimiter(max_requests=10, window_seconds=60)
-
-# Upload: 5 uploads per minute
-upload_limiter = RateLimiter(max_requests=5, window_seconds=60)
