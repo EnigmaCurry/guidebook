@@ -68,6 +68,47 @@
   let mediaSelectedRecordId = null;
   let dualSplit = 50;
   let draggingSplit = false;
+  let globalDragOver = false;
+  let globalDragCounter = 0;
+
+  function onGlobalDragEnter(e) {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    globalDragCounter++;
+    globalDragOver = true;
+  }
+  function onGlobalDragOver(e) {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+  }
+  function onGlobalDragLeave() {
+    globalDragCounter--;
+    if (globalDragCounter <= 0) { globalDragCounter = 0; globalDragOver = false; }
+  }
+  async function onGlobalDrop(e) {
+    e.preventDefault();
+    globalDragOver = false;
+    globalDragCounter = 0;
+    if (!databaseOpen || !e.dataTransfer?.files?.length) return;
+    const files = e.dataTransfer.files;
+
+    // If Records component exists and has a form open, upload to it
+    if (recordsRef) {
+      recordsRef.dropFiles(files);
+      return;
+    }
+
+    // Navigate to records page and create a new record with files
+    const isOnRecords = page === "dual" || page === "records" || page === "add";
+    if (!isOnRecords) {
+      navigate(wide ? "dual" : "records");
+      await tick();
+    }
+    // After navigation, recordsRef should be available
+    if (recordsRef) {
+      recordsRef.dropFiles(files);
+    }
+  }
 
   function onDividerDown(e) {
     e.preventDefault();
@@ -961,7 +1002,20 @@
   });
 </script>
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<svelte:body
+  on:dragenter={onGlobalDragEnter}
+  on:dragover={onGlobalDragOver}
+  on:dragleave={onGlobalDragLeave}
+  on:drop={onGlobalDrop}
+/>
+
 <main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:settings-mode={page === "settings"}>
+  {#if globalDragOver && databaseOpen}
+    <div class="global-drop-overlay">
+      <div class="global-drop-message">Drop files to attach</div>
+    </div>
+  {/if}
   {#if authBlocked}
     <div class="auth-blocked">
       <p>You need a login link from the owner to access this site.</p>
@@ -1912,4 +1966,22 @@
   }
 
   .popup-btn-go:hover { background: var(--accent-hover); }
+
+  .global-drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    border: 3px dashed var(--accent, #00ff88);
+  }
+
+  .global-drop-message {
+    color: var(--accent, #00ff88);
+    font-size: 1.5rem;
+    font-weight: bold;
+  }
 </style>

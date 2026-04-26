@@ -341,6 +341,14 @@
     return false;
   }
 
+  export async function dropFiles(files) {
+    if (showForm && formId) {
+      uploadFiles(files);
+    } else {
+      await handlePageDrop_files(files);
+    }
+  }
+
   export function cancelIfClean() {
     if (showForm && !formDirty) {
       cancelForm();
@@ -626,15 +634,10 @@
   function onDocDrop(e) { resetAllDragState(); }
   function onDocDragEnd(e) { resetAllDragState(); }
 
-  async function handlePageDrop(e) {
-    e.preventDefault();
-    pageDragOver = false;
-    pageDragCounter = 0;
-    if (showForm || !e.dataTransfer?.files?.length) return;
-    const files = e.dataTransfer.files;
+  async function handlePageDrop_files(files) {
+    if (!files.length) return;
     const firstFileName = files[0].name.replace(/\.[^.]+$/, "") || "Untitled";
     try {
-      // Create the record
       const res = await fetch("/api/records/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -643,7 +646,6 @@
       if (!res.ok) return;
       const record = await res.json();
 
-      // Upload attachments before opening the form (which may destroy this component)
       const fd = new FormData();
       for (const f of files) fd.append("files", f);
       await fetch(`/api/records/${record.id}/attachments/`, {
@@ -651,21 +653,24 @@
         body: fd,
       });
 
-      // Now open the edit form — this may navigate and destroy this component
       formAutoCreated = true;
       dispatch("dropcreated", record.id);
       editRecord(record);
     } catch {}
   }
+
+  async function handlePageDrop(e) {
+    e.preventDefault();
+    pageDragOver = false;
+    pageDragCounter = 0;
+    if (showForm || !e.dataTransfer?.files?.length) return;
+    await handlePageDrop_files(e.dataTransfer.files);
+  }
 </script>
 
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div class="records-page" class:page-drag-active={pageDragOver && !showForm}
-     on:dragenter|preventDefault={() => { pageDragCounter++; if (!showForm) pageDragOver = true; }}
-     on:dragover|preventDefault
-     on:dragleave={() => { pageDragCounter--; if (pageDragCounter <= 0) { pageDragCounter = 0; pageDragOver = false; } }}
-     on:drop={handlePageDrop}>
+<div class="records-page">
   <div class="records-header">
     <div class="search-bar">
       <input
@@ -709,7 +714,7 @@
              on:dragenter|preventDefault={() => { attDragCounter++; dragOver = true; }}
              on:dragover|preventDefault
              on:dragleave={() => { attDragCounter--; if (attDragCounter <= 0) { attDragCounter = 0; dragOver = false; } }}
-             on:drop={handleDrop}>
+             on:drop|stopPropagation={handleDrop}>
           <label>Attachments</label>
           <div class="attachment-upload">
             <button class="attachment-choose-btn" on:click={() => fileInput.click()}>Choose files</button>
