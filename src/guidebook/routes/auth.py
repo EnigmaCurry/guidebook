@@ -286,14 +286,14 @@ async def check_token(
     body = await request.json()
     token_str = body.get("token", "")
     if not token_str:
-        return {"valid": False}
+        raise HTTPException(401, "Invalid token")
     tok = await _validate_token_by_raw(gdb, token_str)
     if not tok:
-        return {"valid": False}
+        raise HTTPException(401, "Invalid token")
     if tok.last_seen_at is not None and not tok.is_transfer:
-        return {"valid": False}
+        raise HTTPException(401, "Token already used")
     if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
-        return {"valid": False}
+        raise HTTPException(401, "Token expired")
     return {"valid": True}
 
 

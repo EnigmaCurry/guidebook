@@ -153,15 +153,12 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (!data.valid) {
-          // Token already used or expired — redirect to base URL for server 401 page
-          const url = new URL(window.location.href);
-          url.searchParams.delete("auth_token");
-          window.location.replace(url.pathname);
-          return true;
-        }
+      if (!res.ok) {
+        // Token invalid, used, or expired — redirect to base URL for server 401 page
+        const url = new URL(window.location.href);
+        url.searchParams.delete("auth_token");
+        window.location.replace(url.pathname);
+        return true;
       }
     } catch {}
     // Token is valid — show confirmation screen
