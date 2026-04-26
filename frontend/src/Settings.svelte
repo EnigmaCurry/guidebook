@@ -1232,6 +1232,7 @@
       <label for="default_page">Home Page</label>
       <select id="default_page" bind:value={default_page} on:change={onDefaultPageChange}>
         <option value="log">Log</option>
+        <option value="media">Media</option>
         <option value="notifications">Notifications</option>
       </select>
     </div>

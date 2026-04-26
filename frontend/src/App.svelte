@@ -40,8 +40,8 @@
     // Dual with subpage
     const dualMatch = hash.match(/^\/dual(?:\/(\w+))?$/);
     if (dualMatch) {
-      const sub = dualMatch[1] || "notifications";
-      return { page: "dual", editId: null, dualRight: DUAL_RIGHT_PAGES.has(sub) ? sub : "notifications" };
+      const sub = dualMatch[1] || "media";
+      return { page: "dual", editId: null, dualRight: DUAL_RIGHT_PAGES.has(sub) ? sub : "media" };
     }
     const recordMatch = hash.match(/^\/records\/(\d+)$/);
     if (recordMatch) return { page: isWide() ? "dual" : "add", editId: parseInt(recordMatch[1], 10), dualRight: null };
@@ -52,7 +52,7 @@
   let wide = typeof window !== "undefined" && window.innerWidth >= 1200;
   let _parsed = parseHash();
   let { page, editId } = _parsed;
-  let dualRightPage = _parsed.dualRight || "notifications";
+  let dualRightPage = _parsed.dualRight || "media";
   let previousPage = "records";
   let defaultPage = "records";
   let settingsTab = _parsed.settingsTab || null;
@@ -65,9 +65,53 @@
   let recordAutoCreated = false;
   let databaseRight = false;
   let mediaSearchQuery = "";
+  let mediaSelectedTags = [];
   let mediaSelectedRecordId = null;
   let dualSplit = 50;
   let draggingSplit = false;
+  let globalDragOver = false;
+  let globalDragCounter = 0;
+
+  function onGlobalDragEnter(e) {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+    globalDragCounter++;
+    globalDragOver = true;
+  }
+  function onGlobalDragOver(e) {
+    if (!e.dataTransfer?.types?.includes("Files")) return;
+    e.preventDefault();
+  }
+  function onGlobalDragLeave() {
+    globalDragCounter--;
+    if (globalDragCounter <= 0) { globalDragCounter = 0; globalDragOver = false; }
+  }
+  async function onGlobalDrop(e) {
+    e.preventDefault();
+    globalDragOver = false;
+    globalDragCounter = 0;
+    if (!databaseOpen || !e.dataTransfer?.files?.length) return;
+    // If dropped on the attachments section, Records already handled the upload
+    if (e.target.closest?.(".attachments-section")) return;
+    const files = e.dataTransfer.files;
+
+    // If Records component exists and has a form open, upload to it
+    if (recordsRef) {
+      recordsRef.dropFiles(files);
+      return;
+    }
+
+    // Navigate to records page and create a new record with files
+    const isOnRecords = page === "dual" || page === "records" || page === "add";
+    if (!isOnRecords) {
+      navigate(wide ? "dual" : "records");
+      await tick();
+    }
+    // After navigation, recordsRef should be available
+    if (recordsRef) {
+      recordsRef.dropFiles(files);
+    }
+  }
 
   function onDividerDown(e) {
     e.preventDefault();
@@ -80,8 +124,12 @@
       let pct = databaseRight
         ? 100 - ((clientX - rect.left) / rect.width) * 100
         : ((clientX - rect.left) / rect.width) * 100;
-      if (pct < 10) pct = 10;
-      if (pct > 90) pct = 90;
+      const minPx = 200;
+      const minPct = (minPx / rect.width) * 100;
+      const lo = Math.max(minPct, 10);
+      const hi = Math.min(100 - minPct, 90);
+      if (pct < lo) pct = lo;
+      if (pct > hi) pct = hi;
       dualSplit = pct;
     };
     const onUp = () => {
@@ -650,7 +698,8 @@
       const res = await fetch("/api/settings/default_page");
       if (res.ok) {
         const data = await res.json();
-        defaultPage = data.value || "records";
+        const v = data.value || "log";
+        defaultPage = v === "log" ? "records" : v;
       }
     } catch {}
   }
@@ -957,7 +1006,20 @@
   });
 </script>
 
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<svelte:body
+  on:dragenter={onGlobalDragEnter}
+  on:dragover={onGlobalDragOver}
+  on:dragleave={onGlobalDragLeave}
+  on:drop={onGlobalDrop}
+/>
+
 <main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:settings-mode={page === "settings"}>
+  {#if globalDragOver && databaseOpen}
+    <div class="global-drop-overlay">
+      <div class="global-drop-message">Drop files to attach</div>
+    </div>
+  {/if}
   {#if authBlocked}
     <div class="auth-blocked">
       <p>You need a login link from the owner to access this site.</p>
@@ -1023,6 +1085,7 @@
       {#if wide}
         <button class="add-btn dual-btn" class:active-nav={dualRightPage === "media"} on:click={() => { dualRightPage = "media"; navigate("media"); }} title="Records & Media">{#if dualRightPage === "media" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}<Icon icon={iconCamera} width={18} />{#if dualRightPage === "media" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
         <button class="add-btn dual-btn" class:active-nav={dualRightPage === "notifications"} on:click={handleNotificationClick} title="Records & Notifications">{#if dualRightPage === "notifications" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}{#if unreadCount > 0}<span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>{:else}<Icon icon={iconBell} width={18} />{/if}{#if dualRightPage === "notifications" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
+        <button class="add-btn" class:active-nav={page === "scratchpad"} on:click={() => navigate("scratchpad")} title="Scratchpad">💭</button>
       {:else}
         <button class="add-btn" on:click={() => navigate("records")} title="Records"><Icon icon={iconBook} width={18} /></button>
         <button class="add-btn" class:active-nav={page === "media"} on:click={() => navigate("media")} title="Media"><Icon icon={iconCamera} width={18} /></button>
@@ -1066,13 +1129,13 @@
   {#if page === "dual"}
     <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={databaseRight}>
       <div class="dual-pane" style="flex: 0 0 {dualSplit}%">
-        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} autoCreated={recordAutoCreated} bind:formDirty on:dropcreated={() => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { recordAutoCreated = false; if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
+        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} autoCreated={recordAutoCreated} bind:formDirty on:dropcreated={() => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { recordAutoCreated = false; if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} on:tagchange={e => { mediaSelectedTags = e.detail; }} />
       </div>
       <!-- svelte-ignore a11y-no-static-element-interactions -->
       <div class="dual-divider" on:mousedown={onDividerDown} on:touchstart={onDividerDown}></div>
       <div class="dual-pane" style="flex: 1">
         {#if dualRightPage === "media"}
-          <Media searchQuery={mediaSearchQuery} selectedRecordId={editId || mediaSelectedRecordId} />
+          <Media searchQuery={mediaSearchQuery} selectedTags={mediaSelectedTags} selectedRecordId={editId || mediaSelectedRecordId} on:openrecord={e => { editId = e.detail; dualShowForm = true; }} />
         {:else if dualRightPage === "notifications"}
           <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
         {/if}
@@ -1081,13 +1144,13 @@
   {:else}
     <div class="page-content">
     {#if page === "records"}
-      <Records bind:this={recordsRef} showForm={false} initialSearchQuery={mediaSearchQuery} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
+      <Records bind:this={recordsRef} showForm={false} initialSearchQuery={mediaSearchQuery} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} on:tagchange={e => { mediaSelectedTags = e.detail; }} />
     {:else if page === "add"}
-      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
+      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} on:tagchange={e => { mediaSelectedTags = e.detail; }} />
     {:else if page === "query"}
       <Query initialSql={querySql} />
     {:else if page === "media"}
-      <Media searchQuery={mediaSearchQuery} />
+      <Media searchQuery={mediaSearchQuery} selectedTags={mediaSelectedTags} on:openrecord={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} />
     {:else if page === "notifications"}
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}
@@ -1743,6 +1806,9 @@
   .dual-narrow .dual-divider {
     display: none;
   }
+  .dual-narrow .dual-pane:first-child {
+    flex: 1 1 100% !important;
+  }
   .dual-narrow .dual-pane:last-child {
     display: none;
   }
@@ -1904,4 +1970,22 @@
   }
 
   .popup-btn-go:hover { background: var(--accent-hover); }
+
+  .global-drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    border: 3px dashed var(--accent, #00ff88);
+  }
+
+  .global-drop-message {
+    color: var(--accent, #00ff88);
+    font-size: 1.5rem;
+    font-weight: bold;
+  }
 </style>

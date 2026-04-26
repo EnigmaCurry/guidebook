@@ -32,7 +32,9 @@
   let attachmentError = "";
   let fileInput;
   let dragOver = false;
+  let attDragCounter = 0;
   let previewIndex = -1;
+  let selectedTags = new Set();
 
   $: previewableAttachments = attachments.filter(a =>
     a.content_type.startsWith("image/") ||
@@ -213,8 +215,52 @@
     storageSet("logSortAsc", String(sortAsc));
   }
 
+  $: allTags = (() => {
+    const tagSet = new Set();
+    for (const r of records) {
+      if (r.tags) {
+        for (const t of r.tags.split(",")) {
+          const trimmed = t.trim();
+          if (trimmed) tagSet.add(trimmed);
+        }
+      }
+    }
+    return [...tagSet].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  })();
+
+  // Clear selected tags that no longer exist in results
+  $: if (allTags) {
+    const tagSet = new Set(allTags);
+    for (const t of selectedTags) {
+      if (!tagSet.has(t)) selectedTags.delete(t);
+    }
+    selectedTags = selectedTags;
+  }
+
+  function toggleTag(tag) {
+    if (selectedTags.has(tag)) {
+      selectedTags.delete(tag);
+    } else {
+      selectedTags.add(tag);
+    }
+    selectedTags = selectedTags;
+    selectedIndex = -1;
+    dispatch("tagchange", [...selectedTags]);
+  }
+
   $: sortedRecords = (() => {
-    const sorted = [...records].sort((a, b) => {
+    let filtered = records;
+    if (selectedTags.size > 0) {
+      filtered = records.filter(r => {
+        if (!r.tags) return false;
+        const rTags = r.tags.split(",").map(t => t.trim());
+        for (const st of selectedTags) {
+          if (!rTags.includes(st)) return false;
+        }
+        return true;
+      });
+    }
+    const sorted = [...filtered].sort((a, b) => {
       let va = a[sortCol] ?? "";
       let vb = b[sortCol] ?? "";
       if (sortCol === "timestamp" || sortCol === "updated_at") {
@@ -296,6 +342,14 @@
     return false;
   }
 
+  export async function dropFiles(files) {
+    if (showForm && formId) {
+      uploadFiles(files);
+    } else {
+      await handlePageDrop_files(files);
+    }
+  }
+
   export function cancelIfClean() {
     if (showForm && !formDirty) {
       cancelForm();
@@ -314,10 +368,14 @@
   onMount(() => {
     fetchRecords();
     connectRecordsSSE();
+    document.addEventListener("drop", onDocDrop);
+    document.addEventListener("dragend", onDocDragEnd);
   });
 
   onDestroy(() => {
     if (recordsEventSource) recordsEventSource.close();
+    document.removeEventListener("drop", onDocDrop);
+    document.removeEventListener("dragend", onDocDragEnd);
   });
 
   async function fetchRecords() {
@@ -529,6 +587,7 @@
   function handleDrop(e) {
     e.preventDefault();
     dragOver = false;
+    attDragCounter = 0;
     if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
   }
 
@@ -565,15 +624,21 @@
   }
 
   let pageDragOver = false;
+  let pageDragCounter = 0;
 
-  async function handlePageDrop(e) {
-    e.preventDefault();
+  function resetAllDragState() {
     pageDragOver = false;
-    if (showForm || !e.dataTransfer?.files?.length) return;
-    const files = e.dataTransfer.files;
+    pageDragCounter = 0;
+    dragOver = false;
+    attDragCounter = 0;
+  }
+  function onDocDrop(e) { resetAllDragState(); }
+  function onDocDragEnd(e) { resetAllDragState(); }
+
+  async function handlePageDrop_files(files) {
+    if (!files.length) return;
     const firstFileName = files[0].name.replace(/\.[^.]+$/, "") || "Untitled";
     try {
-      // Create the record
       const res = await fetch("/api/records/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -582,7 +647,6 @@
       if (!res.ok) return;
       const record = await res.json();
 
-      // Upload attachments before opening the form (which may destroy this component)
       const fd = new FormData();
       for (const f of files) fd.append("files", f);
       await fetch(`/api/records/${record.id}/attachments/`, {
@@ -590,20 +654,24 @@
         body: fd,
       });
 
-      // Now open the edit form — this may navigate and destroy this component
       formAutoCreated = true;
       dispatch("dropcreated", record.id);
       editRecord(record);
     } catch {}
   }
+
+  async function handlePageDrop(e) {
+    e.preventDefault();
+    pageDragOver = false;
+    pageDragCounter = 0;
+    if (showForm || !e.dataTransfer?.files?.length) return;
+    await handlePageDrop_files(e.dataTransfer.files);
+  }
 </script>
 
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
-<div class="records-page" class:page-drag-active={pageDragOver && !showForm}
-     on:dragover|preventDefault={() => { if (!showForm) pageDragOver = true; }}
-     on:dragleave|self={() => { pageDragOver = false; }}
-     on:drop={handlePageDrop}>
+<div class="records-page">
   <div class="records-header">
     <div class="search-bar">
       <input
@@ -616,6 +684,14 @@
       />
     </div>
   </div>
+
+  {#if !showForm && allTags.length > 0}
+    <div class="tag-filter-bar">
+      {#each allTags as tag (tag)}
+        <button class="tag-chip" class:active={selectedTags.has(tag)} on:click={() => toggleTag(tag)}>{tag}</button>
+      {/each}
+    </div>
+  {/if}
 
   {#if showForm}
     <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -636,12 +712,19 @@
       {#if formId}
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div class="attachments-section" class:drag-active={dragOver}
-             on:dragover|preventDefault={() => { dragOver = true; }}
-             on:dragleave={() => { dragOver = false; }}
+             on:dragenter|preventDefault={() => { attDragCounter++; dragOver = true; }}
+             on:dragover|preventDefault
+             on:dragleave={() => { attDragCounter--; if (attDragCounter <= 0) { attDragCounter = 0; dragOver = false; } }}
              on:drop={handleDrop}>
           <label>Attachments</label>
+          <div class="attachment-upload">
+            <button class="attachment-choose-btn" on:click={() => fileInput.click()}>Choose files</button>
+            <span class="drop-hint">or drag &amp; drop / paste</span>
+            <input bind:this={fileInput} type="file" multiple style="display:none" on:change={handleFileInput} />
+          </div>
           {#if attachments.length > 0}
-            <div class="attachment-list">
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <div class="attachment-list" on:wheel|preventDefault={e => e.currentTarget.scrollLeft += e.deltaY}>
               {#each attachments as att (att.id)}
                 <div class="attachment-item">
                   {#if att.content_type.startsWith("image/")}
@@ -666,11 +749,6 @@
               {/each}
             </div>
           {/if}
-          <div class="attachment-upload">
-            <button class="attachment-choose-btn" on:click={() => fileInput.click()}>Choose files</button>
-            <span class="drop-hint">or drag &amp; drop / paste</span>
-            <input bind:this={fileInput} type="file" multiple style="display:none" on:change={handleFileInput} />
-          </div>
           {#if uploadingFiles}
             <p class="status">Uploading...</p>
           {/if}
@@ -751,6 +829,7 @@
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="lightbox" on:click|self={() => { previewIndex = -1; }}>
+    <button class="lightbox-close" on:click|stopPropagation={() => { previewIndex = -1; }}>&times;</button>
     {#if previewableAttachments.length > 1}
       <button class="lightbox-arrow lightbox-prev" on:click|stopPropagation={previewPrev}>&lsaquo;</button>
     {/if}
@@ -821,6 +900,35 @@
     font-size: 0.85rem;
   }
 
+
+  .tag-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .tag-chip {
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border, #3a3b3f);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text-dim, #888);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .tag-chip:hover {
+    border-color: var(--accent, #00ff88);
+    color: var(--text, #eaeaea);
+  }
+
+  .tag-chip.active {
+    background: var(--accent, #00ff88);
+    color: var(--bg, #1a1b1e);
+    border-color: var(--accent, #00ff88);
+  }
 
   .record-form {
     background: var(--bg-card, #24252b);
@@ -1046,21 +1154,27 @@
 
   .attachment-list {
     display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    margin-bottom: 0.5rem;
+    flex-direction: row;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 0.25rem;
   }
 
   .attachment-item {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    align-items: center;
+    gap: 0.25rem;
     font-size: 0.8rem;
+    flex-shrink: 0;
+    width: 80px;
   }
 
   .attachment-thumb {
-    max-height: 60px;
-    max-width: 80px;
+    width: 80px;
+    height: 60px;
     border-radius: 4px;
     object-fit: cover;
     cursor: pointer;
@@ -1138,6 +1252,23 @@
     max-width: 80vw;
   }
 
+  .lightbox-close {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 2.5rem;
+    cursor: pointer;
+    z-index: 10;
+    line-height: 1;
+  }
+
+  .lightbox-close:hover {
+    color: #fff;
+  }
+
   .lightbox-arrow {
     background: none;
     border: none;
@@ -1157,9 +1288,11 @@
 
   .attachment-info {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.1rem;
     min-width: 0;
+    width: 100%;
   }
 
   .attachment-name {
@@ -1168,7 +1301,8 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 200px;
+    max-width: 80px;
+    font-size: 0.65rem;
   }
 
   .attachment-name:hover {
