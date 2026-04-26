@@ -198,6 +198,22 @@
     location.reload();
   }
 
+  async function mtlsLogout() {
+    mtlsError = "";
+    try {
+      const res = await fetch("/api/auth/mtls/logout", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        mtlsError = data?.detail || "Failed to revoke certificate";
+        return;
+      }
+    } catch (e) {
+      mtlsError = e.message;
+      return;
+    }
+    await loadMtlsStatus();
+  }
+
   let copiedField = null;
   async function copyToClipboard(text, field) {
     try {
@@ -227,6 +243,7 @@
 
   $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); }
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
+  $: mtlsCurrentCert = mtlsCerts.find(c => c.is_current && !c.revoked_at);
 
   // mTLS
   let mtlsMode = "disabled";
@@ -1587,10 +1604,11 @@
         <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Issued Certificates</h4>
         <div class="session-list">
           {#each mtlsCerts as cert (cert.id)}
-            <div class="session-item" class:session-revoked={cert.revoked_at}>
+            <div class="session-item" class:session-current={cert.is_current} class:session-revoked={cert.revoked_at}>
               <div class="session-info">
                 <span class="session-label">
                   {cert.label}
+                  {#if cert.is_current} <strong>(current)</strong>{/if}
                   {#if cert.revoked_at}<em style="color: var(--danger-color, #cc3333);"> (revoked)</em>{/if}
                 </span>
                 <span class="session-meta">
@@ -1599,7 +1617,7 @@
                   — Expires {formatAuthTime(cert.expires_at)}
                 </span>
               </div>
-              {#if !cert.revoked_at}
+              {#if !cert.revoked_at && !cert.is_current}
                 <button class="session-delete" on:click={() => revokeClientCert(cert.id)} title="Revoke this certificate">Revoke</button>
               {/if}
             </div>
@@ -1676,10 +1694,17 @@
 
   <section class="settings-section">
     <h3>Logout</h3>
-    <p class="hint">Log out of this browser session. You will need a new login link to access the server again.</p>
-    <div class="setting-row">
-      <button class="danger-btn" on:click={logoutSession}>Logout</button>
-    </div>
+    {#if mtlsCurrentCert}
+      <p class="hint">Revoke your current client certificate. You will need a new mTLS certificate to reconnect, or restart the server with <code style="font-size: 0.75rem; white-space: nowrap">--reset-auth</code> to revert to login link mode.</p>
+      <div class="setting-row">
+        <button class="danger-btn" on:click={mtlsLogout}>Revoke Certificate &amp; Logout</button>
+      </div>
+    {:else}
+      <p class="hint">Log out of this browser session. You will need a new login link to access the server again.</p>
+      <div class="setting-row">
+        <button class="danger-btn" on:click={logoutSession}>Logout</button>
+      </div>
+    {/if}
   </section>
 
   {#if authError}

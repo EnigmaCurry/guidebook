@@ -62,14 +62,30 @@ class MtlsStatusResponse(BaseModel):
     certs: list[dict]
 
 
+def _get_peer_cert_serial(request: Request) -> str | None:
+    """Extract the serial number (hex) of the client cert from the TLS connection."""
+    peer_cert_der = request.scope.get("mtls_peer_cert_der")
+    if not peer_cert_der:
+        return None
+    try:
+        from cryptography.x509 import load_der_x509_certificate
+
+        cert = load_der_x509_certificate(peer_cert_der)
+        return format(cert.serial_number, "x")
+    except Exception:
+        return None
+
+
 @router.get("/status")
 async def mtls_status(
+    request: Request,
     gdb: AsyncSession = Depends(get_global_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED, PROXY_MODE
 
     mode = await _get_setting(gdb, "mtls_mode") or "disabled"
     ca_cert = await _get_setting(gdb, "ca_cert_pem")
+    current_serial = _get_peer_cert_serial(request)
 
     result = await gdb.execute(select(ClientCert).order_by(ClientCert.issued_at.desc()))
     certs = [
@@ -81,6 +97,8 @@ async def mtls_status(
             "expires_at": c.expires_at,
             "revoked_at": c.revoked_at,
             "fingerprint_sha256": c.fingerprint_sha256,
+            "is_current": current_serial is not None
+            and c.serial_number == current_serial,
         }
         for c in result.scalars().all()
     ]
@@ -259,3 +277,33 @@ async def activate_mtls(
     await gdb.commit()
     logger.info("mTLS mode set to: %s (restart required)", body.mode)
     return {"status": "ok", "mode": body.mode, "restart_required": True}
+
+
+@router.post("/logout")
+async def mtls_logout(
+    request: Request,
+    gdb: AsyncSession = Depends(get_global_session),
+):
+    """Revoke the client certificate used for the current connection."""
+    current_serial = _get_peer_cert_serial(request)
+    if not current_serial:
+        raise HTTPException(400, "No client certificate detected on this connection.")
+
+    result = await gdb.execute(
+        select(ClientCert).where(
+            ClientCert.serial_number == current_serial,
+            ClientCert.revoked_at.is_(None),
+        )
+    )
+    cert = result.scalar_one_or_none()
+    if not cert:
+        raise HTTPException(404, "Current certificate not found or already revoked.")
+
+    cert.revoked_at = time.time()
+    await gdb.commit()
+    logger.info(
+        "mTLS logout: revoked current certificate %s (serial: %s)",
+        cert.label,
+        cert.serial_number,
+    )
+    return {"status": "revoked", "restart_required": True}
