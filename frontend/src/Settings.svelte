@@ -1558,37 +1558,19 @@
     {:else if mtlsProxyMode}
       <p class="hint">mTLS is unavailable in proxy mode. Configure mTLS at your reverse proxy instead.</p>
     {:else}
-      <p class="hint">
-        mTLS mode: <strong>{mtlsMode}</strong>
-        {#if mtlsMode === "disabled"}
-          — Client certificate authentication is not active.
-        {:else if mtlsMode === "optional"}
-          — Both cookie and client certificate authentication are accepted.
-        {:else if mtlsMode === "required"}
-          — Only client certificates are accepted. Cookie auth is disabled.
-        {/if}
-      </p>
-
-      <div class="setting-row" style="gap: 0.5rem; flex-wrap: wrap;">
-        {#if mtlsMode === "disabled"}
-          <button on:click={() => activateMtls("optional")} disabled={mtlsActivating}>
-            {mtlsActivating ? "Activating..." : "Enable mTLS (Optional)"}
-          </button>
-        {:else if mtlsMode === "optional"}
-          <button on:click={() => activateMtls("required")} disabled={mtlsActivating}>
-            {mtlsActivating ? "Activating..." : "Require mTLS Only"}
-          </button>
-          <button class="warning-btn" on:click={() => activateMtls("disabled")} disabled={mtlsActivating}>
-            Disable mTLS
-          </button>
-        {:else if mtlsMode === "required"}
-          <button class="warning-btn" on:click={() => activateMtls("optional")} disabled={mtlsActivating}>
-            Downgrade to Optional
-          </button>
-          <button class="danger-btn" on:click={() => activateMtls("disabled")} disabled={mtlsActivating}>
-            Disable mTLS
-          </button>
-        {/if}
+      <div class="mtls-radio-group">
+        <label class="mtls-radio">
+          <input type="radio" name="mtls-mode" value="disabled" checked={mtlsMode === "disabled"} disabled={mtlsActivating} on:change={() => activateMtls("disabled")} />
+          <span><strong>Disabled</strong> — cookie auth only</span>
+        </label>
+        <label class="mtls-radio">
+          <input type="radio" name="mtls-mode" value="optional" checked={mtlsMode === "optional"} disabled={mtlsActivating} on:change={() => activateMtls("optional")} />
+          <span><strong>Optional</strong> — both cookie and client certificate accepted</span>
+        </label>
+        <label class="mtls-radio">
+          <input type="radio" name="mtls-mode" value="required" checked={mtlsMode === "required"} disabled={mtlsActivating} on:change={() => activateMtls("required")} />
+          <span><strong>Enforced</strong> — only client certificates accepted</span>
+        </label>
       </div>
       <p class="hint" style="margin-top: 0.5rem; color: var(--warning-color, #e6a700);">Mode changes require a server restart to take effect.</p>
 
@@ -2345,5 +2327,26 @@
   }
   .session-revoked {
     opacity: 0.5;
+  }
+
+  /* mTLS radio group */
+  .mtls-radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .mtls-radio {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .mtls-radio input[type="radio"] {
+    margin: 0;
+    cursor: pointer;
+  }
+  .mtls-radio input[type="radio"]:disabled {
+    cursor: wait;
   }
 </style>
