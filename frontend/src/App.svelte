@@ -80,7 +80,7 @@
       let pct = databaseRight
         ? 100 - ((clientX - rect.left) / rect.width) * 100
         : ((clientX - rect.left) / rect.width) * 100;
-      const minPx = 180;
+      const minPx = 200;
       const minPct = (minPx / rect.width) * 100;
       const lo = Math.max(minPct, 10);
       const hi = Math.min(100 - minPct, 90);
