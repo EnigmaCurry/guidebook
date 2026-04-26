@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import logging
 import os
@@ -618,7 +619,7 @@ environment variables (overridden by command line options):
   GUIDEBOOK_AUTH_RENEW_COOLDOWN   Min time before cookie renewal (default: 24h)
   GUIDEBOOK_ALLOW_TRANSFER        Enable session transfer (default: false)
   GUIDEBOOK_NO_TLS                Disable TLS (default: false)
-  GUIDEBOOK_PROXY                 Enable reverse proxy mode (default: false)
+  GUIDEBOOK_PROXY                 Trusted proxy CIDR(s), comma-separated (e.g. 10.0.0.0/8)
 """
     parser = argparse.ArgumentParser(
         description="Guidebook - Web Application Template",
@@ -701,8 +702,8 @@ environment variables (overridden by command line options):
     )
     parser.add_argument(
         "--proxy",
-        action="store_true",
-        help="Enable reverse proxy mode (trust X-Forwarded-* headers)",
+        metavar="CIDR",
+        help="Trusted proxy CIDR(s), comma-separated (e.g. 10.0.0.0/8,172.16.0.0/12)",
     )
     args = parser.parse_args()
 
@@ -764,11 +765,22 @@ environment variables (overridden by command line options):
         "yes",
     )
     # Apply --proxy / GUIDEBOOK_PROXY
-    proxy_mode = args.proxy or os.environ.get("GUIDEBOOK_PROXY", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    proxy_spec = args.proxy or os.environ.get("GUIDEBOOK_PROXY", "").strip() or None
+    trusted_proxy_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    if proxy_spec:
+        for entry in proxy_spec.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                trusted_proxy_networks.append(ipaddress.ip_network(entry, strict=False))
+            except ValueError:
+                print(f"Error: invalid proxy CIDR: {entry}")
+                sys.exit(1)
+        if not trusted_proxy_networks:
+            print("Error: --proxy requires at least one CIDR (e.g. 10.0.0.0/8)")
+            sys.exit(1)
+    proxy_mode = bool(trusted_proxy_networks)
     _auth_module.PROXY_MODE = proxy_mode
     _auth_module.TLS_ENABLED = not no_tls
     if args.name and args.name.startswith("__"):
@@ -964,17 +976,21 @@ environment variables (overridden by command line options):
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
         logger.info("TLS enabled (self-signed certificate)")
 
-    proxy_kwargs = {}
+    server_app = app
     if proxy_mode:
-        proxy_kwargs = {"proxy_headers": True, "forwarded_allow_ips": "*"}
-        logger.info("Reverse proxy mode enabled (trusting X-Forwarded-* headers)")
+        from guidebook.proxy import TrustedProxyMiddleware
+
+        server_app = TrustedProxyMiddleware(
+            app, trusted_networks=trusted_proxy_networks
+        )
+        cidrs = ", ".join(str(n) for n in trusted_proxy_networks)
+        logger.info("Reverse proxy mode enabled (trusted: %s)", cidrs)
 
     uvicorn.run(
-        app,
+        server_app,
         host=host,
         port=port,
         access_log=False,
         log_config=None,
         **ssl_kwargs,
-        **proxy_kwargs,
     )
