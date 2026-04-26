@@ -1590,9 +1590,7 @@
           </button>
         {/if}
       </div>
-      {#if mtlsMode !== "disabled"}
-        <p class="hint" style="margin-top: 0.5rem; color: var(--warning-color, #e6a700);">Mode changes require a server restart to take effect.</p>
-      {/if}
+      <p class="hint" style="margin-top: 0.5rem; color: var(--warning-color, #e6a700);">Mode changes require a server restart to take effect.</p>
 
       {#if mtlsMode !== "disabled" || mtlsCerts.length > 0}
         <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Generate Client Certificate</h4>
