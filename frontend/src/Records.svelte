@@ -32,6 +32,7 @@
   let attachmentError = "";
   let fileInput;
   let dragOver = false;
+  let attDragCounter = 0;
   let previewIndex = -1;
   let selectedTags = new Set();
 
@@ -358,10 +359,14 @@
   onMount(() => {
     fetchRecords();
     connectRecordsSSE();
+    document.addEventListener("drop", onDocDrop);
+    document.addEventListener("dragend", onDocDragEnd);
   });
 
   onDestroy(() => {
     if (recordsEventSource) recordsEventSource.close();
+    document.removeEventListener("drop", onDocDrop);
+    document.removeEventListener("dragend", onDocDragEnd);
   });
 
   async function fetchRecords() {
@@ -573,6 +578,7 @@
   function handleDrop(e) {
     e.preventDefault();
     dragOver = false;
+    attDragCounter = 0;
     if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
   }
 
@@ -609,10 +615,21 @@
   }
 
   let pageDragOver = false;
+  let pageDragCounter = 0;
+
+  function resetAllDragState() {
+    pageDragOver = false;
+    pageDragCounter = 0;
+    dragOver = false;
+    attDragCounter = 0;
+  }
+  function onDocDrop(e) { resetAllDragState(); }
+  function onDocDragEnd(e) { resetAllDragState(); }
 
   async function handlePageDrop(e) {
     e.preventDefault();
     pageDragOver = false;
+    pageDragCounter = 0;
     if (showForm || !e.dataTransfer?.files?.length) return;
     const files = e.dataTransfer.files;
     const firstFileName = files[0].name.replace(/\.[^.]+$/, "") || "Untitled";
@@ -645,8 +662,9 @@
 
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="records-page" class:page-drag-active={pageDragOver && !showForm}
-     on:dragover|preventDefault={() => { if (!showForm) pageDragOver = true; }}
-     on:dragleave|self={() => { pageDragOver = false; }}
+     on:dragenter|preventDefault={() => { pageDragCounter++; if (!showForm) pageDragOver = true; }}
+     on:dragover|preventDefault
+     on:dragleave={() => { pageDragCounter--; if (pageDragCounter <= 0) { pageDragCounter = 0; pageDragOver = false; } }}
      on:drop={handlePageDrop}>
   <div class="records-header">
     <div class="search-bar">
@@ -688,8 +706,9 @@
       {#if formId}
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div class="attachments-section" class:drag-active={dragOver}
-             on:dragover|preventDefault={() => { dragOver = true; }}
-             on:dragleave={() => { dragOver = false; }}
+             on:dragenter|preventDefault={() => { attDragCounter++; dragOver = true; }}
+             on:dragover|preventDefault
+             on:dragleave={() => { attDragCounter--; if (attDragCounter <= 0) { attDragCounter = 0; dragOver = false; } }}
              on:drop={handleDrop}>
           <label>Attachments</label>
           <div class="attachment-upload">
