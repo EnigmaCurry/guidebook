@@ -137,61 +137,6 @@
   let switcherDatabases = [];
   let authBlocked = false; // true when server returns 401
   let authLoginError = "";
-  let authConfirmToken = ""; // set when ?auth_token= is in URL, awaiting user confirmation
-  let authConfirmUrl = ""; // the full URL for copying
-  let authConfirming = false;
-  let authConfirmCopied = false;
-
-  async function handleAuthToken() {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("auth_token");
-    if (!token) return false;
-    // Check if the token is still valid before showing confirmation
-    try {
-      const res = await fetch("/api/auth/check-token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-      if (!res.ok) {
-        // Token invalid, used, or expired — redirect to base URL for server 401 page
-        const url = new URL(window.location.href);
-        url.searchParams.delete("auth_token");
-        window.location.replace(url.pathname);
-        return true;
-      }
-    } catch {}
-    // Token is valid — show confirmation screen
-    authConfirmUrl = window.location.href;
-    authConfirmToken = token;
-    // Remove token from URL bar (but keep it in state)
-    const url = new URL(window.location.href);
-    url.searchParams.delete("auth_token");
-    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
-    return true;
-  }
-
-  async function confirmAuthLogin() {
-    authConfirming = true;
-    authLoginError = "";
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: authConfirmToken }),
-      });
-      if (res.ok) {
-        location.reload();
-        return;
-      } else {
-        const data = await res.json().catch(() => null);
-        authLoginError = data?.detail || "Login failed";
-      }
-    } catch (e) {
-      authLoginError = "Login failed: " + e.message;
-    }
-    authConfirming = false;
-  }
 
   async function checkAuthStatus() {
     try {
@@ -205,6 +150,13 @@
       }
     } catch {}
     return true;
+  }
+
+  async function tryRenewSession() {
+    try {
+      const res = await fetch("/api/auth/renew", { method: "POST" });
+      if (res.status === 401) location.reload();
+    } catch {}
   }
 
   async function checkWelcome() {
@@ -955,12 +907,11 @@
     window.addEventListener("keydown", onGlobalKeydown);
     window.addEventListener("hashchange", onHashChange);
     window.addEventListener("resize", onResize);
-    // Handle auth token from URL (login link)
-    const tokenHandled = await handleAuthToken();
-    if (tokenHandled) return;
     // Check if auth blocks us
     const authOk = await checkAuthStatus();
     if (!authOk) return;
+    tryRenewSession();
+    setInterval(tryRenewSession, 3600_000); // renew check every hour
     connectSSE(); // connect early to prevent auto-shutdown during welcome
     await checkWelcome();
     if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
@@ -1007,28 +958,7 @@
 </script>
 
 <main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:settings-mode={page === "settings"}>
-  {#if authConfirmToken}
-    <div class="auth-confirm">
-      <div class="auth-confirm-panel">
-        <h1>Create Session</h1>
-        <p class="auth-confirm-desc">You are about to lock in a long-term browser session with Guidebook. This browser will be the only one able to access the app unless additional sessions are granted.</p>
-        {#if authLoginError}
-          <p class="auth-confirm-error">{authLoginError}</p>
-        {/if}
-        <button class="auth-confirm-btn" on:click={confirmAuthLogin} disabled={authConfirming}>
-          {authConfirming ? "Creating session..." : "Create Session"}
-        </button>
-        <div class="auth-confirm-separator"><span>or</span></div>
-        <div class="auth-confirm-url-box">
-          <label>Copy this one-time login URL to open in a different browser</label>
-          <div class="auth-confirm-url-row">
-            <input type="text" value={authConfirmUrl} readonly on:click={(e) => e.target.select()} />
-            <button class="auth-confirm-copy" class:copied={authConfirmCopied} on:click={() => { navigator.clipboard.writeText(authConfirmUrl).then(() => { authConfirmCopied = true; setTimeout(() => authConfirmCopied = false, 1500); }).catch(() => {}); }}>{authConfirmCopied ? "Copied!" : "Copy"}</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  {:else if authBlocked}
+  {#if authBlocked}
     <div class="auth-blocked">
       <p>You need a login link from the owner to access this site.</p>
       {#if authLoginError}
@@ -1686,110 +1616,6 @@
     color: var(--danger, #e74c3c);
   }
 
-  .auth-confirm {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    background: var(--bg, #1a1b1e);
-  }
-  .auth-confirm-panel {
-    background: var(--bg-card, #24252b);
-    border: 1px solid var(--border, #3a3b3f);
-    border-radius: 12px;
-    padding: 2rem 2.5rem;
-    max-width: 500px;
-    width: 90vw;
-  }
-  .auth-confirm-panel h1 {
-    margin: 0 0 0.5rem;
-    font-size: 1.5rem;
-    color: var(--text, #eaeaea);
-  }
-  .auth-confirm-desc {
-    font-size: 0.85rem;
-    color: var(--text-dim, #888);
-    line-height: 1.5;
-    margin: 0 0 1.5rem;
-  }
-  .auth-confirm-separator {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin: 1.5rem 0;
-    color: var(--text-dim, #888);
-    font-size: 0.8rem;
-  }
-  .auth-confirm-separator::before,
-  .auth-confirm-separator::after {
-    content: "";
-    flex: 1;
-    border-top: 1px solid var(--border, #3a3b3f);
-  }
-  .auth-confirm-url-box {
-    margin-bottom: 0;
-  }
-  .auth-confirm-url-box label {
-    display: block;
-    font-size: 0.75rem;
-    color: var(--text-dim, #888);
-    margin-bottom: 0.35rem;
-  }
-  .auth-confirm-url-row {
-    display: flex;
-    gap: 0.5rem;
-  }
-  .auth-confirm-url-row input {
-    flex: 1;
-    padding: 0.4rem 0.6rem;
-    border: 1px solid var(--border, #3a3b3f);
-    border-radius: 4px;
-    background: var(--bg-input, transparent);
-    color: var(--text, #eaeaea);
-    font-size: 0.8rem;
-    font-family: monospace;
-  }
-  .auth-confirm-copy {
-    padding: 0.4rem 0.8rem;
-    border: 1px solid var(--border, #3a3b3f);
-    border-radius: 4px;
-    background: var(--bg-input, #2a2b30);
-    color: var(--text, #eaeaea);
-    font-size: 0.8rem;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .auth-confirm-copy:hover {
-    background: var(--border, #3a3b3f);
-  }
-  .auth-confirm-copy.copied {
-    background: var(--accent, #00ff88);
-    color: var(--accent-text, #000);
-    border-color: var(--accent, #00ff88);
-  }
-  .auth-confirm-error {
-    color: #ff4444;
-    font-size: 0.8rem;
-    margin: 0 0 1rem;
-  }
-  .auth-confirm-btn {
-    width: 100%;
-    padding: 0.75rem 1.5rem;
-    background: var(--accent, #00ff88);
-    color: var(--accent-text, #000);
-    border: none;
-    border-radius: 6px;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .auth-confirm-btn:hover:not(:disabled) {
-    opacity: 0.9;
-  }
-  .auth-confirm-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
   .auth-blocked {
     display: flex;
     flex-direction: column;

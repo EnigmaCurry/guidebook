@@ -32,6 +32,8 @@ def _secure_file(path: Path) -> None:
     """Set owner-only read/write permissions (0o600) on a file."""
     if sys.platform != "win32" and path.exists():
         path.chmod(0o600)
+
+
 META_DB_PATH = DB_DIR / "__global.db"
 _LAST_OPENED_FILE = DB_DIR / "last_opened.json"
 
@@ -204,6 +206,7 @@ class AuthToken(GlobalBase):
     expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     last_ip: Mapped[str | None] = mapped_column(String, nullable=True)
     is_transfer: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    jwt_nonce: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class DatabaseLockError(Exception):

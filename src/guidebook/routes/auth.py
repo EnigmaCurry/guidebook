@@ -18,16 +18,30 @@ logger = logging.getLogger("guidebook")
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 AUTH_COOKIE_NAME = "guidebook_token"
-AUTH_COOKIE_MAX_AGE_DEFAULT = 10 * 365 * 24 * 3600  # 10 years
+AUTH_TTL_DEFAULT = 30 * 24 * 3600  # 30 days
+AUTH_RENEW_COOLDOWN_DEFAULT = 24 * 3600  # 24 hours
 LOGIN_LINK_TTL = 300  # 5 minutes (hardcoded)
 
 # Set at startup by main.py
 DISABLE_AUTH = False
 AUTH_SLOTS: int = 1  # --auth-slots (default 1)
-AUTH_TTL: int = AUTH_COOKIE_MAX_AGE_DEFAULT  # --auth-ttl (default 10 years)
+AUTH_TTL: int = AUTH_TTL_DEFAULT  # --auth-ttl (default 30d)
+AUTH_RENEW_COOLDOWN: int = AUTH_RENEW_COOLDOWN_DEFAULT  # --auth-renew-cooldown
 ALLOW_TRANSFER: bool = False  # --allow-transfer
 PROXY_MODE: bool = False  # --proxy
 TLS_ENABLED: bool = True  # True unless --no-tls
+
+
+def parse_duration(value: str) -> int:
+    """Parse a duration string like '30d', '24h', '60m', or bare seconds."""
+    value = value.strip()
+    if not value:
+        raise ValueError("Empty duration string")
+    suffixes = {"d": 86400, "h": 3600, "m": 60, "s": 1}
+    if value[-1].lower() in suffixes:
+        return int(value[:-1]) * suffixes[value[-1].lower()]
+    return int(value)
+
 
 # JWT signing secret — loaded at startup by main.py
 JWT_SECRET: str = ""
@@ -69,9 +83,11 @@ async def _token_count(gdb: AsyncSession) -> int:
     return result.scalar() or 0
 
 
-def _create_jwt(session_id: int) -> str:
+def _create_jwt(session_id: int, nonce: str) -> str:
     return jwt.encode(
-        {"sid": session_id, "iat": int(time.time())}, JWT_SECRET, algorithm="HS256"
+        {"sid": session_id, "iat": int(time.time()), "nonce": nonce},
+        JWT_SECRET,
+        algorithm="HS256",
     )
 
 
@@ -82,11 +98,15 @@ def _decode_jwt(token_str: str) -> dict | None:
         return None
 
 
-def _get_current_session_id(request: Request) -> int | None:
+def _get_jwt_claims(request: Request) -> dict | None:
     cookie = request.cookies.get(AUTH_COOKIE_NAME)
     if not cookie:
         return None
-    claims = _decode_jwt(cookie)
+    return _decode_jwt(cookie)
+
+
+def _get_current_session_id(request: Request) -> int | None:
+    claims = _get_jwt_claims(request)
     if not claims or "sid" not in claims:
         return None
     return claims["sid"]
@@ -100,23 +120,33 @@ async def _validate_token_by_raw(gdb: AsyncSession, token: str) -> AuthToken | N
     return result.scalar_one_or_none()
 
 
-async def _validate_session(gdb: AsyncSession, session_id: int) -> AuthToken | None:
-    """Validate a session by ID (from JWT)."""
+async def _validate_session(
+    gdb: AsyncSession, session_id: int, nonce: str | None = None
+) -> AuthToken | None:
+    """Validate a session by ID (from JWT). Checks nonce if present."""
     if not session_id:
         return None
     result = await gdb.execute(select(AuthToken).where(AuthToken.id == session_id))
-    return result.scalar_one_or_none()
+    token = result.scalar_one_or_none()
+    if not token:
+        return None
+    # If the DB row has a nonce, the JWT must match it
+    if token.jwt_nonce and token.jwt_nonce != nonce:
+        return None
+    return token
 
 
 async def check_auth(request: Request, gdb: AsyncSession) -> bool:
     """Check if the current request is authenticated. Returns True if OK."""
     if not await _is_auth_enabled(gdb):
         return True
-    session_id = _get_current_session_id(request)
-    if not session_id:
+    claims = _get_jwt_claims(request)
+    if not claims or "sid" not in claims:
         return False
-    token = await _validate_session(gdb, session_id)
+    token = await _validate_session(gdb, claims["sid"], claims.get("nonce"))
     if not token:
+        return False
+    if token.expires_at and time.time() > token.expires_at:
         return False
     # Update last_seen and IP
     token.last_seen_at = time.time()
@@ -364,24 +394,140 @@ async def login_with_token(
     # Replace the raw login token with a new random value so the
     # original link token can never be reused even if leaked
     tok.token = secrets.token_urlsafe(48)
+    nonce = secrets.token_urlsafe(16)
+    tok.jwt_nonce = nonce
     await gdb.commit()
 
     # Issue a JWT containing the session ID — this is what goes in the cookie
-    jwt_token = _create_jwt(tok.id)
-    if PROXY_MODE:
-        is_secure = request.headers.get("x-forwarded-proto", "").lower() == "https"
+    jwt_token = _create_jwt(tok.id, nonce)
+    _set_auth_cookie(response, request, jwt_token)
+    return LoginResponse(status="ok")
+
+
+async def server_side_check_token(gdb: AsyncSession, token_str: str) -> str | None:
+    """Check if a login token is valid. Returns None if valid, or an error message."""
+    if not token_str:
+        return "Invalid token"
+    tok = await _validate_token_by_raw(gdb, token_str)
+    if not tok:
+        return "Invalid or expired token"
+    if tok.last_seen_at is not None and not tok.is_transfer:
+        return "This login link has already been used"
+    if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
+        await gdb.delete(tok)
+        await gdb.commit()
+        return "Login link has expired"
+    return None
+
+
+async def server_side_login(
+    gdb: AsyncSession, request: Request, response: Response, token_str: str
+) -> str | None:
+    """Complete a token login server-side. Returns None on success, or error message."""
+    tok = await _validate_token_by_raw(gdb, token_str)
+    if not tok:
+        return "Invalid or expired token"
+    if tok.last_seen_at is not None and not tok.is_transfer:
+        return "This login link has already been used"
+    if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
+        await gdb.delete(tok)
+        await gdb.commit()
+        return "Login link has expired"
+
+    now = time.time()
+    tok.expires_at = now + AUTH_TTL
+
+    if tok.is_transfer:
+        tok.is_transfer = 0
+        tok.label = "Transferred session"
+        tok.last_seen_at = now
+        result = await gdb.execute(
+            select(AuthToken).where(AuthToken.id != tok.id, AuthToken.is_transfer == 0)
+        )
+        for old_tok in result.scalars().all():
+            await gdb.delete(old_tok)
+        await gdb.commit()
+        broadcast("auth-revoked", {})
+        logger.info("Session transferred to new browser")
     else:
-        is_secure = TLS_ENABLED
+        tok.last_seen_at = now
+        tok.label = "Logged in session"
+        await gdb.commit()
+        try:
+            await create_notification(
+                "New session logged in",
+                "A new browser session was authenticated via login link.",
+            )
+        except Exception:
+            logger.warning("Failed to create login notification")
+        logger.info("New session logged in via token")
+
+    tok.token = secrets.token_urlsafe(48)
+    nonce = secrets.token_urlsafe(16)
+    tok.jwt_nonce = nonce
+    await gdb.commit()
+
+    jwt_token = _create_jwt(tok.id, nonce)
+    _set_auth_cookie(response, request, jwt_token)
+    return None
+
+
+def _is_secure(request: Request) -> bool:
+    if PROXY_MODE:
+        return request.url.scheme == "https"
+    return TLS_ENABLED
+
+
+def _set_auth_cookie(response: Response, request: Request, jwt_token: str) -> None:
     response.set_cookie(
         AUTH_COOKIE_NAME,
         jwt_token,
         max_age=AUTH_TTL,
         httponly=True,
         samesite="lax",
-        secure=is_secure,
+        secure=_is_secure(request),
         path="/",
     )
-    return LoginResponse(status="ok")
+
+
+@router.post("/renew")
+async def renew_session(
+    request: Request,
+    response: Response,
+    gdb: AsyncSession = Depends(get_global_session),
+):
+    """Renew the current session cookie if eligible."""
+    claims = _get_jwt_claims(request)
+    if not claims or "sid" not in claims:
+        raise HTTPException(401, "Not authenticated")
+
+    token = await _validate_session(gdb, claims["sid"], claims.get("nonce"))
+    if not token:
+        raise HTTPException(401, "Invalid session")
+
+    if token.expires_at and time.time() > token.expires_at:
+        raise HTTPException(401, "Session expired")
+
+    # Check cooldown — JWT must be at least AUTH_RENEW_COOLDOWN old
+    iat = claims.get("iat", 0)
+    now = time.time()
+    if now - iat < AUTH_RENEW_COOLDOWN:
+        eligible_at = iat + AUTH_RENEW_COOLDOWN
+        raise HTTPException(
+            400,
+            f"Too early to renew (eligible at {int(eligible_at)})",
+        )
+
+    # Rotate nonce — invalidates the old JWT immediately
+    nonce = secrets.token_urlsafe(16)
+    token.jwt_nonce = nonce
+    token.expires_at = now + AUTH_TTL
+    await gdb.commit()
+
+    jwt_token = _create_jwt(token.id, nonce)
+    _set_auth_cookie(response, request, jwt_token)
+    logger.info("Session %d renewed", token.id)
+    return {"status": "renewed"}
 
 
 @router.delete("/sessions/{session_id}")

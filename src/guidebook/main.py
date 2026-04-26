@@ -1,3 +1,4 @@
+import ipaddress
 import json
 import logging
 import os
@@ -129,6 +130,27 @@ app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan
 _AUTH_EXEMPT_PREFIXES = ("/api/auth/",)
 
 
+_INLINE_STYLE = (
+    "body{background:#111;color:#ccc;font-family:sans-serif;"
+    "display:flex;align-items:center;justify-content:center;"
+    "min-height:100vh;margin:0;font-size:.95rem}"
+    ".box{max-width:420px;text-align:center;line-height:1.6}"
+    "code{background:#222;padding:2px 6px;border-radius:3px;font-size:.85rem;color:#e6a700}"
+    ".dim{color:#777;font-size:.8rem;margin-top:1.2rem}"
+    "button{background:#e6a700;color:#111;border:none;padding:10px 24px;"
+    "border-radius:4px;font-size:1rem;cursor:pointer;margin-top:1rem}"
+    "button:hover{background:#f0b800}"
+    "h2{margin:0 0 .5rem;font-size:1.2rem}"
+)
+
+
+def _inline_page(body: str) -> str:
+    return (
+        f"<html><head><style>{_INLINE_STYLE}</style></head>"
+        f'<body><div class="box">{body}</div></body></html>'
+    )
+
+
 def _rate_limit_429(retry_after: int) -> Response:
     from fastapi.responses import JSONResponse
 
@@ -170,12 +192,53 @@ async def http_middleware(request: Request, call_next):
                         content={"detail": "Authentication required"},
                     )
 
-    # Auth check for non-API routes (HTML pages and static assets)
-    if not path.startswith("/api/") and "auth_token" not in request.url.query:
-        from guidebook.routes.auth import check_auth
+    # Server-side auth_token login (no SPA/JS needed)
+    if not path.startswith("/api/"):
         from guidebook.db import db_manager
 
+        auth_token = request.query_params.get("auth_token")
+        if auth_token and db_manager._global_session_factory:
+            from guidebook.routes.auth import (
+                server_side_check_token,
+                server_side_login,
+            )
+            from fastapi.responses import HTMLResponse, RedirectResponse
+            from urllib.parse import urlencode
+
+            async with db_manager._global_session_factory() as gdb:
+                err = await server_side_check_token(gdb, auth_token)
+            if err:
+                return HTMLResponse(
+                    status_code=401,
+                    content=_inline_page(f"<p>{err}</p>"),
+                )
+            if request.method == "POST":
+                async with db_manager._global_session_factory() as gdb:
+                    redirect = RedirectResponse(url="/", status_code=303)
+                    login_err = await server_side_login(
+                        gdb, request, redirect, auth_token
+                    )
+                if login_err:
+                    return HTMLResponse(
+                        status_code=401,
+                        content=_inline_page(f"<p>{login_err}</p>"),
+                    )
+                return redirect
+            # GET with auth_token — show confirmation page
+            return HTMLResponse(
+                content=_inline_page(
+                    "<h2>Create Session</h2>"
+                    "<p>You are about to create a long-term browser session with Guidebook.</p>"
+                    f'<form method="POST" action="/?{urlencode({"auth_token": auth_token})}">'
+                    '<button type="submit">Create Session</button>'
+                    "</form>",
+                ),
+            )
+
+        # Auth check for non-API routes (HTML pages and static assets)
         if db_manager._global_session_factory:
+            from guidebook.routes.auth import check_auth
+
             async with db_manager._global_session_factory() as gdb:
                 ok = await check_auth(request, gdb)
                 if not ok:
@@ -183,19 +246,11 @@ async def http_middleware(request: Request, call_next):
 
                     return HTMLResponse(
                         status_code=401,
-                        content="<html><head><style>"
-                        "body{background:#111;color:#ccc;font-family:sans-serif;"
-                        "display:flex;align-items:center;justify-content:center;"
-                        "min-height:100vh;margin:0;font-size:.95rem}"
-                        ".box{max-width:420px;text-align:center;line-height:1.6}"
-                        "code{background:#222;padding:2px 6px;border-radius:3px;font-size:.85rem;color:#e6a700}"
-                        ".dim{color:#777;font-size:.8rem;margin-top:1.2rem}"
-                        "</style></head><body>"
-                        '<div class="box">'
-                        "<p>You need a login link from the owner to access this site.</p>"
-                        '<p class="dim">If you are the owner and have lost access, restart the server with '
-                        "<code style='white-space:nowrap'>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
-                        "</div></body></html>",
+                        content=_inline_page(
+                            "<p>You need a login link from the owner to access this site.</p>"
+                            '<p class="dim">If you are the owner and have lost access, restart the server with '
+                            "<code style='white-space:nowrap'>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
+                        ),
                     )
 
     response: Response = await call_next(request)
@@ -206,8 +261,10 @@ async def http_middleware(request: Request, call_next):
 
     if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
+    elif path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     else:
-        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Cache-Control"] = "no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
@@ -219,7 +276,7 @@ async def http_middleware(request: Request, call_next):
         "connect-src 'self'"
     )
     if _auth_module.PROXY_MODE:
-        if request.headers.get("x-forwarded-proto", "").lower() == "https":
+        if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"
             )
@@ -605,19 +662,20 @@ def run() -> None:
 
     env_help = """
 environment variables (overridden by command line options):
-  GUIDEBOOK_DB              Database name to open (default: guidebook)
-  GUIDEBOOK_PICKER          Enable database picker mode (default: false)
-  GUIDEBOOK_NO_BROWSER      Skip opening browser (default: false)
-  GUIDEBOOK_NO_SHUTDOWN     Disable shutdown endpoint (default: false)
-  GUIDEBOOK_HOST            Bind address (default: 127.0.0.1)
-  GUIDEBOOK_PORT            Port (default: 4280)
-  GUIDEBOOK_BROWSER_URL     Override browser URL
-  GUIDEBOOK_DISABLE_AUTH    Disable authentication (default: false)
-  GUIDEBOOK_AUTH_SLOTS      Max concurrent sessions (default: 1)
-  GUIDEBOOK_AUTH_TTL        Session cookie TTL in seconds (default: 10 years)
-  GUIDEBOOK_ALLOW_TRANSFER  Enable session transfer (default: false)
-  GUIDEBOOK_NO_TLS          Disable TLS (default: false)
-  GUIDEBOOK_PROXY           Enable reverse proxy mode (default: false)
+  GUIDEBOOK_DB                    Database name to open (default: guidebook)
+  GUIDEBOOK_PICKER                Enable database picker mode (default: false)
+  GUIDEBOOK_NO_BROWSER            Skip opening browser (default: false)
+  GUIDEBOOK_NO_SHUTDOWN           Disable shutdown endpoint (default: false)
+  GUIDEBOOK_HOST                  Bind address (default: 127.0.0.1)
+  GUIDEBOOK_PORT                  Port (default: 4280)
+  GUIDEBOOK_BROWSER_URL           Override browser URL base
+  GUIDEBOOK_DISABLE_AUTH          Disable authentication (default: false)
+  GUIDEBOOK_AUTH_SLOTS            Max concurrent sessions (default: 1)
+  GUIDEBOOK_AUTH_TTL              Session cookie TTL (e.g. 30d, 24h, 3600; default: 30d)
+  GUIDEBOOK_AUTH_RENEW_COOLDOWN   Min time before cookie renewal (default: 24h)
+  GUIDEBOOK_ALLOW_TRANSFER        Enable session transfer (default: false)
+  GUIDEBOOK_NO_TLS                Disable TLS (default: false)
+  GUIDEBOOK_PROXY                 Trusted proxy CIDR(s), comma-separated (e.g. 10.0.0.0/8)
 """
     parser = argparse.ArgumentParser(
         description="Guidebook - Web Application Template",
@@ -678,9 +736,15 @@ environment variables (overridden by command line options):
     )
     parser.add_argument(
         "--auth-ttl",
-        type=int,
+        type=str,
         default=None,
-        help="Set session cookie TTL in seconds (default: 10 years)",
+        help="Session cookie TTL (e.g. 30d, 24h, 3600) (default: 30d)",
+    )
+    parser.add_argument(
+        "--auth-renew-cooldown",
+        type=str,
+        default=None,
+        help="Min time before cookie renewal (e.g. 24h, 1h) (default: 24h)",
     )
     parser.add_argument(
         "--allow-transfer",
@@ -694,8 +758,8 @@ environment variables (overridden by command line options):
     )
     parser.add_argument(
         "--proxy",
-        action="store_true",
-        help="Enable reverse proxy mode (trust X-Forwarded-* headers)",
+        metavar="CIDR",
+        help="Trusted proxy CIDR(s), comma-separated (e.g. 10.0.0.0/8,172.16.0.0/12)",
     )
     args = parser.parse_args()
 
@@ -718,12 +782,36 @@ environment variables (overridden by command line options):
                 pass
     # Apply --auth-ttl / GUIDEBOOK_AUTH_TTL
     if args.auth_ttl is not None:
-        _auth_module.AUTH_TTL = args.auth_ttl
+        try:
+            _auth_module.AUTH_TTL = max(30, _auth_module.parse_duration(args.auth_ttl))
+        except ValueError:
+            print(f"Error: invalid --auth-ttl value: {args.auth_ttl}")
+            sys.exit(1)
     else:
         val = os.environ.get("GUIDEBOOK_AUTH_TTL", "").strip()
         if val:
             try:
-                _auth_module.AUTH_TTL = max(30, int(val))
+                _auth_module.AUTH_TTL = max(30, _auth_module.parse_duration(val))
+            except ValueError:
+                pass
+    # Apply --auth-renew-cooldown / GUIDEBOOK_AUTH_RENEW_COOLDOWN
+    if args.auth_renew_cooldown is not None:
+        try:
+            _auth_module.AUTH_RENEW_COOLDOWN = max(
+                0, _auth_module.parse_duration(args.auth_renew_cooldown)
+            )
+        except ValueError:
+            print(
+                f"Error: invalid --auth-renew-cooldown value: {args.auth_renew_cooldown}"
+            )
+            sys.exit(1)
+    else:
+        val = os.environ.get("GUIDEBOOK_AUTH_RENEW_COOLDOWN", "").strip()
+        if val:
+            try:
+                _auth_module.AUTH_RENEW_COOLDOWN = max(
+                    0, _auth_module.parse_duration(val)
+                )
             except ValueError:
                 pass
     # Apply --no-tls / GUIDEBOOK_NO_TLS
@@ -733,11 +821,22 @@ environment variables (overridden by command line options):
         "yes",
     )
     # Apply --proxy / GUIDEBOOK_PROXY
-    proxy_mode = args.proxy or os.environ.get("GUIDEBOOK_PROXY", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    proxy_spec = args.proxy or os.environ.get("GUIDEBOOK_PROXY", "").strip() or None
+    trusted_proxy_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+    if proxy_spec:
+        for entry in proxy_spec.split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            try:
+                trusted_proxy_networks.append(ipaddress.ip_network(entry, strict=False))
+            except ValueError:
+                print(f"Error: invalid proxy CIDR: {entry}")
+                sys.exit(1)
+        if not trusted_proxy_networks:
+            print("Error: --proxy requires at least one CIDR (e.g. 10.0.0.0/8)")
+            sys.exit(1)
+    proxy_mode = bool(trusted_proxy_networks)
     _auth_module.PROXY_MODE = proxy_mode
     _auth_module.TLS_ENABLED = not no_tls
     if args.name and args.name.startswith("__"):
@@ -764,7 +863,7 @@ environment variables (overridden by command line options):
             "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, last_ip TEXT, "
             "is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
-        for col in ("expires_at REAL", "last_ip TEXT"):
+        for col in ("expires_at REAL", "last_ip TEXT", "jwt_nonce TEXT"):
             try:
                 conn.execute(f"ALTER TABLE auth_tokens ADD COLUMN {col}")
             except sqlite3.OperationalError:
@@ -933,17 +1032,21 @@ environment variables (overridden by command line options):
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
         logger.info("TLS enabled (self-signed certificate)")
 
-    proxy_kwargs = {}
+    server_app = app
     if proxy_mode:
-        proxy_kwargs = {"proxy_headers": True, "forwarded_allow_ips": "*"}
-        logger.info("Reverse proxy mode enabled (trusting X-Forwarded-* headers)")
+        from guidebook.proxy import TrustedProxyMiddleware
+
+        server_app = TrustedProxyMiddleware(
+            app, trusted_networks=trusted_proxy_networks
+        )
+        cidrs = ", ".join(str(n) for n in trusted_proxy_networks)
+        logger.info("Reverse proxy mode enabled (trusted: %s)", cidrs)
 
     uvicorn.run(
-        app,
+        server_app,
         host=host,
         port=port,
         access_log=False,
         log_config=None,
         **ssl_kwargs,
-        **proxy_kwargs,
     )
