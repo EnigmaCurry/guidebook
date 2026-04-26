@@ -59,6 +59,8 @@ async def list_media(
                 Record.title.ilike(pattern),
                 Record.content.ilike(pattern),
                 Record.tags.ilike(pattern),
+                Attachment.filename.ilike(pattern),
+                Attachment.content_type.ilike(pattern),
             )
         )
     stmt = stmt.order_by(Attachment.created_at.desc())

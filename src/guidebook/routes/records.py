@@ -141,12 +141,19 @@ async def list_records(
     stmt = select(Record)
     if q and len(q) >= 2:
         pattern = f"%{q}%"
-        stmt = stmt.where(
-            or_(
-                Record.title.ilike(pattern),
-                Record.content.ilike(pattern),
-                Record.tags.ilike(pattern),
+        stmt = (
+            stmt.outerjoin(Attachment, Attachment.record_id == Record.id)
+            .where(
+                or_(
+                    Record.title.ilike(pattern),
+                    Record.content.ilike(pattern),
+                    Record.tags.ilike(pattern),
+                    Record.uuid.ilike(pattern),
+                    Attachment.filename.ilike(pattern),
+                    Attachment.content_type.ilike(pattern),
+                )
             )
+            .distinct()
         )
     stmt = stmt.order_by(Record.timestamp.desc()).offset(offset).limit(limit)
     result = await session.execute(stmt)
