@@ -327,6 +327,7 @@
   function onSearchInput() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(fetchRecords, 300);
+    dispatch("searchchange", searchQuery);
   }
 
   async function startNew() {

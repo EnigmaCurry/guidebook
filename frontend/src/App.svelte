@@ -8,14 +8,16 @@
   import Welcome from "./Welcome.svelte";
   import Query from "./Query.svelte";
   import Scratchpad from "./Scratchpad.svelte";
+  import Media from "./Media.svelte";
   import Icon from "@iconify/svelte";
   import iconBook from "@iconify-icons/twemoji/open-book";
   import iconBell from "@iconify-icons/twemoji/bell";
   import iconPlus from "@iconify-icons/twemoji/heavy-plus-sign";
+  import iconCamera from "@iconify-icons/twemoji/camera";
   import { setDatabase, storageGet, storageSet, migrateStorage } from "./storage.js";
   import { applyThemeVars, applyCustomThemeVars, resolveDefaultTheme } from "./themes.js";
 
-  const DUAL_RIGHT_PAGES = new Set(["notifications"]);
+  const DUAL_RIGHT_PAGES = new Set(["notifications", "media"]);
 
   function parseHash() {
     const hash = window.location.hash.slice(1) || "/";
@@ -31,6 +33,7 @@
       return { page: "query", editId: null, dualRight: null, querySql: sp?.get("sql") || "" };
     }
     if (hash === "/scratchpad") return { page: "scratchpad", editId: null, dualRight: null };
+    if (hash === "/media") return { page: isWide() ? "dual" : "media", editId: null, dualRight: "media" };
     if (hash === "/notifications") return { page: isWide() ? "dual" : "notifications", editId: null, dualRight: "notifications" };
     if (hash === "/database" || hash === "/records") return { page: isWide() ? "dual" : "records", editId: null, dualRight: null };
     if (hash === "/add") return { page: isWide() ? "dual" : "add", editId: null, dualRight: null };
@@ -61,6 +64,7 @@
   let recordsRef = null;
   let recordAutoCreated = false;
   let databaseRight = false;
+  let mediaSearchQuery = "";
   let dualSplit = 50;
   let draggingSplit = false;
 
@@ -800,7 +804,7 @@
     if (p === "dual") {
       window.location.hash = `/dual/${dualRightPage}`;
     } else {
-      const paths = { records: "/records", add: "/add", query: "/query", notifications: "/notifications", scratchpad: "/scratchpad", settings: settingsTab ? `/settings/${settingsTab}` : "/settings", about: "/about", picker: "/picker" };
+      const paths = { records: "/records", add: "/add", query: "/query", notifications: "/notifications", media: "/media", scratchpad: "/scratchpad", settings: settingsTab ? `/settings/${settingsTab}` : "/settings", about: "/about", picker: "/picker" };
       window.location.hash = paths[p] || "/";
     }
     setTimeout(() => { navigating = false; }, 0);
@@ -1089,9 +1093,11 @@
     <span class="client-count" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>
     <div class="hamburger-wrap">
       {#if wide}
+        <button class="add-btn dual-btn" class:active-nav={dualRightPage === "media"} on:click={() => { dualRightPage = "media"; navigate("media"); }} title="Records & Media"><Icon icon={iconCamera} width={18} /></button>
         <button class="add-btn dual-btn" class:active-nav={dualRightPage === "notifications"} on:click={handleNotificationClick} title="Records & Notifications">{#if dualRightPage === "notifications" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}{#if unreadCount > 0}<span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>{:else}<Icon icon={iconBell} width={18} />{/if}{#if dualRightPage === "notifications" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
       {:else}
         <button class="add-btn" on:click={() => navigate("records")} title="Records"><Icon icon={iconBook} width={18} /></button>
+        <button class="add-btn" class:active-nav={page === "media"} on:click={() => navigate("media")} title="Media"><Icon icon={iconCamera} width={18} /></button>
         <button class="add-btn" class:active-nav={page === "scratchpad"} on:click={() => navigate("scratchpad")} title="Scratchpad">💭</button>
         <button class="add-btn notification-btn" class:has-unread={unreadCount > 0} on:click={handleNotificationClick} title="Notifications">
           {#if unreadCount > 0}
@@ -1114,6 +1120,7 @@
         <nav class="menu">
           <button class="menu-item" class:active={page === "records" || page === "dual"} on:click={() => navigate("records")}>Records</button>
           <button class="menu-item" class:active={page === "add"} on:click={() => navigate("add")}>New Record</button>
+          <button class="menu-item" class:active={page === "media" || (page === "dual" && dualRightPage === "media")} on:click={() => navigate("media")}>Media</button>
           <button class="menu-item" class:active={page === "notifications" || (page === "dual" && dualRightPage === "notifications")} on:click={() => navigate("notifications")}>Notifications{#if unreadCount > 0} ({unreadCount}){/if}</button>
           {#if sqlQueryEnabled}<button class="menu-item" class:active={page === "query"} on:click={() => navigate("query")}>SQL Query</button>{/if}
           <button class="menu-item" class:active={page === "scratchpad"} on:click={() => navigate("scratchpad")}>Scratchpad</button>
@@ -1131,12 +1138,14 @@
   {#if page === "dual"}
     <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={databaseRight}>
       <div class="dual-pane" style="flex: 0 0 {dualSplit}%">
-        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} autoCreated={recordAutoCreated} bind:formDirty on:dropcreated={() => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { recordAutoCreated = false; if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
+        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} autoCreated={recordAutoCreated} bind:formDirty on:dropcreated={() => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { recordAutoCreated = false; if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} />
       </div>
       <!-- svelte-ignore a11y-no-static-element-interactions -->
       <div class="dual-divider" on:mousedown={onDividerDown} on:touchstart={onDividerDown}></div>
       <div class="dual-pane" style="flex: 1">
-        {#if dualRightPage === "notifications"}
+        {#if dualRightPage === "media"}
+          <Media searchQuery={mediaSearchQuery} />
+        {:else if dualRightPage === "notifications"}
           <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
         {/if}
       </div>
@@ -1144,11 +1153,13 @@
   {:else}
     <div class="page-content">
     {#if page === "records"}
-      <Records bind:this={recordsRef} showForm={false} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} />
+      <Records bind:this={recordsRef} showForm={false} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} on:searchchange={e => { mediaSearchQuery = e.detail; }} />
     {:else if page === "add"}
-      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
+      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} />
     {:else if page === "query"}
       <Query initialSql={querySql} />
+    {:else if page === "media"}
+      <Media searchQuery={mediaSearchQuery} />
     {:else if page === "notifications"}
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}
