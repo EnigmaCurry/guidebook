@@ -48,6 +48,7 @@ from guidebook.routes.global_settings import router as global_settings_router
 from guidebook.routes.update import router as update_router
 from guidebook.routes.scratchpad import router as scratchpad_router
 from guidebook.routes.media import router as media_router
+from guidebook.routes.mtls import router as mtls_router
 from guidebook._build_info import BUILD_GITHUB_ACTIONS, BUILD_ORIGIN_REPO, GIT_SHA
 
 logger = logging.getLogger("guidebook")
@@ -161,6 +162,30 @@ def _rate_limit_429(retry_after: int) -> Response:
     )
 
 
+async def _check_mtls_auth(request: Request, gdb) -> bool:
+    """Check if request is authenticated via mTLS client certificate."""
+    peer_cert_der = request.scope.get("mtls_peer_cert_der")
+    if not peer_cert_der:
+        return False
+    try:
+        from cryptography.x509 import load_der_x509_certificate
+        from sqlalchemy import select
+
+        cert = load_der_x509_certificate(peer_cert_der)
+        serial_hex = format(cert.serial_number, "x")
+        from guidebook.db import ClientCert
+
+        result = await gdb.execute(
+            select(ClientCert).where(
+                ClientCert.serial_number == serial_hex,
+                ClientCert.revoked_at.is_(None),
+            )
+        )
+        return result.scalar_one_or_none() is not None
+    except Exception:
+        return False
+
+
 @app.middleware("http")
 async def http_middleware(request: Request, call_next):
     from guidebook.ratelimit import auth_limiter
@@ -183,7 +208,10 @@ async def http_middleware(request: Request, call_next):
 
         if db_manager._global_session_factory:
             async with db_manager._global_session_factory() as gdb:
-                ok = await check_auth(request, gdb)
+                # Try mTLS auth first, fall back to cookie auth
+                ok = await _check_mtls_auth(request, gdb) or await check_auth(
+                    request, gdb
+                )
                 if not ok:
                     from fastapi.responses import JSONResponse
 
@@ -240,7 +268,9 @@ async def http_middleware(request: Request, call_next):
             from guidebook.routes.auth import check_auth
 
             async with db_manager._global_session_factory() as gdb:
-                ok = await check_auth(request, gdb)
+                ok = await _check_mtls_auth(request, gdb) or await check_auth(
+                    request, gdb
+                )
                 if not ok:
                     from fastapi.responses import HTMLResponse
 
@@ -497,6 +527,7 @@ app.include_router(query_router)
 app.include_router(update_router)
 app.include_router(scratchpad_router)
 app.include_router(media_router)
+app.include_router(mtls_router)
 app.include_router(sse_router)
 
 static_dir = _resource_path("static")
@@ -887,9 +918,18 @@ environment variables (overridden by command line options):
                 "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, expires_at, is_transfer) VALUES (?, ?, ?, ?, ?, ?)",
                 (token_str, "Login link", now, None, None, 0),
             )
+            # Reset mTLS state
+            try:
+                conn.execute("DELETE FROM client_certs")
+            except sqlite3.OperationalError:
+                pass  # table may not exist yet
+            for k in ("mtls_mode", "ca_cert_pem", "ca_key_pem"):
+                conn.execute("DELETE FROM settings WHERE key = ?", (k,))
             conn.commit()
             os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
-            print("Auth reset: all sessions cleared, new login token generated.")
+            print(
+                "Auth reset: all sessions and mTLS state cleared, new login token generated."
+            )
 
         # Ensure JWT signing secret exists
         row = conn.execute(
@@ -1024,6 +1064,8 @@ environment variables (overridden by command line options):
 
     ssl_kwargs = {}
     if not no_tls:
+        import ssl as _ssl
+
         from guidebook.db import META_DB_PATH
         from guidebook.tls import ensure_tls_cert, write_tls_temp_files
 
@@ -1031,6 +1073,69 @@ environment variables (overridden by command line options):
         certfile, keyfile = write_tls_temp_files(cert_pem, key_pem)
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
         logger.info("TLS enabled (self-signed certificate)")
+
+        # mTLS configuration
+        import sqlite3 as _sq
+
+        _mconn = _sq.connect(str(META_DB_PATH))
+        _mrow = _mconn.execute(
+            "SELECT value FROM settings WHERE key = 'mtls_mode'"
+        ).fetchone()
+        _mtls_mode = _mrow[0] if _mrow and _mrow[0] else "disabled"
+        _mconn.close()
+
+        if _mtls_mode in ("optional", "required"):
+            from guidebook.tls import (
+                ensure_ca_cert,
+                generate_crl,
+                write_ca_temp_file,
+            )
+
+            ca_cert_pem, ca_key_pem = ensure_ca_cert(str(META_DB_PATH))
+            ca_certfile = write_ca_temp_file(ca_cert_pem)
+            ssl_kwargs["ssl_ca_certs"] = ca_certfile
+            ssl_kwargs["ssl_cert_reqs"] = (
+                _ssl.CERT_REQUIRED if _mtls_mode == "required" else _ssl.CERT_OPTIONAL
+            )
+
+            # Build CRL from revoked certs
+            _cconn = _sq.connect(str(META_DB_PATH))
+            _revoked = _cconn.execute(
+                "SELECT serial_number, revoked_at FROM client_certs WHERE revoked_at IS NOT NULL"
+            ).fetchall()
+            _cconn.close()
+            if _revoked:
+                import datetime
+
+                revoked_serials = [
+                    (
+                        int(s, 16),
+                        datetime.datetime.fromtimestamp(t, tz=datetime.timezone.utc),
+                    )
+                    for s, t in _revoked
+                ]
+                crl_pem = generate_crl(ca_cert_pem, ca_key_pem, revoked_serials)
+                # Append CRL to the CA certs file so ssl context loads it
+                with open(ca_certfile, "a") as f:
+                    f.write("\n")
+                    f.write(crl_pem)
+
+            logger.info("mTLS enabled (mode: %s)", _mtls_mode)
+
+            # Monkey-patch uvicorn to inject peer cert into ASGI scope
+            from uvicorn.protocols.http.httptools_impl import HttpToolsProtocol
+
+            _orig_on_message_begin = HttpToolsProtocol.on_message_begin
+
+            def _patched_on_message_begin(self):
+                _orig_on_message_begin(self)
+                ssl_obj = self.transport.get_extra_info("ssl_object")
+                if ssl_obj:
+                    peer_cert_der = ssl_obj.getpeercert(binary_form=True)
+                    if peer_cert_der:
+                        self.scope["mtls_peer_cert_der"] = peer_cert_der
+
+            HttpToolsProtocol.on_message_begin = _patched_on_message_begin
 
     server_app = app
     if proxy_mode:

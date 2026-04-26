@@ -716,6 +716,7 @@
              on:dragover|preventDefault
              on:dragleave={() => { attDragCounter--; if (attDragCounter <= 0) { attDragCounter = 0; dragOver = false; } }}
              on:drop={handleDrop}>
+          <!-- svelte-ignore a11y-label-has-associated-control -->
           <label>Attachments</label>
           <div class="attachment-upload">
             <button class="attachment-choose-btn" on:click={() => fileInput.click()}>Choose files</button>
@@ -738,6 +739,7 @@
                   {:else if att.content_type.startsWith("video/")}
                     <!-- svelte-ignore a11y-click-events-have-key-events -->
                     <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+                    <!-- svelte-ignore a11y-media-has-caption -->
                     <video preload="metadata" src={attDownloadUrl(att)} class="attachment-thumb" on:click={() => openPreview(att)}></video>
                   {/if}
                   <div class="attachment-info">
@@ -870,12 +872,6 @@
     min-height: 0;
     flex: 1;
     overflow: auto;
-  }
-
-  .records-page.page-drag-active {
-    outline: 2px dashed var(--accent, #00ff88);
-    outline-offset: -4px;
-    background: rgba(0, 255, 136, 0.03);
   }
 
   .records-header {

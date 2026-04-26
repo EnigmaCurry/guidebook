@@ -198,6 +198,22 @@
     location.reload();
   }
 
+  async function mtlsLogout() {
+    mtlsError = "";
+    try {
+      const res = await fetch("/api/auth/mtls/logout", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        mtlsError = data?.detail || "Failed to revoke certificate";
+        return;
+      }
+    } catch (e) {
+      mtlsError = e.message;
+      return;
+    }
+    await loadMtlsStatus();
+  }
+
   let copiedField = null;
   async function copyToClipboard(text, field) {
     try {
@@ -225,8 +241,111 @@
     return `in ${Math.floor(fdiff / 86400)}d`;
   }
 
-  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); }
+  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); }
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
+  $: mtlsCurrentCert = mtlsCerts.find(c => c.is_current && !c.revoked_at);
+
+  // mTLS
+  let mtlsMode = "disabled";
+  let mtlsTlsEnabled = true;
+  let mtlsProxyMode = false;
+  let mtlsCaInitialized = false;
+  let mtlsCerts = [];
+  let mtlsGenerating = false;
+  let mtlsError = "";
+  let mtlsShowCertModal = false;
+  let mtlsCertDownloadToken = "";
+  let mtlsCertPassword = "";
+  let mtlsCertFingerprint = "";
+  let mtlsCertLabel = "";
+  let mtlsActivating = false;
+
+  async function loadMtlsStatus() {
+    try {
+      const res = await fetch("/api/auth/mtls/status");
+      if (res.ok) {
+        const data = await res.json();
+        mtlsMode = data.mode;
+        mtlsTlsEnabled = data.tls_enabled;
+        mtlsProxyMode = data.proxy_mode;
+        mtlsCaInitialized = data.ca_initialized;
+        mtlsCerts = data.certs;
+      }
+    } catch {}
+  }
+
+  async function generateClientCert() {
+    mtlsError = "";
+    mtlsGenerating = true;
+    try {
+      const res = await fetch("/api/auth/mtls/generate-cert", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        mtlsCertDownloadToken = data.download_token;
+        mtlsCertPassword = data.password;
+        mtlsCertFingerprint = data.fingerprint;
+        mtlsCertLabel = data.label;
+        mtlsShowCertModal = true;
+      } else {
+        const data = await res.json().catch(() => null);
+        mtlsError = data?.detail || "Failed to generate certificate";
+      }
+    } catch (e) {
+      mtlsError = e.message;
+    }
+    mtlsGenerating = false;
+    await loadMtlsStatus();
+  }
+
+  function dismissCertModal() {
+    mtlsShowCertModal = false;
+    mtlsCertDownloadToken = "";
+    mtlsCertPassword = "";
+    mtlsCertFingerprint = "";
+    mtlsCertLabel = "";
+  }
+
+  function downloadCert() {
+    if (mtlsCertDownloadToken) {
+      window.open(`/api/auth/mtls/download/${mtlsCertDownloadToken}`, "_blank");
+    }
+  }
+
+  async function revokeClientCert(certId) {
+    mtlsError = "";
+    try {
+      const res = await fetch(`/api/auth/mtls/certs/${certId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        mtlsError = data?.detail || "Failed to revoke certificate";
+      }
+    } catch (e) {
+      mtlsError = e.message;
+    }
+    await loadMtlsStatus();
+  }
+
+  async function activateMtls(mode) {
+    mtlsError = "";
+    mtlsActivating = true;
+    try {
+      const res = await fetch("/api/auth/mtls/activate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode }),
+      });
+      if (res.ok) {
+        await loadMtlsStatus();
+        await loadAuthStatus();
+      } else {
+        const data = await res.json().catch(() => null);
+        mtlsError = data?.detail || "Failed to activate mTLS";
+      }
+    } catch (e) {
+      mtlsError = e.message;
+    }
+    mtlsActivating = false;
+  }
 
   async function loadDbInfo() {
     try {
@@ -1051,6 +1170,7 @@
     fetchNoShutdown();
     loadAuthStatus();
     loadAuthSessions();
+    loadMtlsStatus();
   });
 
   onDestroy(() => {
@@ -1445,7 +1565,70 @@
   <div class="tab-scroll"><div class="tab-content" use:masonry>
   <section class="settings-section">
     <h3>Authentication</h3>
-    <p class="hint">Authentication is currently enforced. Only browsers with a valid session cookie can access the app. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off.</p>
+    <p class="hint">Authentication is currently enforced. Only browsers with a valid session cookie{#if mtlsMode !== "disabled"} or mTLS client certificate{/if} can access the app. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off.</p>
+  </section>
+
+  <section class="settings-section">
+    <h3>Client Certificates (mTLS)</h3>
+    {#if !mtlsTlsEnabled}
+      <p class="hint">mTLS is unavailable because TLS is disabled. Remove <code style="font-size: 0.75rem; white-space: nowrap">--no-tls</code> to enable.</p>
+    {:else if mtlsProxyMode}
+      <p class="hint">mTLS is unavailable in proxy mode. Configure mTLS at your reverse proxy instead.</p>
+    {:else}
+      <div class="mtls-radio-group">
+        <label class="mtls-radio" class:active={mtlsMode === "disabled"}>
+          <input type="radio" name="mtls-mode" value="disabled" checked={mtlsMode === "disabled"} disabled={mtlsActivating} on:change={() => activateMtls("disabled")} />
+          <span><strong>Disabled</strong> — cookie auth only</span>
+        </label>
+        <label class="mtls-radio" class:active={mtlsMode === "optional"}>
+          <input type="radio" name="mtls-mode" value="optional" checked={mtlsMode === "optional"} disabled={mtlsActivating} on:change={() => activateMtls("optional")} />
+          <span><strong>Optional</strong> — both cookie and client certificate accepted</span>
+        </label>
+        <label class="mtls-radio" class:active={mtlsMode === "required"}>
+          <input type="radio" name="mtls-mode" value="required" checked={mtlsMode === "required"} disabled={mtlsActivating} on:change={() => activateMtls("required")} />
+          <span><strong>Enforced</strong> — only client certificates accepted</span>
+        </label>
+      </div>
+      <p class="hint" style="margin-top: 0.5rem; color: var(--warning-color, #e6a700);">Mode changes require a server restart to take effect.</p>
+
+      {#if mtlsMode !== "disabled" || mtlsCerts.length > 0}
+        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Generate Client Certificate</h4>
+        <div class="setting-row">
+          <button on:click={generateClientCert} disabled={mtlsGenerating}>
+            {mtlsGenerating ? "Generating..." : "Generate Client Certificate"}
+          </button>
+        </div>
+      {/if}
+
+      {#if mtlsCerts.length > 0}
+        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Issued Certificates</h4>
+        <div class="session-list mtls-cert-list">
+          {#each mtlsCerts as cert (cert.id)}
+            <div class="session-item" class:session-current={cert.is_current} class:session-revoked={cert.revoked_at}>
+              <div class="session-info">
+                <span class="session-label">
+                  {cert.label}
+                  {#if cert.is_current} <strong>(current)</strong>{/if}
+                  {#if cert.revoked_at}<em style="color: var(--danger-color, #cc3333);"> (revoked)</em>{/if}
+                </span>
+                <span class="session-meta">
+                  Fingerprint: {cert.fingerprint_sha256.slice(0, 16)}...
+                  — Issued {formatAuthTime(cert.issued_at)}
+                  — Expires {formatAuthTime(cert.expires_at)}
+                </span>
+              </div>
+              {#if !cert.revoked_at && !cert.is_current}
+                <button class="session-delete" on:click={() => revokeClientCert(cert.id)} title="Revoke this certificate">Revoke</button>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {/if}
+
+    {#if mtlsError}
+      <p class="danger-error" style="margin-top: 0.5rem;">{mtlsError}</p>
+    {/if}
   </section>
 
 
@@ -1511,10 +1694,17 @@
 
   <section class="settings-section">
     <h3>Logout</h3>
-    <p class="hint">Log out of this browser session. You will need a new login link to access the server again.</p>
-    <div class="setting-row">
-      <button class="danger-btn" on:click={logoutSession}>Logout</button>
-    </div>
+    {#if mtlsCurrentCert}
+      <p class="hint">Revoke your current client certificate. You will need a new mTLS certificate to reconnect, or restart the server with <code style="font-size: 0.75rem; white-space: nowrap">--reset-auth</code> to revert to login link mode.</p>
+      <div class="setting-row">
+        <button class="danger-btn" on:click={mtlsLogout}>Revoke Certificate &amp; Logout</button>
+      </div>
+    {:else}
+      <p class="hint">Log out of this browser session. You will need a new login link to access the server again.</p>
+      <div class="setting-row">
+        <button class="danger-btn" on:click={logoutSession}>Logout</button>
+      </div>
+    {/if}
   </section>
 
   {#if authError}
@@ -1526,6 +1716,52 @@
   {/if}
 
 </div>
+
+{#if mtlsShowCertModal}
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<div class="mtls-modal-backdrop" on:click={dismissCertModal}>
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="mtls-modal" on:click|stopPropagation>
+    <div class="mtls-modal-header">
+      <h3>Client Certificate Generated</h3>
+      <button class="modal-close" on:click={dismissCertModal}>&times;</button>
+    </div>
+    <div class="mtls-modal-body">
+      <p style="color: var(--warning-color, #e6a700); font-weight: bold; margin-bottom: 1rem;">
+        This information will not be shown again. The download link is single-use.
+      </p>
+      <div style="margin-bottom: 1rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Label</span>
+        <div style="font-family: monospace;">{mtlsCertLabel}</div>
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Fingerprint (SHA-256)</span>
+        <div style="font-family: monospace; font-size: 0.8rem; word-break: break-all;">{mtlsCertFingerprint}</div>
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Import Password</span>
+        <div class="token-url-box">
+          <input type="text" value={mtlsCertPassword} readonly on:click={(e) => e.target.select()} />
+          <button class="copy-btn" class:copied={copiedField === 'mtls-pw'} on:click={() => copyToClipboard(mtlsCertPassword, 'mtls-pw')}>{copiedField === 'mtls-pw' ? 'Copied!' : 'Copy'}</button>
+        </div>
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <button on:click={downloadCert} style="width: 100%;">Download .p12 Certificate</button>
+      </div>
+      <p class="hint">
+        1. Download the .p12 file above.<br>
+        2. Import it into your browser's certificate store using the password shown.<br>
+        3. When prompted by the server, select this certificate.
+      </p>
+    </div>
+    <div class="mtls-modal-footer">
+      <button on:click={dismissCertModal}>Done</button>
+    </div>
+  </div>
+</div>
+{/if}
 
 <style>
   .settings {
@@ -1872,6 +2108,9 @@
     color: var(--text-dim);
     margin: 0;
   }
+  p.hint + .setting-row {
+    margin-top: 0.5rem;
+  }
 
   .danger-zone {
     border-color: #ff4444;
@@ -2070,5 +2309,95 @@
     background: var(--success-color, #2ea043);
     color: #fff;
     border-color: var(--success-color, #2ea043);
+  }
+
+  /* mTLS modal */
+  .mtls-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 100000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mtls-modal {
+    background: var(--bg-card, var(--bg-primary, #24252b));
+    border: 1px solid var(--border, var(--border-color, #3a3b3f));
+    border-radius: 8px;
+    max-width: 480px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .mtls-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+  .mtls-modal-header h3 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .mtls-modal-body {
+    padding: 1rem;
+  }
+  .mtls-modal-footer {
+    padding: 1rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: flex-end;
+  }
+  .session-revoked {
+    opacity: 0.5;
+  }
+  .mtls-cert-list {
+    max-height: 12rem;
+    overflow-y: auto;
+  }
+
+  /* mTLS radio group */
+  .mtls-radio-group {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border, var(--border-color, #3a3b3f));
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .mtls-radio {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8rem;
+    cursor: pointer;
+    margin: 0;
+    border-bottom: 1px solid var(--border, var(--border-color, #3a3b3f));
+    transition: background 0.15s;
+  }
+  .mtls-radio:last-child {
+    border-bottom: none;
+  }
+  .mtls-radio:hover {
+    background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+  }
+  .mtls-radio.active {
+    background: var(--bg-hover, rgba(255, 255, 255, 0.06));
+  }
+  .mtls-radio input[type="radio"] {
+    margin: 0;
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+  }
+  .mtls-radio span {
+    flex: 1;
+    min-width: 0;
+  }
+  .mtls-radio input[type="radio"]:disabled {
+    cursor: wait;
   }
 </style>
