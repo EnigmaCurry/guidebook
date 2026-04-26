@@ -46,11 +46,6 @@ build-binary: _check-uv build-frontend
 # Build everything (frontend + binary)
 build: build-frontend build-binary
 
-# Run frontend dev server with HMR
-dev: _check-node
-    @test -d frontend/node_modules || { echo "Error: frontend dependencies not installed. Run 'just deps' first."; exit 1; }
-    cd frontend && npm run dev
-
 # Run tests
 test: _check-uv
     uv run pytest
