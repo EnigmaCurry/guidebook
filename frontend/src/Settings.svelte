@@ -2317,8 +2317,8 @@
     justify-content: center;
   }
   .mtls-modal {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
+    background: var(--bg-card, var(--bg-primary, #24252b));
+    border: 1px solid var(--border, var(--border-color, #3a3b3f));
     border-radius: 8px;
     max-width: 480px;
     width: 90%;
