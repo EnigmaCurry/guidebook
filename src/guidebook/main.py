@@ -220,7 +220,7 @@ async def http_middleware(request: Request, call_next):
         "connect-src 'self'"
     )
     if _auth_module.PROXY_MODE:
-        if request.headers.get("x-forwarded-proto", "").lower() == "https":
+        if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = (
                 "max-age=31536000; includeSubDomains"
             )

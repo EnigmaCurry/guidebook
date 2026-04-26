@@ -406,7 +406,7 @@ async def login_with_token(
 
 def _is_secure(request: Request) -> bool:
     if PROXY_MODE:
-        return request.headers.get("x-forwarded-proto", "").lower() == "https"
+        return request.url.scheme == "https"
     return TLS_ENABLED
 
 
