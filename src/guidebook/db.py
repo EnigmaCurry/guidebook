@@ -358,15 +358,17 @@ GLOBAL_MIGRATIONS: list = []
 def _global_migration_1_client_certs(conn):
     """Create client_certs table for mTLS support."""
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS client_certs ("
-        "id INTEGER PRIMARY KEY, "
-        "serial_number VARCHAR NOT NULL UNIQUE, "
-        "label VARCHAR NOT NULL DEFAULT '', "
-        "issued_at REAL NOT NULL, "
-        "expires_at REAL NOT NULL, "
-        "revoked_at REAL, "
-        "fingerprint_sha256 VARCHAR NOT NULL"
-        ")"
+        text(
+            "CREATE TABLE IF NOT EXISTS client_certs ("
+            "id INTEGER PRIMARY KEY, "
+            "serial_number VARCHAR NOT NULL UNIQUE, "
+            "label VARCHAR NOT NULL DEFAULT '', "
+            "issued_at REAL NOT NULL, "
+            "expires_at REAL NOT NULL, "
+            "revoked_at REAL, "
+            "fingerprint_sha256 VARCHAR NOT NULL"
+            ")"
+        )
     )
 
 
