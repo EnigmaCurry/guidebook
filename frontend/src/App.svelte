@@ -1072,7 +1072,7 @@
       <div class="dual-divider" on:mousedown={onDividerDown} on:touchstart={onDividerDown}></div>
       <div class="dual-pane" style="flex: 1">
         {#if dualRightPage === "media"}
-          <Media searchQuery={mediaSearchQuery} selectedRecordId={editId || mediaSelectedRecordId} />
+          <Media searchQuery={mediaSearchQuery} selectedRecordId={editId || mediaSelectedRecordId} on:openrecord={e => { editId = e.detail; dualShowForm = true; }} />
         {:else if dualRightPage === "notifications"}
           <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
         {/if}
@@ -1087,7 +1087,7 @@
     {:else if page === "query"}
       <Query initialSql={querySql} />
     {:else if page === "media"}
-      <Media searchQuery={mediaSearchQuery} />
+      <Media searchQuery={mediaSearchQuery} on:openrecord={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} />
     {:else if page === "notifications"}
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}

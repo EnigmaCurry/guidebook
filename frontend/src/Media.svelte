@@ -1,5 +1,7 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, createEventDispatcher } from "svelte";
+
+  const dispatch = createEventDispatcher();
 
   export let searchQuery = "";
   export let selectedRecordId = null;
@@ -76,8 +78,8 @@
       {#each displayMedia as item, i (item.id)}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <div class="media-card" on:click={() => openPreview(i)}>
-          <div class="media-thumb">
+        <div class="media-card">
+          <div class="media-thumb" on:click={() => openPreview(i)}>
             {#if item.content_type.startsWith("image/")}
               <img src={downloadUrl(item)} alt={item.filename} loading="lazy" />
             {:else if item.content_type.startsWith("video/")}
@@ -88,7 +90,7 @@
               <div class="audio-badge">&#9835;</div>
             {/if}
           </div>
-          <div class="media-label">
+          <div class="media-label" on:click={() => dispatch("openrecord", item.record_id)}>
             <span class="media-filename" title={item.filename}>{item.filename}</span>
             <span class="media-record-title" title={item.record_title}>{item.record_title}</span>
           </div>
@@ -164,7 +166,6 @@
     border: 1px solid var(--border, #3a3b3f);
     border-radius: 6px;
     overflow: hidden;
-    cursor: pointer;
     transition: border-color 0.15s;
   }
 
@@ -210,12 +211,21 @@
     color: var(--accent, #00ff88);
   }
 
+  .media-thumb {
+    cursor: pointer;
+  }
+
   .media-label {
     padding: 0.3rem 0.4rem;
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
     min-width: 0;
+    cursor: pointer;
+  }
+
+  .media-label:hover {
+    background: var(--bg-input, #1a1b20);
   }
 
   .media-filename {
