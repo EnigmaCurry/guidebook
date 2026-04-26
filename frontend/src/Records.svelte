@@ -33,6 +33,7 @@
   let fileInput;
   let dragOver = false;
   let previewIndex = -1;
+  let selectedTags = new Set();
 
   $: previewableAttachments = attachments.filter(a =>
     a.content_type.startsWith("image/") ||
@@ -213,8 +214,51 @@
     storageSet("logSortAsc", String(sortAsc));
   }
 
+  $: allTags = (() => {
+    const tagSet = new Set();
+    for (const r of records) {
+      if (r.tags) {
+        for (const t of r.tags.split(",")) {
+          const trimmed = t.trim();
+          if (trimmed) tagSet.add(trimmed);
+        }
+      }
+    }
+    return [...tagSet].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  })();
+
+  // Clear selected tags that no longer exist in results
+  $: if (allTags) {
+    const tagSet = new Set(allTags);
+    for (const t of selectedTags) {
+      if (!tagSet.has(t)) selectedTags.delete(t);
+    }
+    selectedTags = selectedTags;
+  }
+
+  function toggleTag(tag) {
+    if (selectedTags.has(tag)) {
+      selectedTags.delete(tag);
+    } else {
+      selectedTags.add(tag);
+    }
+    selectedTags = selectedTags;
+    selectedIndex = -1;
+  }
+
   $: sortedRecords = (() => {
-    const sorted = [...records].sort((a, b) => {
+    let filtered = records;
+    if (selectedTags.size > 0) {
+      filtered = records.filter(r => {
+        if (!r.tags) return false;
+        const rTags = r.tags.split(",").map(t => t.trim());
+        for (const st of selectedTags) {
+          if (!rTags.includes(st)) return false;
+        }
+        return true;
+      });
+    }
+    const sorted = [...filtered].sort((a, b) => {
       let va = a[sortCol] ?? "";
       let vb = b[sortCol] ?? "";
       if (sortCol === "timestamp" || sortCol === "updated_at") {
@@ -617,6 +661,14 @@
     </div>
   </div>
 
+  {#if !showForm && allTags.length > 0}
+    <div class="tag-filter-bar">
+      {#each allTags as tag (tag)}
+        <button class="tag-chip" class:active={selectedTags.has(tag)} on:click={() => toggleTag(tag)}>{tag}</button>
+      {/each}
+    </div>
+  {/if}
+
   {#if showForm}
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="record-form" on:keydown={e => { if (e.ctrlKey && e.key === "Enter") { e.preventDefault(); saveRecord(); } }} on:paste={handlePaste}>
@@ -821,6 +873,35 @@
     font-size: 0.85rem;
   }
 
+
+  .tag-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .tag-chip {
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--border, #3a3b3f);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text-dim, #888);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+
+  .tag-chip:hover {
+    border-color: var(--accent, #00ff88);
+    color: var(--text, #eaeaea);
+  }
+
+  .tag-chip.active {
+    background: var(--accent, #00ff88);
+    color: var(--bg, #1a1b1e);
+    border-color: var(--accent, #00ff88);
+  }
 
   .record-form {
     background: var(--bg-card, #24252b);
