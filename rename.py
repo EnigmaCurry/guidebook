@@ -96,7 +96,8 @@ def replace_in_file(path: Path, old_lower: str, new_lower: str) -> bool:
 
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     print(f"  $ {' '.join(cmd)}")
-    return subprocess.run(cmd, cwd=str(ROOT), check=True, **kwargs)
+    kwargs.setdefault("cwd", str(ROOT))
+    return subprocess.run(cmd, check=True, **kwargs)
 
 
 def main():
