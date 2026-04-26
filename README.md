@@ -7,7 +7,7 @@ strong security defaults: TLS and cookie-based authentication are enabled
 out of the box, sessions are locked to a single browser by default, and
 login links are one-time use with a short expiration window.
 
-Built with FastAPI, SQLAlchemy, and Svelte. Forked from
+Built with FastAPI, SQLite (SQLAlchemy), and Svelte. Forked from
 [rigbook](https://github.com/EnigmaCurry/rigbook), with all
 domain-specific code replaced by a generic Record model (title, content,
 tags) as a starting point — replace it with your own data model and UI.
