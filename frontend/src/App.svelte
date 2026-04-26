@@ -939,7 +939,7 @@
       e.preventDefault();
       recordsRef.openSelected();
     } else if (e.key === "Escape" && recordsRef) {
-      if (!recordsRef.deselect()) recordsRef.cancelIfClean();
+      if (!recordsRef.cancelIfClean()) recordsRef.deselect();
     } else if ((e.key === "PageDown" || e.key === "PageUp" || e.key === "Home" || e.key === "End") && recordsRef) {
       const tw = document.querySelector(".table-wrap");
       if (tw) {
