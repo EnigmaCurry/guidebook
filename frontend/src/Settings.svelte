@@ -2103,6 +2103,9 @@
     color: var(--text-dim);
     margin: 0;
   }
+  p.hint + .setting-row {
+    margin-top: 0.5rem;
+  }
 
   .danger-zone {
     border-color: #ff4444;
