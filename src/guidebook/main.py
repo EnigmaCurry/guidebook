@@ -614,7 +614,8 @@ environment variables (overridden by command line options):
   GUIDEBOOK_BROWSER_URL     Override browser URL
   GUIDEBOOK_DISABLE_AUTH    Disable authentication (default: false)
   GUIDEBOOK_AUTH_SLOTS      Max concurrent sessions (default: 1)
-  GUIDEBOOK_AUTH_TTL        Session cookie TTL in seconds (default: 10 years)
+  GUIDEBOOK_AUTH_TTL        Session cookie TTL (e.g. 30d, 24h, 3600; default: 30d)
+  GUIDEBOOK_AUTH_RENEW_COOLDOWN  Min time before cookie renewal (default: 24h)
   GUIDEBOOK_ALLOW_TRANSFER  Enable session transfer (default: false)
   GUIDEBOOK_NO_TLS          Disable TLS (default: false)
   GUIDEBOOK_PROXY           Enable reverse proxy mode (default: false)
@@ -678,9 +679,15 @@ environment variables (overridden by command line options):
     )
     parser.add_argument(
         "--auth-ttl",
-        type=int,
+        type=str,
         default=None,
-        help="Set session cookie TTL in seconds (default: 10 years)",
+        help="Session cookie TTL (e.g. 30d, 24h, 3600) (default: 30d)",
+    )
+    parser.add_argument(
+        "--auth-renew-cooldown",
+        type=str,
+        default=None,
+        help="Min time before cookie renewal (e.g. 24h, 1h) (default: 24h)",
     )
     parser.add_argument(
         "--allow-transfer",
@@ -718,12 +725,36 @@ environment variables (overridden by command line options):
                 pass
     # Apply --auth-ttl / GUIDEBOOK_AUTH_TTL
     if args.auth_ttl is not None:
-        _auth_module.AUTH_TTL = args.auth_ttl
+        try:
+            _auth_module.AUTH_TTL = max(30, _auth_module.parse_duration(args.auth_ttl))
+        except ValueError:
+            print(f"Error: invalid --auth-ttl value: {args.auth_ttl}")
+            sys.exit(1)
     else:
         val = os.environ.get("GUIDEBOOK_AUTH_TTL", "").strip()
         if val:
             try:
-                _auth_module.AUTH_TTL = max(30, int(val))
+                _auth_module.AUTH_TTL = max(30, _auth_module.parse_duration(val))
+            except ValueError:
+                pass
+    # Apply --auth-renew-cooldown / GUIDEBOOK_AUTH_RENEW_COOLDOWN
+    if args.auth_renew_cooldown is not None:
+        try:
+            _auth_module.AUTH_RENEW_COOLDOWN = max(
+                0, _auth_module.parse_duration(args.auth_renew_cooldown)
+            )
+        except ValueError:
+            print(
+                f"Error: invalid --auth-renew-cooldown value: {args.auth_renew_cooldown}"
+            )
+            sys.exit(1)
+    else:
+        val = os.environ.get("GUIDEBOOK_AUTH_RENEW_COOLDOWN", "").strip()
+        if val:
+            try:
+                _auth_module.AUTH_RENEW_COOLDOWN = max(
+                    0, _auth_module.parse_duration(val)
+                )
             except ValueError:
                 pass
     # Apply --no-tls / GUIDEBOOK_NO_TLS
@@ -764,7 +795,7 @@ environment variables (overridden by command line options):
             "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, last_ip TEXT, "
             "is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
-        for col in ("expires_at REAL", "last_ip TEXT"):
+        for col in ("expires_at REAL", "last_ip TEXT", "jwt_nonce TEXT"):
             try:
                 conn.execute(f"ALTER TABLE auth_tokens ADD COLUMN {col}")
             except sqlite3.OperationalError:

@@ -207,6 +207,13 @@
     return true;
   }
 
+  async function tryRenewSession() {
+    try {
+      const res = await fetch("/api/auth/renew", { method: "POST" });
+      if (res.status === 401) location.reload();
+    } catch {}
+  }
+
   async function checkWelcome() {
     // The welcome screen only shows once — before the first database is created.
     // We use the /api/databases/mode endpoint to check.
@@ -961,6 +968,8 @@
     // Check if auth blocks us
     const authOk = await checkAuthStatus();
     if (!authOk) return;
+    tryRenewSession();
+    setInterval(tryRenewSession, 3600_000); // renew check every hour
     connectSSE(); // connect early to prevent auto-shutdown during welcome
     await checkWelcome();
     if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
