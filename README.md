@@ -5,7 +5,9 @@ for a single user accessing the app from one or a handful of trusted
 browsers — not for multi-tenant or public-facing use. It ships with
 strong security defaults: TLS and cookie-based authentication are enabled
 out of the box, sessions are locked to a single browser by default, and
-login links are one-time use with a short expiration window.
+login links are one-time use with a short expiration window. Optional
+mTLS client certificate authentication is available for an even stronger
+auth posture.
 
 Built with FastAPI, SQLite (SQLAlchemy), and Svelte. Forked from
 [rigbook](https://github.com/EnigmaCurry/rigbook), with all
@@ -14,7 +16,7 @@ tags) as a starting point — replace it with your own data model and UI.
 
 ## Features
 
-- **Personal by default**: TLS, single-session auth, and one-time login links out of the box
+- **Personal by default**: TLS, single-session auth, one-time login links, and optional mTLS client certificates
 - **Records**: Generic CRUD records (title, content, tags) — replace with your own data model
 - **Scratchpad**: Ephemeral shared notepad synced in real time across all connected clients via SSE
 - **Multi-database**: Multiple projects with separate SQLite databases and a database picker
