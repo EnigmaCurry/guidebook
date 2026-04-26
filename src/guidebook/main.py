@@ -475,12 +475,16 @@ def _check_running_instance(
     running_origin = None
     running_sha = None
     try:
-        resp = urllib.request.urlopen(f"{url}/api/version", timeout=2, context=_noverify)
+        resp = urllib.request.urlopen(
+            f"{url}/api/version", timeout=2, context=_noverify
+        )
         running_version = _json.loads(resp.read()).get("version")
     except Exception:
         pass
     try:
-        resp = urllib.request.urlopen(f"{url}/api/update/platform", timeout=2, context=_noverify)
+        resp = urllib.request.urlopen(
+            f"{url}/api/update/platform", timeout=2, context=_noverify
+        )
         platform_info = _json.loads(resp.read())
         running_origin = platform_info.get("build_origin_repo")
         running_sha = platform_info.get("build_git_sha")
@@ -720,6 +724,12 @@ environment variables (overridden by command line options):
 
         if args.reset_auth:
             conn.execute("DELETE FROM auth_tokens")
+            # Regenerate JWT secret on auth reset to invalidate all JWTs
+            jwt_secret = secrets.token_urlsafe(64)
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("auth_jwt_secret", jwt_secret),
+            )
             token_str = secrets.token_urlsafe(48)
             now = time.time()
             conn.execute(
@@ -729,6 +739,21 @@ environment variables (overridden by command line options):
             conn.commit()
             os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
             print("Auth reset: all sessions cleared, new login token generated.")
+
+        # Ensure JWT signing secret exists
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", ("auth_jwt_secret",)
+        ).fetchone()
+        if row:
+            _auth_module.JWT_SECRET = row[0]
+        else:
+            jwt_secret = secrets.token_urlsafe(64)
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)",
+                ("auth_jwt_secret", jwt_secret),
+            )
+            conn.commit()
+            _auth_module.JWT_SECRET = jwt_secret
 
         conn.close()
 
@@ -807,12 +832,14 @@ environment variables (overridden by command line options):
 
     host = os.environ.get("GUIDEBOOK_HOST", "")
     if not host:
-            host = "127.0.0.1"
+        host = "127.0.0.1"
     port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "4280"))
 
-    no_tls = args.no_tls or os.environ.get(
-        "GUIDEBOOK_NO_TLS", ""
-    ).lower() in ("1", "true", "yes")
+    no_tls = args.no_tls or os.environ.get("GUIDEBOOK_NO_TLS", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     scheme = "http" if no_tls else "https"
 
     # Check if guidebook is already running on this port
@@ -859,4 +886,6 @@ environment variables (overridden by command line options):
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
         logger.info("TLS enabled (self-signed certificate)")
 
-    uvicorn.run(app, host=host, port=port, access_log=False, log_config=None, **ssl_kwargs)
+    uvicorn.run(
+        app, host=host, port=port, access_log=False, log_config=None, **ssl_kwargs
+    )

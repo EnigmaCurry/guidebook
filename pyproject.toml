@@ -11,6 +11,7 @@ dependencies = [
     "httpx",
     "packaging",
     "cryptography",
+    "pyjwt",
     "python-multipart>=0.0.26",
 ]
 

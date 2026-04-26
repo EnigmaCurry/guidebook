@@ -3,6 +3,7 @@ import os
 import secrets
 import time
 
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import select, func
@@ -25,6 +26,9 @@ DISABLE_AUTH = False
 AUTH_SLOTS: int = 1  # --auth-slots (default 1)
 AUTH_TTL: int = AUTH_COOKIE_MAX_AGE_DEFAULT  # --auth-ttl (default 10 years)
 ALLOW_TRANSFER: bool = False  # --allow-transfer
+
+# JWT signing secret — loaded at startup by main.py
+JWT_SECRET: str = ""
 
 
 def _env_disable_auth() -> bool:
@@ -63,14 +67,42 @@ async def _token_count(gdb: AsyncSession) -> int:
     return result.scalar() or 0
 
 
-def _get_current_token(request: Request) -> str | None:
-    return request.cookies.get(AUTH_COOKIE_NAME)
+def _create_jwt(session_id: int) -> str:
+    return jwt.encode(
+        {"sid": session_id, "iat": int(time.time())}, JWT_SECRET, algorithm="HS256"
+    )
 
 
-async def _validate_token(gdb: AsyncSession, token: str) -> AuthToken | None:
+def _decode_jwt(token_str: str) -> dict | None:
+    try:
+        return jwt.decode(token_str, JWT_SECRET, algorithms=["HS256"])
+    except (jwt.InvalidTokenError, Exception):
+        return None
+
+
+def _get_current_session_id(request: Request) -> int | None:
+    cookie = request.cookies.get(AUTH_COOKIE_NAME)
+    if not cookie:
+        return None
+    claims = _decode_jwt(cookie)
+    if not claims or "sid" not in claims:
+        return None
+    return claims["sid"]
+
+
+async def _validate_token_by_raw(gdb: AsyncSession, token: str) -> AuthToken | None:
+    """Validate a raw login/transfer token (from URL, not JWT)."""
     if not token:
         return None
     result = await gdb.execute(select(AuthToken).where(AuthToken.token == token))
+    return result.scalar_one_or_none()
+
+
+async def _validate_session(gdb: AsyncSession, session_id: int) -> AuthToken | None:
+    """Validate a session by ID (from JWT)."""
+    if not session_id:
+        return None
+    result = await gdb.execute(select(AuthToken).where(AuthToken.id == session_id))
     return result.scalar_one_or_none()
 
 
@@ -78,10 +110,10 @@ async def check_auth(request: Request, gdb: AsyncSession) -> bool:
     """Check if the current request is authenticated. Returns True if OK."""
     if not await _is_auth_enabled(gdb):
         return True
-    token_str = _get_current_token(request)
-    if not token_str:
+    session_id = _get_current_session_id(request)
+    if not session_id:
         return False
-    token = await _validate_token(gdb, token_str)
+    token = await _validate_session(gdb, session_id)
     if not token:
         return False
     # Update last_seen and IP
@@ -105,10 +137,10 @@ async def auth_status(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     enabled = await _is_auth_enabled(gdb)
-    token_str = _get_current_token(request)
+    session_id = _get_current_session_id(request)
     authenticated = False
-    if token_str:
-        tok = await _validate_token(gdb, token_str)
+    if session_id:
+        tok = await _validate_session(gdb, session_id)
         authenticated = tok is not None
     if not enabled:
         authenticated = True  # no auth needed
@@ -138,7 +170,7 @@ async def list_sessions(
     request: Request,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    current_token = _get_current_token(request)
+    current_session_id = _get_current_session_id(request)
     result = await gdb.execute(select(AuthToken).order_by(AuthToken.created_at))
     sessions = []
     for tok in result.scalars().all():
@@ -150,7 +182,7 @@ async def list_sessions(
                 last_seen_at=tok.last_seen_at,
                 expires_at=tok.expires_at,
                 last_ip=tok.last_ip,
-                is_current=tok.token == current_token,
+                is_current=tok.id == current_session_id,
                 is_transfer=tok.is_transfer == 1,
             )
         )
@@ -173,8 +205,8 @@ async def generate_token(
         raise HTTPException(400, "Authentication is not enabled")
 
     # Check current user is authenticated
-    current_token = _get_current_token(request)
-    if not current_token or not await _validate_token(gdb, current_token):
+    current_sid = _get_current_session_id(request)
+    if not current_sid or not await _validate_session(gdb, current_sid):
         raise HTTPException(401, "Not authenticated")
 
     # Check slot availability
@@ -210,15 +242,18 @@ async def transfer_session(
 ):
     """Generate a transfer token — logs out current session when new one logs in."""
     if not ALLOW_TRANSFER:
-        raise HTTPException(400, "Session transfer is disabled. Use --allow-transfer at startup to enable it.")
+        raise HTTPException(
+            400,
+            "Session transfer is disabled. Use --allow-transfer at startup to enable it.",
+        )
     enabled = await _is_auth_enabled(gdb)
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")
 
-    current_token_str = _get_current_token(request)
-    if not current_token_str:
+    current_sid = _get_current_session_id(request)
+    if not current_sid:
         raise HTTPException(401, "Not authenticated")
-    current_tok = await _validate_token(gdb, current_token_str)
+    current_tok = await _validate_session(gdb, current_sid)
     if not current_tok:
         raise HTTPException(401, "Not authenticated")
 
@@ -250,7 +285,7 @@ async def check_token(
     token_str = body.get("token", "")
     if not token_str:
         return {"valid": False}
-    tok = await _validate_token(gdb, token_str)
+    tok = await _validate_token_by_raw(gdb, token_str)
     if not tok:
         return {"valid": False}
     if tok.last_seen_at is not None and not tok.is_transfer:
@@ -276,7 +311,7 @@ async def login_with_token(
     if not token_str:
         raise HTTPException(400, "Token required")
 
-    tok = await _validate_token(gdb, token_str)
+    tok = await _validate_token_by_raw(gdb, token_str)
     if not tok:
         raise HTTPException(401, "Invalid or expired token")
 
@@ -316,14 +351,24 @@ async def login_with_token(
         tok.label = "Logged in session"
         await gdb.commit()
         try:
-            await create_notification("New session logged in", "A new browser session was authenticated via login link.")
+            await create_notification(
+                "New session logged in",
+                "A new browser session was authenticated via login link.",
+            )
         except Exception:
             logger.warning("Failed to create login notification")
         logger.info("New session logged in via token")
 
+    # Replace the raw login token with a new random value so the
+    # original link token can never be reused even if leaked
+    tok.token = secrets.token_urlsafe(48)
+    await gdb.commit()
+
+    # Issue a JWT containing the session ID — this is what goes in the cookie
+    jwt_token = _create_jwt(tok.id)
     response.set_cookie(
         AUTH_COOKIE_NAME,
-        token_str,
+        jwt_token,
         max_age=AUTH_TTL,
         httponly=True,
         samesite="lax",
@@ -339,14 +384,14 @@ async def delete_session(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Delete (logout) a session. Cannot delete current session."""
-    current_token = _get_current_token(request)
+    current_sid = _get_current_session_id(request)
 
     result = await gdb.execute(select(AuthToken).where(AuthToken.id == session_id))
     tok = result.scalar_one_or_none()
     if not tok:
         raise HTTPException(404, "Session not found")
 
-    if tok.token == current_token:
+    if tok.id == current_sid:
         raise HTTPException(400, "Cannot delete your own session")
 
     await gdb.delete(tok)
@@ -363,16 +408,12 @@ async def logout(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Log out the current session."""
-    token_str = _get_current_token(request)
-    if token_str:
-        tok = await _validate_token(gdb, token_str)
+    session_id = _get_current_session_id(request)
+    if session_id:
+        tok = await _validate_session(gdb, session_id)
         if tok:
             await gdb.delete(tok)
             await gdb.commit()
             logger.info("Session logged out")
     response.delete_cookie(AUTH_COOKIE_NAME, path="/")
     return {"status": "logged_out"}
-
-
-
-
