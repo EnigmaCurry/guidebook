@@ -441,6 +441,7 @@
       } catch {}
     }
     const wasAutoCreated = formAutoCreated;
+    editId = null;
     showForm = false;
     formId = null;
     formAutoCreated = false;
