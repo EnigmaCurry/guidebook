@@ -717,7 +717,8 @@
             <input bind:this={fileInput} type="file" multiple style="display:none" on:change={handleFileInput} />
           </div>
           {#if attachments.length > 0}
-            <div class="attachment-list">
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <div class="attachment-list" on:wheel|preventDefault={e => e.currentTarget.scrollLeft += e.deltaY}>
               {#each attachments as att (att.id)}
                 <div class="attachment-item">
                   {#if att.content_type.startsWith("image/")}
