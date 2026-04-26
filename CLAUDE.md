@@ -39,7 +39,10 @@ guidebook/
 
 ## Data Storage
 
-Database and config stored in `~/.local/guidebook/` (XDG-compatible). Created automatically on first run.
+Database and config stored in the OS-appropriate data directory. Created automatically on first run.
+- **Linux**: `$XDG_DATA_HOME/guidebook/` (defaults to `~/.local/share/guidebook/`)
+- **macOS**: `~/Library/Application Support/guidebook/`
+- **Windows**: `%APPDATA%\guidebook\`
 
 ## Key Commands
 

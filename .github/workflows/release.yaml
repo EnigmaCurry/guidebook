@@ -151,7 +151,7 @@ jobs:
             'PORT="${GUIDEBOOK_PORT:-4280}"' \
             'URL="${GUIDEBOOK_BROWSER_URL:-}"' \
             'OPEN_BROWSER=true' \
-            'GLOBAL_DB="$HOME/.local/guidebook/__global.db"' \
+            'GLOBAL_DB="$HOME/Library/Application Support/guidebook/__global.db"' \
             'if [ -z "$URL" ] && [ -f "$GLOBAL_DB" ] && command -v sqlite3 >/dev/null 2>&1; then' \
             '    DB_URL=$(sqlite3 "$GLOBAL_DB" "SELECT value FROM settings WHERE key='"'"'browser_url_override'"'"'" 2>/dev/null)' \
             '    DB_OPEN=$(sqlite3 "$GLOBAL_DB" "SELECT value FROM settings WHERE key='"'"'open_browser_on_startup'"'"'" 2>/dev/null)' \

@@ -15,7 +15,18 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 logger = logging.getLogger("guidebook")
 
-DB_DIR = Path.home() / ".local" / "guidebook"
+def _default_data_dir() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "guidebook"
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "guidebook"
+        return Path.home() / "AppData" / "Roaming" / "guidebook"
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "guidebook"
+
+
+DB_DIR = _default_data_dir()
 
 
 def _ensure_data_dir(path: Path) -> None:
