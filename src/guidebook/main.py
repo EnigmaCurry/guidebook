@@ -136,9 +136,49 @@ _AUTH_EXEMPT_PREFIXES = (
 _AUTH_EXEMPT_EXACT = {"/api/version"}
 
 
+_AUTH_RATE_LIMIT_PATHS = ("/api/auth/login", "/api/auth/check-token")
+
+
+def _rate_limit_429(retry_after: int) -> Response:
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests"},
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
 @app.middleware("http")
 async def http_middleware(request: Request, call_next):
+    from guidebook.ratelimit import auth_limiter, query_limiter, upload_limiter
+
     path = request.url.path
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limit: auth endpoints (check prior failures)
+    if path in _AUTH_RATE_LIMIT_PATHS:
+        allowed, retry_after = auth_limiter.check(client_ip)
+        if not allowed:
+            return _rate_limit_429(retry_after)
+
+    # Rate limit: query endpoints
+    if path.startswith("/api/query/") or path == "/api/query":
+        allowed, retry_after = query_limiter.check(client_ip)
+        if not allowed:
+            return _rate_limit_429(retry_after)
+        query_limiter.record(client_ip)
+
+    # Rate limit: upload endpoints
+    if (
+        request.method == "POST"
+        and "/attachments" in path
+        and path.startswith("/api/records/")
+    ):
+        allowed, retry_after = upload_limiter.check(client_ip)
+        if not allowed:
+            return _rate_limit_429(retry_after)
+        upload_limiter.record(client_ip)
 
     # Auth check for API routes
     if path.startswith("/api/") and not any(
@@ -191,6 +231,11 @@ async def http_middleware(request: Request, call_next):
                     )
 
     response: Response = await call_next(request)
+
+    # Record auth failures for rate limiting (successful logins don't count)
+    if path in _AUTH_RATE_LIMIT_PATHS and response.status_code == 401:
+        auth_limiter.record(client_ip)
+
     if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     else:
