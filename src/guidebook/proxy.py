@@ -2,6 +2,17 @@ import ipaddress
 
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
+_PROXY_HEADERS = frozenset(
+    {
+        b"x-forwarded-for",
+        b"x-forwarded-proto",
+        b"x-forwarded-host",
+        b"x-forwarded-port",
+        b"x-real-ip",
+        b"forwarded",
+    }
+)
+
 
 class TrustedProxyMiddleware(ProxyHeadersMiddleware):
     """Extends uvicorn's ProxyHeadersMiddleware with CIDR-based trust."""
@@ -21,12 +32,22 @@ class TrustedProxyMiddleware(ProxyHeadersMiddleware):
         if scope["type"] in ("http", "websocket"):
             client = scope.get("client")
             if client:
+                trusted = False
                 try:
                     addr = ipaddress.ip_address(client[0])
+                    trusted = any(addr in net for net in self.trusted_networks)
                 except ValueError:
-                    # Unrecognised address — don't trust proxy headers
-                    return await self.app(scope, receive, send)
-                if not any(addr in net for net in self.trusted_networks):
-                    # Client is not a trusted proxy — skip header processing
+                    pass
+                if not trusted:
+                    # Reject untrusted clients that send proxy headers
+                    headers = scope.get("headers", [])
+                    if any(name in _PROXY_HEADERS for name, _ in headers):
+                        from starlette.responses import Response
+
+                        response = Response(
+                            "Proxy headers not allowed from untrusted source",
+                            status_code=400,
+                        )
+                        return await response(scope, receive, send)
                     return await self.app(scope, receive, send)
         return await super().__call__(scope, receive, send)
