@@ -714,7 +714,7 @@
              on:dragenter|preventDefault={() => { attDragCounter++; dragOver = true; }}
              on:dragover|preventDefault
              on:dragleave={() => { attDragCounter--; if (attDragCounter <= 0) { attDragCounter = 0; dragOver = false; } }}
-             on:drop|stopPropagation={handleDrop}>
+             on:drop={handleDrop}>
           <label>Attachments</label>
           <div class="attachment-upload">
             <button class="attachment-choose-btn" on:click={() => fileInput.click()}>Choose files</button>

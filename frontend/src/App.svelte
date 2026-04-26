@@ -90,6 +90,8 @@
     globalDragOver = false;
     globalDragCounter = 0;
     if (!databaseOpen || !e.dataTransfer?.files?.length) return;
+    // If dropped on the attachments section, Records already handled the upload
+    if (e.target.closest?.(".attachments-section")) return;
     const files = e.dataTransfer.files;
 
     // If Records component exists and has a form open, upload to it
