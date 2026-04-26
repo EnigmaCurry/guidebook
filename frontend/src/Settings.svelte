@@ -4,11 +4,13 @@
   import { THEMES, THEME_NAMES, applyThemeVars, applyCustomThemeVars, generateCustomTheme } from "./themes.js";
   import "vanilla-colorful/hex-color-picker.js";
 
-  export let logbookName = "";
-  let needsSetup = false;
+  export let databaseName = "";
+  export const pickerMode = false;
+  export const needsSetup = false;
   export let initialTab = null;
   export let highlightSection = null;
   export let clientCount = 0;
+  export let authRefreshTrigger = 0;
 
   const dispatch = createEventDispatcher();
 
@@ -24,7 +26,7 @@
   let updateBuildRepo = "";
   let updateBuildSha = "";
   let updateOfficialBuild = false;
-  let logbook_right = false;
+  let database_right = false;
   let wide_breakpoint = "1200";
   let wide_mode_enabled = true;
   let theme = "dark";
@@ -47,22 +49,14 @@
   let default_page = "log";
 
   // Global settings state
-  let global_default_pick_mode = true;
-  let global_default_host = "127.0.0.1";
-  let global_default_port = "4280";
-  let global_default_logbook_name = "guidebook";
-  let global_open_browser_on_startup = true;
-  let global_auto_shutdown_delay = "300";
-  let global_browser_url_override = "";
-  let availableLogbooks = [];
   let globalSettingsLoaded = false;
 
-  // Track which per-logbook settings are from global defaults
+  // Track which per-database settings are from global defaults
   let settingSources = {};
   // Store global default values for use as placeholders
   let globalPlaceholders = {};
 
-  const validTabs = ["features", "appearance", "updates", "data", "global"];
+  const validTabs = ["features", "appearance", "updates", "data", "auth", "global"];
   let activeTab = (initialTab && validTabs.includes(initialTab)) ? initialTab : "features";
   let settingsLoaded = false;
 
@@ -93,9 +87,6 @@
 
   // Shutdown
   let noShutdown = false;
-  let disableShutdown = false;
-  let autoShutdownOnDisconnect = false;
-  let shutdownInMenu = false;
 
   // Backup
   let backupMessage = "";
@@ -108,6 +99,134 @@
   let autoBackupMax = 10;
   let backupSaveTimer = null;
   let backupSettingsReady = false;
+
+  // Authentication
+  let authEnabled = false;
+  let authAuthenticated = false;
+  let authSlots = 1;
+  let authAllowTransfer = false;
+  let authSessions = [];
+  let authLoading = true;
+  let authTokenUrl = "";
+  let authTransferUrl = "";
+  let authError = "";
+  let authGenerating = false;
+  let authTransferring = false;
+
+  async function loadAuthStatus() {
+    try {
+      const res = await fetch("/api/auth/status");
+      if (res.ok) {
+        const data = await res.json();
+        authEnabled = data.enabled;
+        authAuthenticated = data.authenticated;
+        authSlots = data.slots;
+        authAllowTransfer = data.allow_transfer;
+      }
+    } catch {}
+    authLoading = false;
+  }
+
+  async function loadAuthSessions() {
+    try {
+      const res = await fetch("/api/auth/sessions");
+      if (res.ok) {
+        authSessions = await res.json();
+      }
+    } catch {}
+  }
+
+  async function generateLoginToken() {
+    authError = "";
+    authGenerating = true;
+    authTokenUrl = "";
+    try {
+      const res = await fetch("/api/auth/generate-token", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        authTokenUrl = data.login_url;
+      } else {
+        const data = await res.json().catch(() => null);
+        authError = data?.detail || "Failed to generate token";
+      }
+    } catch (e) {
+      authError = e.message;
+    }
+    authGenerating = false;
+    await loadAuthSessions();
+  }
+
+  async function generateTransferToken() {
+    authError = "";
+    authTransferring = true;
+    authTransferUrl = "";
+    try {
+      const res = await fetch("/api/auth/transfer", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        authTransferUrl = data.login_url;
+      } else {
+        const data = await res.json().catch(() => null);
+        authError = data?.detail || "Failed to generate transfer token";
+      }
+    } catch (e) {
+      authError = e.message;
+    }
+    authTransferring = false;
+    await loadAuthSessions();
+  }
+
+  async function deleteSession(id) {
+    authError = "";
+    try {
+      const res = await fetch(`/api/auth/sessions/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        authError = data?.detail || "Failed to delete session";
+      }
+    } catch (e) {
+      authError = e.message;
+    }
+    await loadAuthSessions();
+    await loadAuthStatus();
+  }
+
+  async function logoutSession() {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {}
+    location.reload();
+  }
+
+  let copiedField = null;
+  async function copyToClipboard(text, field) {
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedField = field;
+      setTimeout(() => { if (copiedField === field) copiedField = null; }, 1500);
+    } catch {}
+  }
+
+  function formatAuthTime(epoch) {
+    if (!epoch) return "never";
+    const d = new Date(epoch * 1000);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 1000);
+    if (diff >= 0) {
+      if (diff < 60) return "just now";
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
+    }
+    // Future date
+    const fdiff = -diff;
+    if (fdiff < 3600) return `in ${Math.floor(fdiff / 60)}m`;
+    if (fdiff < 86400) return `in ${Math.floor(fdiff / 3600)}h`;
+    return `in ${Math.floor(fdiff / 86400)}d`;
+  }
+
+  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); }
+  $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
 
   async function loadDbInfo() {
     try {
@@ -221,7 +340,7 @@
   let clearError = "";
 
   async function clearAllEntries() {
-    if (dangerConfirmName !== logbookName) {
+    if (dangerConfirmName !== databaseName) {
       clearError = "Name does not match";
       return;
     }
@@ -230,7 +349,7 @@
       const res = await fetch("/api/records/");
       if (res.ok) { const data = await res.json(); count = data.length; }
     } catch {}
-    if (!confirm(`Are you sure you want to delete ${count} entries from "${logbookName}"? This cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to delete ${count} entries from "${databaseName}"? This cannot be undone.`)) {
       return;
     }
     clearError = "";
@@ -250,21 +369,21 @@
     clearing = false;
   }
 
-  async function deleteLogbook() {
-    if (dangerConfirmName !== logbookName) {
+  async function deleteDatabase() {
+    if (dangerConfirmName !== databaseName) {
       deleteError = "Name does not match";
       return;
     }
-    if (!confirm(`Are you sure you want to permanently delete "${logbookName}"? This cannot be undone.`)) {
+    if (!confirm(`Are you sure you want to permanently delete "${databaseName}"? This cannot be undone.`)) {
       return;
     }
     deleteError = "";
     deleting = true;
     try {
-      const res = await fetch("/api/logbooks/delete", {
+      const res = await fetch("/api/databases/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: logbookName }),
+        body: JSON.stringify({ name: databaseName }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -289,7 +408,7 @@
     if (!confirm("Are you sure you want to shut down the Guidebook server?")) return;
     dispatch("shutdown-pending");
     try {
-      const res = await fetch("/api/logbooks/shutdown", { method: "POST" });
+      const res = await fetch("/api/databases/shutdown", { method: "POST" });
       if (res.ok) {
         dispatch("shutdown");
         dispatch("deleted", { shutdown: true });
@@ -532,7 +651,7 @@
       const res = await fetch(`/api/settings/${key}`);
       if (res.ok) {
         const data = await res.json();
-        settingSources[key] = data.source || "logbook";
+        settingSources[key] = data.source || "database";
         if (data.source === "global" && data.value) {
           globalPlaceholders[key] = data.value;
         } else {
@@ -703,8 +822,8 @@
     dispatch("saved");
   }
 
-  async function onLogbookRightChange() {
-    await saveSetting("logbook_right", logbook_right ? "true" : "false");
+  async function onDatabaseRightChange() {
+    await saveSetting("database_right", database_right ? "true" : "false");
     dispatch("saved");
   }
 
@@ -750,7 +869,7 @@
               wide_breakpoint = s.value || "1500";
             }
           }
-          if (s.key === "logbook_right") logbook_right = s.value === "true";
+          if (s.key === "database_right") database_right = s.value === "true";
           if (s.key === "custom_header") custom_header = s.value || "";
           if (s.key === "default_page") default_page = s.value || "log";
           if (s.key === "theme") theme = s.value || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
@@ -779,12 +898,6 @@
     } catch {}
   }
 
-  async function fetchLogbookList() {
-    try {
-      const res = await fetch("/api/logbooks/");
-      if (res.ok) availableLogbooks = (await res.json()).map(d => d.name);
-    } catch {}
-  }
 
   async function fetchGlobalSettings() {
     try {
@@ -792,16 +905,6 @@
       if (res.ok) {
         const data = await res.json();
         for (const s of data) {
-          if (s.key === "default_pick_mode") global_default_pick_mode = s.value !== "false";
-          if (s.key === "default_host") global_default_host = s.value || "127.0.0.1";
-          if (s.key === "default_port") global_default_port = s.value || "4280";
-          if (s.key === "default_logbook_name") global_default_logbook_name = s.value || "guidebook";
-          if (s.key === "open_browser_on_startup") global_open_browser_on_startup = s.value !== "false";
-          if (s.key === "auto_shutdown_delay") global_auto_shutdown_delay = s.value || "300";
-          if (s.key === "browser_url_override") global_browser_url_override = s.value || "";
-          if (s.key === "shutdown_in_menu") shutdownInMenu = s.value === "true";
-          if (s.key === "auto_shutdown_on_disconnect") autoShutdownOnDisconnect = s.value === "true";
-          if (s.key === "disable_shutdown") disableShutdown = s.value === "true";
           if (s.key === "update_check_enabled") update_check_enabled = s.value !== "false";
         }
         globalSettingsLoaded = true;
@@ -815,7 +918,7 @@
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value }),
     });
-    // Re-fetch per-logbook settings so placeholders and fallbacks update
+    // Re-fetch per-database settings so placeholders and fallbacks update
     await fetchSettings();
     dispatch("saved");
   }
@@ -939,19 +1042,15 @@
     } catch {}
   }
 
-  async function toggleDisableShutdown() {
-    await saveGlobalSetting("disable_shutdown", disableShutdown ? "true" : "false");
-    await fetchNoShutdown();
-  }
-
   onMount(() => {
     fetchSettings();
     fetchGlobalSettings();
-    fetchLogbookList();
     fetchEntryCount();
     loadDbInfo();
     loadBackupStatus();
     fetchNoShutdown();
+    loadAuthStatus();
+    loadAuthSessions();
   });
 
   onDestroy(() => {
@@ -967,7 +1066,7 @@
     <button class="tab" class:active={activeTab === "appearance"} on:click={() => switchTab("appearance")}>Appearance</button>
     <button class="tab" class:active={activeTab === "updates"} on:click={() => switchTab("updates")}>Updates</button>
     <button class="tab" class:active={activeTab === "data"} on:click={() => switchTab("data")}>Data</button>
-    <button class="tab" class:active={activeTab === "global"} on:click={() => switchTab("global")}>Global</button>
+    <button class="tab" class:active={activeTab === "auth"} on:click={() => switchTab("auth")}>Auth</button>
   </div>
 
   {#if activeTab === "features"}
@@ -1040,26 +1139,27 @@
       </div>
     </div>
     {:else}
+    <!-- svelte-ignore a11y-label-has-associated-control -->
     <div class="color-pickers">
       <div class="color-picker-group">
-        <label for="color-bg">Background</label>
+        <label>Background</label>
         <hex-color-picker use:colorPicker={{ getValue: () => customBg, setValue: (v) => { customBg = v; } }}></hex-color-picker>
-        <input id="color-bg" type="text" class="color-hex-input" bind:value={customBg} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
+        <input type="text" class="color-hex-input" bind:value={customBg} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
       </div>
       <div class="color-picker-group">
-        <label for="color-text">Text</label>
+        <label>Text</label>
         <hex-color-picker use:colorPicker={{ getValue: () => customText, setValue: (v) => { customText = v; } }}></hex-color-picker>
-        <input id="color-text" type="text" class="color-hex-input" bind:value={customText} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
+        <input type="text" class="color-hex-input" bind:value={customText} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
       </div>
       <div class="color-picker-group">
-        <label for="color-accent">Accent</label>
+        <label>Accent</label>
         <hex-color-picker use:colorPicker={{ getValue: () => customAccent, setValue: (v) => { customAccent = v; } }}></hex-color-picker>
-        <input id="color-accent" type="text" class="color-hex-input" bind:value={customAccent} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
+        <input type="text" class="color-hex-input" bind:value={customAccent} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
       </div>
       <div class="color-picker-group">
-        <label for="color-secondary">Secondary</label>
+        <label>Secondary</label>
         <hex-color-picker use:colorPicker={{ getValue: () => customSecondary, setValue: (v) => { customSecondary = v; } }}></hex-color-picker>
-        <input id="color-secondary" type="text" class="color-hex-input" bind:value={customSecondary} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
+        <input type="text" class="color-hex-input" bind:value={customSecondary} on:input={onCustomColorInput} on:blur={onCustomColorCommit} maxlength="7" />
       </div>
     </div>
     {/if}
@@ -1150,8 +1250,8 @@
     </div>
     <div class="setting-row toggle-row">
       <label>
-        <input type="checkbox" bind:checked={logbook_right} on:change={onLogbookRightChange} disabled={!wide_mode_enabled} />
-        Records on right side
+        <input type="checkbox" bind:checked={database_right} on:change={onDatabaseRightChange} disabled={!wide_mode_enabled} />
+        Database on right side
       </label>
     </div>
   </section>
@@ -1271,12 +1371,12 @@
     </div>
     {#if autoBackupEnabled}
       <div class="setting-row">
-        <label for="backup-interval">Interval (hours)</label>
-        <input id="backup-interval" type="number" min="1" max="720" bind:value={autoBackupHours} on:input={saveAutoBackupSettings} style="width: 5rem" />
+        <label for="backup_interval">Interval (hours)</label>
+        <input id="backup_interval" type="number" min="1" max="720" bind:value={autoBackupHours} on:input={saveAutoBackupSettings} style="width: 5rem" />
       </div>
       <div class="setting-row">
-        <label for="backup-max">Keep max</label>
-        <input id="backup-max" type="number" min="1" max="100" bind:value={autoBackupMax} on:input={saveAutoBackupSettings} style="width: 5rem" />
+        <label for="backup_max">Keep max</label>
+        <input id="backup_max" type="number" min="1" max="100" bind:value={autoBackupMax} on:input={saveAutoBackupSettings} style="width: 5rem" />
       </div>
     {/if}
     {#if backupStatus}
@@ -1308,30 +1408,30 @@
   </section>
   {/if}
 
-  {#if logbookName}
+  {#if databaseName}
     <section class="settings-section danger-zone">
       <h3>Danger Zone</h3>
       <div class="setting-row">
-        <label for="danger-confirm">Type <strong>{logbookName}</strong> to enable the Danger Zone</label>
-        <input id="danger-confirm" type="text" bind:value={dangerConfirmName} placeholder={logbookName} autocomplete="off" />
+        <label for="danger-confirm">Type <strong>{databaseName}</strong> to enable the Danger Zone</label>
+        <input id="danger-confirm" type="text" bind:value={dangerConfirmName} placeholder={databaseName} autocomplete="off" />
       </div>
       <div class="danger-separator"></div>
-      <p class="danger-text">Delete all entries from <strong>{logbookName}</strong> but keep the database and settings.</p>
+      <p class="danger-text">Delete all entries from <strong>{databaseName}</strong> but keep the database and settings.</p>
       {#if clearError}
         <p class="danger-error">{clearError}</p>
       {/if}
       <div class="setting-row">
-        <button class="danger-btn" on:click={clearAllEntries} disabled={clearing || dangerConfirmName !== logbookName || entryCount === 0}>
+        <button class="danger-btn" on:click={clearAllEntries} disabled={clearing || dangerConfirmName !== databaseName || entryCount === 0}>
           {clearing ? "Clearing..." : entryCount === 0 ? "No entries to clear" : "Clear All Entries"}
         </button>
       </div>
       <div class="danger-separator"></div>
-      <p class="danger-text">Permanently delete the database <strong>{logbookName}</strong> and all its data. This cannot be undone.</p>
+      <p class="danger-text">Permanently delete the database <strong>{databaseName}</strong> and all its data. This cannot be undone.</p>
       {#if deleteError}
         <p class="danger-error">{deleteError}</p>
       {/if}
       <div class="setting-row">
-        <button class="danger-btn" on:click={deleteLogbook} disabled={deleting || dangerConfirmName !== logbookName}>
+        <button class="danger-btn" on:click={deleteDatabase} disabled={deleting || dangerConfirmName !== databaseName}>
           {deleting ? "Deleting..." : "Delete Database"}
         </button>
       </div>
@@ -1340,94 +1440,90 @@
   </div></div>
   {/if}
 
-  {#if activeTab === "global"}
-  <div class="tab-scroll"><p class="hint" style="max-width:1100px;margin:0 auto;width:100%;box-sizing:border-box">Global defaults are used when a per-database setting is not set. Changes here apply across all databases.</p>
-  <div class="tab-content" use:masonry>
+  {#if activeTab === "auth"}
+  <div class="tab-scroll"><div class="tab-content" use:masonry>
+  <section class="settings-section">
+    <h3>Authentication</h3>
+    <p class="hint">Authentication is currently enforced. Only browsers with a valid session cookie can access the app. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off.</p>
+  </section>
+
 
   <section class="settings-section">
-    <h3>Database</h3>
-    <div class="setting-row toggle-row">
-      <label>
-        <input type="checkbox" bind:checked={global_default_pick_mode} on:change={() => saveGlobalSetting("default_pick_mode", global_default_pick_mode ? "true" : "false")} />
-        Ask which database to open on start
-      </label>
-    </div>
-    <div class="setting-row">
-      <label for="global_default_logbook">Default Database Name</label>
-      {#if availableLogbooks.length > 0}
-        <select id="global_default_logbook" bind:value={global_default_logbook_name} on:change={() => saveGlobalSetting("default_logbook_name", global_default_logbook_name)} style="max-width: 14rem">
-          {#each availableLogbooks as name}
-            <option value={name}>{name}</option>
-          {/each}
-        </select>
-      {:else}
-        <span class="hint">No databases exist yet</span>
-      {/if}
-      <span class="hint">Database opened when running guidebook without arguments</span>
-    </div>
+    <h3>Active Sessions</h3>
+    {#if authSessions.length === 0}
+      <p class="hint">No active sessions.</p>
+    {:else}
+      <div class="session-list">
+        {#each authSessions as session (session.id)}
+          <div class="session-item" class:session-current={session.is_current}>
+            <div class="session-info">
+              <span class="session-label">{session.label}{#if session.is_current} <strong>(current)</strong>{/if}{#if session.is_transfer} <em>(transfer pending)</em>{/if}</span>
+              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.last_ip} — IP {session.last_ip}{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
+            </div>
+            {#if !session.is_current}
+              <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
   </section>
 
   <section class="settings-section">
-    <h3>Network</h3>
-    <span class="hint">Changing these settings requires restarting guidebook.</span>
+    <h3>Generate Login Link</h3>
+    <p class="hint">Generate a one-time login URL to share with another browser.</p>
     <div class="setting-row">
-      <label for="global_default_host">Default Host</label>
-      <span style="display: inline-flex; align-items: center; gap: 0.5rem;">
-        <input id="global_default_host" type="text" bind:value={global_default_host} on:blur={() => saveGlobalSetting("default_host", global_default_host.trim())} autocomplete="off" style="max-width: 10rem" />
-        {#if global_default_host.trim() !== "127.0.0.1"}
-          <button type="button" class="btn btn-sm" on:click={() => { global_default_host = "127.0.0.1"; saveGlobalSetting("default_host", "127.0.0.1"); }}>Reset</button>
-        {/if}
-      </span>
-      <span class="hint">Bind address. Use <code>0.0.0.0</code> to listen on all interfaces. Override with <code>GUIDEBOOK_HOST</code> env var.</span>
-      {#if global_default_host.trim() && global_default_host.trim() !== "127.0.0.1"}
-        <span class="hint" style="color: var(--warning-color, #e6a700); font-weight: bold;">Warning: guidebook has no authentication. Serving on a public network is not recommended.</span>
-      {/if}
+      <button on:click={generateLoginToken} disabled={authGenerating || (authSlots > 0 && authAvailableSlots <= 0)}>
+        {authGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 ? `No slots available (${authSlots}/${authSlots} used)` : "Generate Login Link"}
+      </button>
     </div>
+    {#if authSlots > 0 && authAvailableSlots <= 0}
+      <p class="hint">Pass <code style="font-size: 0.75rem; white-space: nowrap">--auth-slots X</code> at startup to allow more concurrent sessions.</p>
+    {/if}
+    {#if authTokenUrl}
+      <div class="token-url-box">
+        <input type="text" value={authTokenUrl} readonly on:click={(e) => e.target.select()} />
+        <button class="copy-btn" class:copied={copiedField === 'token'} on:click={() => copyToClipboard(authTokenUrl, 'token')}>{copiedField === 'token' ? 'Copied!' : 'Copy'}</button>
+      </div>
+      <p class="hint">Share this link with the new browser. It expires in 5 minutes and is consumed on first use.</p>
+    {/if}
+  </section>
+
+  {#if authAllowTransfer}
+  <section class="settings-section">
+    <h3>Transfer Session</h3>
+    <p class="hint">Move your current session to a new browser. Your current session will be logged out as soon as the new browser logs in.</p>
     <div class="setting-row">
-      <label for="global_default_port">Default Port</label>
-      <input id="global_default_port" type="text" bind:value={global_default_port} on:blur={() => saveGlobalSetting("default_port", global_default_port.trim())} autocomplete="off" style="max-width: 6rem" />
+      <button class="warning-btn" on:click={generateTransferToken} disabled={authTransferring}>
+        {authTransferring ? "Generating..." : "Generate Transfer Link"}
+      </button>
     </div>
-    <div class="setting-row toggle-row">
-      <label>
-        <input type="checkbox" bind:checked={global_open_browser_on_startup} on:change={() => saveGlobalSetting("open_browser_on_startup", global_open_browser_on_startup ? "true" : "false")} />
-        Open browser on startup (unless <code>--no-browser</code> argument given)
-      </label>
-    </div>
+    {#if authTransferUrl}
+      <div class="token-url-box">
+        <input type="text" value={authTransferUrl} readonly on:click={(e) => e.target.select()} />
+        <button class="copy-btn" class:copied={copiedField === 'transfer'} on:click={() => copyToClipboard(authTransferUrl, 'transfer')}>{copiedField === 'transfer' ? 'Copied!' : 'Copy'}</button>
+      </div>
+      <p class="hint" style="color: var(--warning-color, #e6a700);">Opening this link in another browser will log you out of this one. Expires in 5 minutes.</p>
+    {/if}
+  </section>
+  {/if}
+
+  <section class="settings-section">
+    <h3>Logout</h3>
+    <p class="hint">Log out of this browser session. You will need a new login link to access the server again.</p>
     <div class="setting-row">
-      <label for="global_browser_url">Browser URL Override</label>
-      <input id="global_browser_url" type="text" bind:value={global_browser_url_override} on:blur={() => saveGlobalSetting("browser_url_override", global_browser_url_override.trim())} autocomplete="off" placeholder="e.g. https://guidebook.local" style="max-width: 20rem" disabled={!global_open_browser_on_startup} />
-      <span class="hint">Custom URL opened in browser on startup (for proxies/TLS). Leave blank for http://127.0.0.1:{global_default_port || "4280"}.</span>
+      <button class="danger-btn" on:click={logoutSession}>Logout</button>
     </div>
   </section>
 
-  <section class="settings-section">
-    <h3>Shutdown</h3>
-    <div class="setting-row toggle-row">
-      <label class="toggle-label">
-        <input type="checkbox" bind:checked={disableShutdown} on:change={toggleDisableShutdown} />
-        Disable shutdown
-      </label>
-    </div>
-    <div class="setting-row toggle-row">
-      <label class="toggle-label">
-        <input type="checkbox" bind:checked={autoShutdownOnDisconnect} on:change={() => saveGlobalSetting("auto_shutdown_on_disconnect", autoShutdownOnDisconnect ? "true" : "false")} disabled={disableShutdown} />
-        Shutdown automatically when no clients are connected
-      </label>
-    </div>
-    <div class="setting-row">
-      <label for="global_shutdown_delay">Shutdown delay (seconds)</label>
-      <input id="global_shutdown_delay" type="number" min="5" bind:value={global_auto_shutdown_delay} on:blur={() => { const v = Math.max(5, parseInt(global_auto_shutdown_delay) || 300); global_auto_shutdown_delay = String(v); saveGlobalSetting("auto_shutdown_delay", String(v)); }} autocomplete="off" style="max-width: 5rem" disabled={disableShutdown || !autoShutdownOnDisconnect} />
-    </div>
-    <p class="hint">Shuts down the server after {global_auto_shutdown_delay} consecutive seconds with no connected clients.</p>
-    <div class="setting-row toggle-row">
-      <label class="toggle-label">
-        <input type="checkbox" bind:checked={shutdownInMenu} on:change={() => { saveGlobalSetting("shutdown_in_menu", shutdownInMenu ? "true" : "false"); }} disabled={disableShutdown} />
-        Add Shutdown action to the main menu
-      </label>
-    </div>
-  </section>
+  {#if authError}
+    <section class="settings-section">
+      <p class="danger-error">{authError}</p>
+    </section>
+  {/if}
   </div></div>
   {/if}
+
 </div>
 
 <style>
@@ -1894,5 +1990,84 @@
   .sha-link {
     font-family: monospace;
     color: var(--accent);
+  }
+  .session-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .session-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-input);
+  }
+  .session-current {
+    border-color: var(--accent);
+  }
+  .session-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+  .session-label {
+    font-size: 0.85rem;
+    color: var(--text);
+  }
+  .session-meta {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+  .session-delete {
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    background: #ff4444;
+    color: #fff;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .session-delete:hover {
+    background: #cc3333;
+  }
+  .token-url-box {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+    align-items: center;
+  }
+  .token-url-box input {
+    flex: 1;
+    font-size: 0.75rem !important;
+    padding: 0.3rem 0.5rem;
+    background: var(--bg-deep, #111);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-family: monospace;
+  }
+  .copy-btn {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.6rem;
+    background: var(--btn-secondary);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .copy-btn:hover {
+    background: var(--btn-secondary-hover);
+  }
+  .copy-btn.copied {
+    background: var(--success-color, #2ea043);
+    color: #fff;
+    border-color: var(--success-color, #2ea043);
   }
 </style>

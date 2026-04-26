@@ -4,17 +4,20 @@
   import Settings from "./Settings.svelte";
   import About from "./About.svelte";
   import Notifications from "./Notifications.svelte";
-  import LogbookPicker from "./LogbookPicker.svelte";
+  import DatabasePicker from "./DatabasePicker.svelte";
   import Welcome from "./Welcome.svelte";
   import Query from "./Query.svelte";
+  import Scratchpad from "./Scratchpad.svelte";
+  import Media from "./Media.svelte";
   import Icon from "@iconify/svelte";
   import iconBook from "@iconify-icons/twemoji/open-book";
   import iconBell from "@iconify-icons/twemoji/bell";
   import iconPlus from "@iconify-icons/twemoji/heavy-plus-sign";
-  import { setLogbook, storageGet, storageSet, migrateStorage } from "./storage.js";
+  import iconCamera from "@iconify-icons/twemoji/camera";
+  import { setDatabase, storageGet, storageSet, migrateStorage } from "./storage.js";
   import { applyThemeVars, applyCustomThemeVars, resolveDefaultTheme } from "./themes.js";
 
-  const DUAL_RIGHT_PAGES = new Set(["notifications"]);
+  const DUAL_RIGHT_PAGES = new Set(["notifications", "media"]);
 
   function parseHash() {
     const hash = window.location.hash.slice(1) || "/";
@@ -29,8 +32,10 @@
       const sp = qm >= 0 ? new URLSearchParams(hash.slice(qm + 1)) : null;
       return { page: "query", editId: null, dualRight: null, querySql: sp?.get("sql") || "" };
     }
+    if (hash === "/scratchpad") return { page: "scratchpad", editId: null, dualRight: null };
+    if (hash === "/media") return { page: isWide() ? "dual" : "media", editId: null, dualRight: "media" };
     if (hash === "/notifications") return { page: isWide() ? "dual" : "notifications", editId: null, dualRight: "notifications" };
-    if (hash === "/logbook" || hash === "/records") return { page: isWide() ? "dual" : "records", editId: null, dualRight: null };
+    if (hash === "/database" || hash === "/records") return { page: isWide() ? "dual" : "records", editId: null, dualRight: null };
     if (hash === "/add") return { page: isWide() ? "dual" : "add", editId: null, dualRight: null };
     // Dual with subpage
     const dualMatch = hash.match(/^\/dual(?:\/(\w+))?$/);
@@ -56,7 +61,11 @@
   let prefill = null;
   let formDirty = false;
   let dualShowForm = !!editId || (page === "dual" && (window.location.hash.slice(1) === "/add"));
-  let logbookRight = false;
+  let recordsRef = null;
+  let recordAutoCreated = false;
+  let databaseRight = false;
+  let mediaSearchQuery = "";
+  let mediaSelectedRecordId = null;
   let dualSplit = 50;
   let draggingSplit = false;
 
@@ -68,7 +77,7 @@
       const layout = e.target.closest(".dual-layout");
       if (!layout) return;
       const rect = layout.getBoundingClientRect();
-      let pct = logbookRight
+      let pct = databaseRight
         ? 100 - ((clientX - rect.left) / rect.width) * 100
         : ((clientX - rect.left) / rect.width) * 100;
       if (pct < 10) pct = 10;
@@ -103,11 +112,7 @@
   let updateSupported = false;
   let appFrozen = true;
   let sqlQueryEnabled = false;
-  let shutdownMenuEnabled = false;
   let noShutdown = false;
-  let utcNow = new Date().toISOString().slice(0, 19).replace("T", " ") + "z";
-  let clockInterval;
-  let clockCopied = false;
   let unreadCount = 0;
   let prevUnreadCount = -1;
   let clientCount = 0;
@@ -116,6 +121,7 @@
   let notifRefreshTrigger = 0;
   let sseHeartbeatTimer = null;
   const SSE_TIMEOUT_MS = 11000;
+  let authRefreshTrigger = 0;
   let popupNotifications = [];
   let popupNotifEnabled = false;
   let showPopup = false;
@@ -123,19 +129,95 @@
   let welcomeAcknowledged = true; // assume true until checked
   let welcomeChecked = false;
   let pickerMode = false;
-  let logbookReady = false;
-  let logbookOpen = false;
-  let currentLogbook = "";
-  let pendingLogbook = "";
+  let databaseReady = false;
+  let databaseOpen = false;
+  let currentDatabase = "";
+  let pendingDatabase = "";
   let showDatabaseSwitcher = false;
   let switcherDatabases = [];
+  let authBlocked = false; // true when server returns 401
+  let authLoginError = "";
+  let authConfirmToken = ""; // set when ?auth_token= is in URL, awaiting user confirmation
+  let authConfirmUrl = ""; // the full URL for copying
+  let authConfirming = false;
+  let authConfirmCopied = false;
 
-  async function checkWelcome() {
+  async function handleAuthToken() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("auth_token");
+    if (!token) return false;
+    // Check if the token is still valid before showing confirmation
     try {
-      const res = await fetch("/api/global-settings/welcome_acknowledged");
+      const res = await fetch("/api/auth/check-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
       if (res.ok) {
         const data = await res.json();
-        welcomeAcknowledged = data.value === "true";
+        if (!data.valid) {
+          // Token already used or expired — redirect to base URL for server 401 page
+          const url = new URL(window.location.href);
+          url.searchParams.delete("auth_token");
+          window.location.replace(url.pathname);
+          return true;
+        }
+      }
+    } catch {}
+    // Token is valid — show confirmation screen
+    authConfirmUrl = window.location.href;
+    authConfirmToken = token;
+    // Remove token from URL bar (but keep it in state)
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auth_token");
+    window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+    return true;
+  }
+
+  async function confirmAuthLogin() {
+    authConfirming = true;
+    authLoginError = "";
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: authConfirmToken }),
+      });
+      if (res.ok) {
+        location.reload();
+        return;
+      } else {
+        const data = await res.json().catch(() => null);
+        authLoginError = data?.detail || "Login failed";
+      }
+    } catch (e) {
+      authLoginError = "Login failed: " + e.message;
+    }
+    authConfirming = false;
+  }
+
+  async function checkAuthStatus() {
+    try {
+      const res = await fetch("/api/auth/status");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.enabled && data.configured && !data.authenticated) {
+          authBlocked = true;
+          return false;
+        }
+      }
+    } catch {}
+    return true;
+  }
+
+  async function checkWelcome() {
+    // The welcome screen only shows once — before the first database is created.
+    // We use the /api/databases/mode endpoint (auth-exempt) to check.
+    try {
+      const res = await fetch("/api/databases/mode");
+      if (res.ok) {
+        const data = await res.json();
+        welcomeAcknowledged = !!data.has_databases;
       }
     } catch {}
     welcomeChecked = true;
@@ -143,20 +225,20 @@
 
   async function handleWelcomeComplete(e) {
     welcomeAcknowledged = true;
-    const logbook = e.detail.logbook;
-    if (logbook) {
-      currentLogbook = logbook;
-      logbookOpen = true;
-      logbookReady = true;
-      setLogbook(logbook);
+    const database = e.detail.database;
+    if (database) {
+      currentDatabase = database;
+      databaseOpen = true;
+      databaseReady = true;
+      setDatabase(database);
       applyTheme();
       await startAppServices();
       navigate(isWide() ? "dual" : "records");
     } else {
       // Skip was clicked — proceed with normal startup
-      await checkLogbookMode();
-      if (logbookOpen) {
-        setLogbook(currentLogbook);
+      await checkDatabaseMode();
+      if (databaseOpen) {
+        setDatabase(currentDatabase);
         applyTheme();
         fetchWideBreakpoint();
         await startAppServices();
@@ -166,9 +248,9 @@
     }
   }
 
-  async function checkLogbookMode() {
+  async function checkDatabaseMode() {
     try {
-      const res = await fetch("/api/logbooks/mode");
+      const res = await fetch("/api/databases/mode");
       if (res.ok) {
         const data = await res.json();
         pickerMode = data.picker;
@@ -176,18 +258,18 @@
       }
     } catch {}
     try {
-      const cur = await fetch("/api/logbooks/current");
+      const cur = await fetch("/api/databases/current");
       if (cur.ok) {
         const data = await cur.json();
-        logbookOpen = data.is_open;
-        currentLogbook = data.name || "";
-        pendingLogbook = data.pending || "";
+        databaseOpen = data.is_open;
+        currentDatabase = data.name || "";
+        pendingDatabase = data.pending || "";
       }
     } catch {}
-    if (!pickerMode && !logbookOpen && !pendingLogbook) {
-      logbookOpen = true;
+    if (!pickerMode && !databaseOpen && !pendingDatabase) {
+      databaseOpen = true;
     }
-    logbookReady = true;
+    databaseReady = true;
   }
 
   async function startAppServices() {
@@ -196,9 +278,8 @@
     fetchCustomHeader();
     await fetchDefaultPage();
     fetchPopupNotifEnabled();
-    await fetchLogbookRight();
+    await fetchDatabaseRight();
     await fetchSqlQueryEnabled();
-    await fetchShutdownMenuEnabled();
     fetchUnreadCount();
     connectSSE();
   }
@@ -229,7 +310,7 @@
 
   function clearShutdownState() {
     serverShutdown = false;
-    logbookClosed = false;
+    databaseClosed = false;
     shutdownPendingSince = 0;
     document.title = "Guidebook";
     const link = document.querySelector("link[rel~='icon']");
@@ -238,7 +319,7 @@
 
   async function reloadIfAlive() {
     try {
-      const res = await fetch("/api/logbooks/current");
+      const res = await fetch("/api/databases/current");
       if (res.ok) {
         location.reload();
       } else {
@@ -251,15 +332,15 @@
 
   async function attemptReconnect() {
     try {
-      const res = await fetch("/api/logbooks/current");
+      const res = await fetch("/api/databases/current");
       if (res.ok) {
         const data = await res.json();
         if (serverDisconnected) {
           clearDisconnectedState();
-          if (data.is_open && data.name === currentLogbook) {
+          if (data.is_open && data.name === currentDatabase) {
             startAppServices();
           } else {
-            logbookClosed = true;
+            databaseClosed = true;
             serverShutdown = true;
             document.title = "Close this tab";
           }
@@ -307,7 +388,7 @@
         if (Date.now() - reconnectStartedAt > 61000) {
           stopAutoReconnect();
           serverDisconnected = false;
-          logbookClosed = true;
+          databaseClosed = true;
           serverShutdown = true;
           stopAppServices();
           document.title = "Close this tab";
@@ -334,16 +415,16 @@
     if (eventSource) { eventSource.close(); eventSource = null; }
   }
 
-  function handleLogbookOpened() {
+  function handleDatabaseOpened() {
     location.reload();
   }
 
   async function openDatabaseSwitcher() {
     try {
-      const res = await fetch("/api/logbooks/");
+      const res = await fetch("/api/databases/");
       if (res.ok) {
         const data = await res.json();
-        switcherDatabases = data.filter(lb => lb.name !== currentLogbook && !lb.locked);
+        switcherDatabases = data.filter(lb => lb.name !== currentDatabase && !lb.locked);
       }
     } catch {}
     showDatabaseSwitcher = true;
@@ -355,8 +436,8 @@
     showDatabaseSwitcher = false;
     switchingDatabase = true;
     try {
-      await fetch("/api/logbooks/close", { method: "POST" });
-      const res = await fetch("/api/logbooks/open", {
+      await fetch("/api/databases/close", { method: "POST" });
+      const res = await fetch("/api/databases/open", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -372,7 +453,7 @@
   let serverShutdown = false;
   let serverDisconnected = false;
   let shutdownPendingSince = 0;
-  let logbookClosed = false;
+  let databaseClosed = false;
   let autoReconnectTimer = null;
   let autoReconnectDelay = 1000;
   let reconnecting = false;
@@ -380,17 +461,17 @@
   let countdownInterval = null;
   let reconnectStartedAt = 0;
 
-  async function confirmPendingLogbook() {
+  async function confirmPendingDatabase() {
     try {
-      const res = await fetch("/api/logbooks/confirm", { method: "POST" });
+      const res = await fetch("/api/databases/confirm", { method: "POST" });
       if (res.ok) {
         const data = await res.json();
-        currentLogbook = data.name;
-        setLogbook(currentLogbook);
+        currentDatabase = data.name;
+        setDatabase(currentDatabase);
         dualSplit = parseFloat(storageGet("dualSplit")) || 50;
         applyTheme();
-        pendingLogbook = "";
-        logbookOpen = true;
+        pendingDatabase = "";
+        databaseOpen = true;
         page = isWide() ? "dual" : "records";
         window.location.hash = "/";
         startAppServices();
@@ -398,9 +479,9 @@
     } catch {}
   }
 
-  async function declinePendingLogbook() {
+  async function declinePendingDatabase() {
     try {
-      await fetch("/api/logbooks/decline", { method: "POST" });
+      await fetch("/api/databases/decline", { method: "POST" });
     } catch {}
     setShutdownState();
   }
@@ -409,17 +490,17 @@
     menuOpen = false;
     shutdownPendingSince = Date.now();
     try {
-      const res = await fetch("/api/logbooks/shutdown", { method: "POST" });
+      const res = await fetch("/api/databases/shutdown", { method: "POST" });
       if (res.ok) setShutdownState();
     } catch {
       setShutdownState();
     }
   }
 
-  async function closeLogbook() {
+  async function closeDatabase() {
     menuOpen = false;
     try {
-      await fetch("/api/logbooks/close", { method: "POST" });
+      await fetch("/api/databases/close", { method: "POST" });
     } catch {}
     location.reload();
   }
@@ -465,6 +546,7 @@
     });
     eventSource.addEventListener("notification", (e) => {
       notifRefreshTrigger++;
+      authRefreshTrigger++;
     });
     eventSource.addEventListener("update-check", () => {
       fetchUpdateCheck();
@@ -488,15 +570,18 @@
       if (eventSource) { eventSource.close(); eventSource = null; }
       setShutdownState();
     });
+    eventSource.addEventListener("auth-revoked", () => {
+      location.reload();
+    });
     eventSource.addEventListener("theme-changed", () => applyTheme());
     eventSource.addEventListener("theme-preview", (e) => {
       const { key, value } = JSON.parse(e.data);
       _themeState[key] = value;
       applyThemeFromState(_themeState);
     });
-    eventSource.addEventListener("logbook-changed", () => {
-      if (switchingDatabase) return; // this client initiated the switch
-      // Navigate home before reloading — the new logbook may not support the current page
+    eventSource.addEventListener("database-changed", () => {
+      if (switchingDatabase || !welcomeAcknowledged) return;
+      // Navigate home before reloading — the new database may not support the current page
       window.location.hash = "/";
       setTimeout(() => location.reload(), 100);
     });
@@ -552,14 +637,6 @@
       });
     }
     navigate("notifications");
-  }
-
-  async function copyUtcTimestamp() {
-    try {
-      await navigator.clipboard.writeText(utcNow);
-      clockCopied = true;
-      setTimeout(() => { clockCopied = false; }, 1500);
-    } catch {}
   }
 
   async function fetchVersion() {
@@ -639,12 +716,12 @@
     } catch {}
   }
 
-  async function fetchLogbookRight() {
+  async function fetchDatabaseRight() {
     try {
-      const res = await fetch("/api/settings/logbook_right");
+      const res = await fetch("/api/settings/database_right");
       if (res.ok) {
         const data = await res.json();
-        logbookRight = data.value === "true";
+        databaseRight = data.value === "true";
       }
     } catch {}
   }
@@ -659,15 +736,6 @@
     } catch {}
   }
 
-  async function fetchShutdownMenuEnabled() {
-    try {
-      const res = await fetch("/api/global-settings/shutdown_in_menu");
-      if (res.ok) {
-        const data = await res.json();
-        shutdownMenuEnabled = data.value === "true";
-      }
-    } catch {}
-  }
 
   function isWide() {
     return typeof window !== "undefined" && window.innerWidth >= wideBreakpoint;
@@ -737,7 +805,7 @@
     if (p === "dual") {
       window.location.hash = `/dual/${dualRightPage}`;
     } else {
-      const paths = { records: "/records", add: "/add", query: "/query", notifications: "/notifications", settings: settingsTab ? `/settings/${settingsTab}` : "/settings", about: "/about", picker: "/picker" };
+      const paths = { records: "/records", add: "/add", query: "/query", notifications: "/notifications", media: "/media", scratchpad: "/scratchpad", settings: settingsTab ? `/settings/${settingsTab}` : "/settings", about: "/about", picker: "/picker" };
       window.location.hash = paths[p] || "/";
     }
     setTimeout(() => { navigating = false; }, 0);
@@ -759,7 +827,7 @@
     if (parsed.dualRight) {
       dualRightPage = parsed.dualRight;
     }
-    if (logbookOpen) {
+    if (databaseOpen) {
       fetchWideBreakpoint();
     }
   }
@@ -821,9 +889,9 @@
   }
 
   function onGlobalKeydown(e) {
-    // Ignore if typing in an input/textarea/select
+    // Ignore if typing in an input/textarea/select/button
     const tag = e.target.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return;
 
     if (e.key === "1") {
       e.preventDefault();
@@ -840,6 +908,13 @@
     } else if (e.key === "5") {
       e.preventDefault();
       navigate("about");
+    } else if (e.key === "/") {
+      e.preventDefault();
+      if (page !== "records" && page !== "dual") navigate("records");
+      requestAnimationFrame(() => {
+        const el = document.getElementById("records-search");
+        if (el) el.focus();
+      });
     } else if (e.key === "n" || e.key === "N") {
       e.preventDefault();
       dualShowForm = true; prefill = null; editId = null;
@@ -854,6 +929,25 @@
     } else if (e.key === "?") {
       e.preventDefault();
       navigate("about");
+    } else if (e.key === "ArrowDown" && recordsRef) {
+      e.preventDefault();
+      recordsRef.selectNext();
+    } else if (e.key === "ArrowUp" && recordsRef) {
+      e.preventDefault();
+      recordsRef.selectPrev();
+    } else if (e.key === "Enter" && recordsRef) {
+      e.preventDefault();
+      recordsRef.openSelected();
+    } else if (e.key === "Escape" && recordsRef) {
+      if (!recordsRef.cancelIfClean()) recordsRef.deselect();
+    } else if ((e.key === "PageDown" || e.key === "PageUp" || e.key === "Home" || e.key === "End") && recordsRef) {
+      const tw = document.querySelector(".table-wrap");
+      if (tw) {
+        e.preventDefault();
+        if (e.key === "Home") tw.scrollTo({ top: 0, behavior: "smooth" });
+        else if (e.key === "End") tw.scrollTo({ top: tw.scrollHeight, behavior: "smooth" });
+        else tw.scrollBy({ top: e.key === "PageDown" ? tw.clientHeight : -tw.clientHeight, behavior: "smooth" });
+      }
     }
   }
 
@@ -862,20 +956,25 @@
     fetchVersion();
     applySystemTheme();
     window.addEventListener("keydown", onGlobalKeydown);
-    clockInterval = setInterval(() => { utcNow = new Date().toISOString().slice(0, 19).replace("T", " ") + "z"; }, 1000);
     window.addEventListener("hashchange", onHashChange);
     window.addEventListener("resize", onResize);
+    // Handle auth token from URL (login link)
+    const tokenHandled = await handleAuthToken();
+    if (tokenHandled) return;
+    // Check if auth blocks us
+    const authOk = await checkAuthStatus();
+    if (!authOk) return;
     connectSSE(); // connect early to prevent auto-shutdown during welcome
     await checkWelcome();
     if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
-    await checkLogbookMode();
-    setLogbook(currentLogbook);
+    await checkDatabaseMode();
+    setDatabase(currentDatabase);
     dualSplit = parseFloat(storageGet("dualSplit")) || 50;
-    if (logbookOpen) {
+    if (databaseOpen) {
       applyTheme();
       fetchWideBreakpoint();
     }
-    if (logbookOpen) {
+    if (databaseOpen) {
       await startAppServices();
       // Navigate to default page on initial load (no specific hash)
       const initHash = window.location.hash.slice(1) || "/";
@@ -903,7 +1002,6 @@
   }
 
   onDestroy(() => {
-    clearInterval(clockInterval);
     if (eventSource) eventSource.close();
     window.removeEventListener("hashchange", onHashChange);
     window.removeEventListener("resize", onResize);
@@ -911,39 +1009,67 @@
   });
 </script>
 
-<main class:picker-mode={pickerMode && !logbookOpen} class:dual-mode={page === "dual"} class:query-mode={page === "query"} class:settings-mode={page === "settings"}>
-  {#if serverShutdown}
+<main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:settings-mode={page === "settings"}>
+  {#if authConfirmToken}
+    <div class="auth-confirm">
+      <div class="auth-confirm-panel">
+        <h1>Create Session</h1>
+        <p class="auth-confirm-desc">You are about to lock in a long-term browser session with Guidebook. This browser will be the only one able to access the app unless additional sessions are granted.</p>
+        {#if authLoginError}
+          <p class="auth-confirm-error">{authLoginError}</p>
+        {/if}
+        <button class="auth-confirm-btn" on:click={confirmAuthLogin} disabled={authConfirming}>
+          {authConfirming ? "Creating session..." : "Create Session"}
+        </button>
+        <div class="auth-confirm-separator"><span>or</span></div>
+        <div class="auth-confirm-url-box">
+          <label>Copy this one-time login URL to open in a different browser</label>
+          <div class="auth-confirm-url-row">
+            <input type="text" value={authConfirmUrl} readonly on:click={(e) => e.target.select()} />
+            <button class="auth-confirm-copy" class:copied={authConfirmCopied} on:click={() => { navigator.clipboard.writeText(authConfirmUrl).then(() => { authConfirmCopied = true; setTimeout(() => authConfirmCopied = false, 1500); }).catch(() => {}); }}>{authConfirmCopied ? "Copied!" : "Copy"}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {:else if authBlocked}
+    <div class="auth-blocked">
+      <p>You need a login link from the owner to access this site.</p>
+      {#if authLoginError}
+        <p class="auth-blocked-error">{authLoginError}</p>
+      {/if}
+    </div>
+  {:else if serverShutdown}
     <div class="welcome-container">
       <div class="welcome-card">
-        <p>{logbookClosed ? "This database has been closed." : "Server has shut down."}</p>
+        <p>{databaseClosed ? "This database has been closed." : "Server has shut down."}</p>
         <button class="welcome-btn" on:click={reloadIfAlive}>Reconnect</button>
       </div>
     </div>
   {:else if welcomeChecked && !welcomeAcknowledged}
     <Welcome on:complete={handleWelcomeComplete} />
-  {:else if pendingLogbook}
+  {:else if pendingDatabase}
     <header>
       <div class="header-left">
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <h1 class="app-title"><span class="title-full">Guidebook</span><span class="title-short">GB</span>{#if appVersion}<span class="app-version" on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}</span>{/if}</h1>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <h1 class="app-title"><span class="title-full">Guidebook</span><span class="title-short">GB</span>{#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}</h1>
       </div>
-      <span class="utc-clock">{utcNow}</span>
+      <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+      <span class="client-count" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>
     </header>
     <div class="welcome-container">
       <div class="welcome-card">
-        <h2>Create New Logbook?</h2>
-        <p>The database <strong>{pendingLogbook}</strong> does not exist yet. Would you like to create it?</p>
+        <h2>Create New Database?</h2>
+        <p>The database <strong>{pendingDatabase}</strong> does not exist yet. Would you like to create it?</p>
         <div class="welcome-buttons">
-          <button class="welcome-btn confirm" on:click={confirmPendingLogbook}>Yes, create it</button>
-          <button class="welcome-btn decline" on:click={declinePendingLogbook}>No, shut down</button>
+          <button class="welcome-btn confirm" on:click={confirmPendingDatabase}>Yes, create it</button>
+          <button class="welcome-btn decline" on:click={declinePendingDatabase}>No, shut down</button>
         </div>
       </div>
     </div>
-  {:else if !logbookReady}
-    <!-- waiting for logbook mode check -->
-  {:else if pickerMode && !logbookOpen}
-    <LogbookPicker on:logbookopened={handleLogbookOpened} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={setShutdownState} showShutdown={!noShutdown} />
+  {:else if !databaseReady}
+    <!-- waiting for database mode check -->
+  {:else if pickerMode && !databaseOpen}
+    <DatabasePicker on:databaseopened={handleDatabaseOpened} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={setShutdownState} showShutdown={!noShutdown} />
   {:else}
   <header>
     <div class="header-left">
@@ -951,28 +1077,29 @@
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
         <h1 class="app-title" on:click={goHome} style="cursor: pointer"><span class="title-full">Guidebook</span><span class="title-short">GB</span></h1>
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         {#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}
       </div>
       {#if customHeader}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <span class="custom-header" on:click={() => { settingsTab = "appearance"; settingsHighlight = "content"; navigate("settings"); }} style="cursor: pointer">{customHeader}{#if currentLogbook}<span class="database-name" class:database-switchable={pickerMode} title={pickerMode ? "Switch database" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openDatabaseSwitcher(); }}>{currentLogbook}</span>{/if}</span>
-      {:else if currentLogbook}
-        <!-- svelte-ignore a11y-click-events-have-key-events -->
-        <!-- svelte-ignore a11y-no-static-element-interactions -->
-        <span class="database-name" class:database-switchable={pickerMode} title={pickerMode ? "Switch database" : "Current database: " + currentLogbook} on:click|stopPropagation={() => { if (pickerMode) openDatabaseSwitcher(); }}>{currentLogbook}</span>
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <span class="custom-header" on:click={() => { settingsTab = "appearance"; settingsHighlight = "content"; navigate("settings"); }} style="cursor: pointer">{customHeader}{#if currentDatabase}<span class="database-name" class:database-switchable={pickerMode} title={pickerMode ? "Switch database" : "Current database: " + currentDatabase} on:click|stopPropagation={() => { if (pickerMode) openDatabaseSwitcher(); }}>{currentDatabase}</span>{/if}</span>
+      {:else if currentDatabase}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <span class="database-name" class:database-switchable={pickerMode} title={pickerMode ? "Switch database" : "Current database: " + currentDatabase} on:click|stopPropagation={() => { if (pickerMode) openDatabaseSwitcher(); }}>{currentDatabase}</span>
       {/if}
     </div>
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <span class="utc-clock" on:click={copyUtcTimestamp} title="Click to copy">{clockCopied ? "Copied!" : utcNow}</span>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <span class="client-count" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>
     <div class="hamburger-wrap">
       {#if wide}
-        <button class="add-btn dual-btn" class:active-nav={dualRightPage === "notifications"} on:click={handleNotificationClick} title="Records & Notifications">{#if dualRightPage === "notifications" && !logbookRight}<Icon icon={iconBook} width={14} />{/if}{#if unreadCount > 0}<span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>{:else}<Icon icon={iconBell} width={18} />{/if}{#if dualRightPage === "notifications" && logbookRight}<Icon icon={iconBook} width={14} />{/if}</button>
+        <button class="add-btn dual-btn" class:active-nav={dualRightPage === "media"} on:click={() => { dualRightPage = "media"; navigate("media"); }} title="Records & Media">{#if dualRightPage === "media" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}<Icon icon={iconCamera} width={18} />{#if dualRightPage === "media" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
+        <button class="add-btn dual-btn" class:active-nav={dualRightPage === "notifications"} on:click={handleNotificationClick} title="Records & Notifications">{#if dualRightPage === "notifications" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}{#if unreadCount > 0}<span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>{:else}<Icon icon={iconBell} width={18} />{/if}{#if dualRightPage === "notifications" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
       {:else}
         <button class="add-btn" on:click={() => navigate("records")} title="Records"><Icon icon={iconBook} width={18} /></button>
+        <button class="add-btn" class:active-nav={page === "media"} on:click={() => navigate("media")} title="Media"><Icon icon={iconCamera} width={18} /></button>
+        <button class="add-btn" class:active-nav={page === "scratchpad"} on:click={() => navigate("scratchpad")} title="Scratchpad">💭</button>
         <button class="add-btn notification-btn" class:has-unread={unreadCount > 0} on:click={handleNotificationClick} title="Notifications">
           {#if unreadCount > 0}
             <span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>
@@ -994,17 +1121,15 @@
         <nav class="menu">
           <button class="menu-item" class:active={page === "records" || page === "dual"} on:click={() => navigate("records")}>Records</button>
           <button class="menu-item" class:active={page === "add"} on:click={() => navigate("add")}>New Record</button>
+          <button class="menu-item" class:active={page === "media" || (page === "dual" && dualRightPage === "media")} on:click={() => navigate("media")}>Media</button>
           <button class="menu-item" class:active={page === "notifications" || (page === "dual" && dualRightPage === "notifications")} on:click={() => navigate("notifications")}>Notifications{#if unreadCount > 0} ({unreadCount}){/if}</button>
           {#if sqlQueryEnabled}<button class="menu-item" class:active={page === "query"} on:click={() => navigate("query")}>SQL Query</button>{/if}
+          <button class="menu-item" class:active={page === "scratchpad"} on:click={() => navigate("scratchpad")}>Scratchpad</button>
           <button class="menu-item" class:active={page === "settings"} on:click={() => navigate("settings")}>Settings</button>
           <button class="menu-item" class:active={page === "about"} on:click={() => navigate("about")}>About</button>
           {#if pickerMode}
             <div class="menu-separator"></div>
-            <button class="menu-item close-database" on:click={closeLogbook}>Close Database</button>
-          {/if}
-          {#if shutdownMenuEnabled && !noShutdown}
-            <div class="menu-separator"></div>
-            <button class="menu-item menu-shutdown" on:click={shutdownFromMenu}>Shutdown</button>
+            <button class="menu-item close-database" on:click={closeDatabase}>Close Database</button>
           {/if}
         </nav>
       {/if}
@@ -1012,14 +1137,16 @@
   </header>
 
   {#if page === "dual"}
-    <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={logbookRight}>
+    <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={databaseRight}>
       <div class="dual-pane" style="flex: 0 0 {dualSplit}%">
-        <Records showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} bind:formDirty on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} />
+        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} autoCreated={recordAutoCreated} bind:formDirty on:dropcreated={() => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { recordAutoCreated = false; if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
       </div>
       <!-- svelte-ignore a11y-no-static-element-interactions -->
       <div class="dual-divider" on:mousedown={onDividerDown} on:touchstart={onDividerDown}></div>
       <div class="dual-pane" style="flex: 1">
-        {#if dualRightPage === "notifications"}
+        {#if dualRightPage === "media"}
+          <Media searchQuery={mediaSearchQuery} selectedRecordId={editId || mediaSelectedRecordId} />
+        {:else if dualRightPage === "notifications"}
           <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
         {/if}
       </div>
@@ -1027,15 +1154,19 @@
   {:else}
     <div class="page-content">
     {#if page === "records"}
-      <Records showForm={false} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} />
+      <Records bind:this={recordsRef} showForm={false} initialSearchQuery={mediaSearchQuery} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
     {:else if page === "add"}
-      <Records showForm={true} editId={editId} {prefill} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => navigate(e.detail)} on:prefillconsumed={() => prefill = null} />
+      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
     {:else if page === "query"}
       <Query initialSql={querySql} />
+    {:else if page === "media"}
+      <Media searchQuery={mediaSearchQuery} />
     {:else if page === "notifications"}
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}
-      <Settings logbookName={currentLogbook} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); logbookOpen = false; currentLogbook = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchLogbookRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchLogbookRight(); await fetchSqlQueryEnabled(); fetchShutdownMenuEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} />
+      <Settings databaseName={currentDatabase} pickerMode={pickerMode} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} {authRefreshTrigger} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); databaseOpen = false; currentDatabase = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchDatabaseRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchDatabaseRight(); await fetchSqlQueryEnabled(); fetchShutdownMenuEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} />
+    {:else if page === "scratchpad"}
+      <Scratchpad />
     {:else if page === "about"}
       <About />
     {/if}
@@ -1167,6 +1298,23 @@
     margin: 0 auto;
   }
 
+  :global(main.records-mode) {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  :global(main.records-mode) .page-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-width: none;
+    margin: 0;
+  }
+
   :global(main.picker-mode) {
     padding: 0;
     height: 100vh;
@@ -1192,6 +1340,23 @@
   }
 
   :global(main.query-mode) .page-content {
+    max-width: 100%;
+    margin: 0;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  :global(main.scratchpad-mode) {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  :global(main.scratchpad-mode) .page-content {
     max-width: 100%;
     margin: 0;
     flex: 1;
@@ -1363,12 +1528,14 @@
     gap: 0.4rem;
   }
 
-  .utc-clock {
+  .client-count {
     font-size: 0.75rem;
     color: var(--text-dim);
-    font-family: monospace;
     cursor: pointer;
     white-space: nowrap;
+  }
+  .client-count:hover {
+    color: var(--text);
   }
 
   .add-btn {
@@ -1522,6 +1689,125 @@
     color: var(--danger, #e74c3c);
   }
 
+  .auth-confirm {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: var(--bg, #1a1b1e);
+  }
+  .auth-confirm-panel {
+    background: var(--bg-card, #24252b);
+    border: 1px solid var(--border, #3a3b3f);
+    border-radius: 12px;
+    padding: 2rem 2.5rem;
+    max-width: 500px;
+    width: 90vw;
+  }
+  .auth-confirm-panel h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.5rem;
+    color: var(--text, #eaeaea);
+  }
+  .auth-confirm-desc {
+    font-size: 0.85rem;
+    color: var(--text-dim, #888);
+    line-height: 1.5;
+    margin: 0 0 1.5rem;
+  }
+  .auth-confirm-separator {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+    color: var(--text-dim, #888);
+    font-size: 0.8rem;
+  }
+  .auth-confirm-separator::before,
+  .auth-confirm-separator::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--border, #3a3b3f);
+  }
+  .auth-confirm-url-box {
+    margin-bottom: 0;
+  }
+  .auth-confirm-url-box label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-dim, #888);
+    margin-bottom: 0.35rem;
+  }
+  .auth-confirm-url-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .auth-confirm-url-row input {
+    flex: 1;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border, #3a3b3f);
+    border-radius: 4px;
+    background: var(--bg-input, transparent);
+    color: var(--text, #eaeaea);
+    font-size: 0.8rem;
+    font-family: monospace;
+  }
+  .auth-confirm-copy {
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--border, #3a3b3f);
+    border-radius: 4px;
+    background: var(--bg-input, #2a2b30);
+    color: var(--text, #eaeaea);
+    font-size: 0.8rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .auth-confirm-copy:hover {
+    background: var(--border, #3a3b3f);
+  }
+  .auth-confirm-copy.copied {
+    background: var(--accent, #00ff88);
+    color: var(--accent-text, #000);
+    border-color: var(--accent, #00ff88);
+  }
+  .auth-confirm-error {
+    color: #ff4444;
+    font-size: 0.8rem;
+    margin: 0 0 1rem;
+  }
+  .auth-confirm-btn {
+    width: 100%;
+    padding: 0.75rem 1.5rem;
+    background: var(--accent, #00ff88);
+    color: var(--accent-text, #000);
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .auth-confirm-btn:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+  .auth-confirm-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .auth-blocked {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: #111;
+    color: #999;
+    font-family: sans-serif;
+    font-size: 0.95rem;
+  }
+  .auth-blocked-error {
+    color: #ff4444;
+    font-size: 0.85rem;
+  }
   .welcome-container {
     display: flex;
     align-items: center;

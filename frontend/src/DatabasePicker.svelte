@@ -5,7 +5,7 @@
 
   const dispatch = createEventDispatcher();
 
-  let logbooks = [];
+  let databases = [];
   let newName = "";
   let error = "";
   let loading = true;
@@ -24,31 +24,31 @@
     shuttingDown = true;
     dispatch("shutdown-pending");
     try {
-      const res = await fetch("/api/logbooks/shutdown", { method: "POST" });
+      const res = await fetch("/api/databases/shutdown", { method: "POST" });
       if (res.ok) dispatch("shutdown");
     } catch {
       dispatch("shutdown");
     }
   }
 
-  async function fetchLogbooks() {
+  async function fetchDatabases() {
     try {
-      const res = await fetch("/api/logbooks/");
-      if (res.ok) logbooks = await res.json();
+      const res = await fetch("/api/databases/");
+      if (res.ok) databases = await res.json();
     } catch {}
     loading = false;
   }
 
-  async function openLogbook(name) {
+  async function openDatabase(name) {
     error = "";
     try {
-      const res = await fetch("/api/logbooks/open", {
+      const res = await fetch("/api/databases/open", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
       if (res.ok) {
-        dispatch("logbookopened", name);
+        dispatch("databaseopened", name);
       } else {
         const data = await res.json();
         error = data.detail || "Failed to open database";
@@ -58,7 +58,7 @@
     }
   }
 
-  async function createLogbook() {
+  async function createDatabase() {
     if (!newName.trim()) return;
     error = "";
     const name = newName.trim();
@@ -67,14 +67,14 @@
       return;
     }
     try {
-      const res = await fetch("/api/logbooks/create", {
+      const res = await fetch("/api/databases/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
       if (res.ok) {
         newName = "";
-        dispatch("logbookopened", name);
+        dispatch("databaseopened", name);
       } else {
         const data = await res.json();
         error = data.detail || "Failed to create database";
@@ -90,7 +90,7 @@
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  onMount(fetchLogbooks);
+  onMount(fetchDatabases);
 </script>
 
 <div class="picker-container">
@@ -107,14 +107,14 @@
     <div class="picker-body">
       {#if loading}
         <p class="picker-loading">Loading...</p>
-      {:else if logbooks.length === 0}
+      {:else if databases.length === 0}
         <p class="picker-empty">No databases found. Create one below.</p>
       {:else}
         <div class="picker-list">
-          {#each logbooks as lb}
-            <button class="picker-item" on:click={() => openLogbook(lb.name)}>
-              <span class="picker-item-name">{lb.name}</span>
-              <span class="picker-item-size">{formatSize(lb.size_bytes)}</span>
+          {#each databases as db}
+            <button class="picker-item" on:click={() => openDatabase(db.name)}>
+              <span class="picker-item-name">{db.name}</span>
+              <span class="picker-item-size">{formatSize(db.size_bytes)}</span>
             </button>
           {/each}
         </div>
@@ -128,9 +128,9 @@
           type="text"
           bind:value={newName}
           placeholder="database-name"
-          on:keydown={e => { if (e.key === "Enter") createLogbook(); }}
+          on:keydown={e => { if (e.key === "Enter") createDatabase(); }}
         />
-        <button on:click={createLogbook}>Create</button>
+        <button on:click={createDatabase}>Create</button>
       </div>
     </div>
 

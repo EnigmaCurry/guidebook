@@ -19,10 +19,10 @@ DB_DIR = Path.home() / ".local" / "guidebook"
 META_DB_PATH = DB_DIR / "__global.db"
 _LAST_OPENED_FILE = DB_DIR / "last_opened.json"
 
-# Settings that can be set globally in __global.db and overridden per-logbook
+# Settings that can be set globally in __global.db and overridden per-database
 GLOBAL_DEFAULTABLE_KEYS: set[str] = set()
 
-# Settings that live exclusively in __global.db (not per-logbook)
+# Settings that live exclusively in __global.db (not per-database)
 GLOBAL_ONLY_KEYS = {
     "update_check_enabled",
     "default_pick_mode",
@@ -34,9 +34,13 @@ GLOBAL_ONLY_KEYS = {
     "disable_shutdown",
     "welcome_acknowledged",
     "auto_shutdown_delay",
-    "default_logbook_name",
+    "default_database_name",
     "browser_url_override",
     "open_browser_on_startup",
+    "auth_enabled",
+    "auth_required",
+    "auth_slots",
+    "auth_configured",
 }
 
 
@@ -102,6 +106,21 @@ class Record(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class Attachment(Base):
+    __tablename__ = "attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    record_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String, nullable=False)
+    content_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="application/octet-stream"
+    )
+    size: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class Setting(Base):
     __tablename__ = "settings"
 
@@ -155,6 +174,19 @@ class GlobalLastOpened(GlobalBase):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     opened_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class AuthToken(GlobalBase):
+    __tablename__ = "auth_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    token: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False, default="")
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+    last_seen_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expires_at: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_ip: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_transfer: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class DatabaseLockError(Exception):
@@ -267,9 +299,9 @@ def _run_migrations(conn, migrations, table="settings") -> bool:
     return False
 
 
-# --- Logbook migrations ---
+# --- Database migrations ---
 
-LOGBOOK_MIGRATIONS: list = []
+DATABASE_MIGRATIONS: list = []
 
 # --- Global DB migrations ---
 
@@ -339,7 +371,7 @@ class DatabaseManager:
                 _unlock(f)
         except OSError:
             raise DatabaseLockError(
-                f"Logbook '{db_path.stem}' is already open in another process"
+                f"Database '{db_path.stem}' is already open in another process"
             )
 
     def read_lock_info(self, db_path: Path) -> dict | None:
@@ -409,7 +441,7 @@ class DatabaseManager:
             self._lock_file.close()
             self._lock_file = None
             raise DatabaseLockError(
-                f"Logbook '{db_path.stem}' is already open in another process"
+                f"Database '{db_path.stem}' is already open in another process"
             )
 
     def _release_lock(self) -> None:
@@ -432,7 +464,7 @@ class DatabaseManager:
         self._acquire_lock(db_path)
         self.db_path = db_path
         # Back up before migration if needed
-        if db_path.exists() and LOGBOOK_MIGRATIONS:
+        if db_path.exists() and DATABASE_MIGRATIONS:
             import sqlite3
 
             _conn = sqlite3.connect(str(db_path))
@@ -444,8 +476,8 @@ class DatabaseManager:
             except Exception:
                 current_v = 0
             _conn.close()
-            if current_v < len(LOGBOOK_MIGRATIONS):
-                _backup_before_migration(db_path, current_v, len(LOGBOOK_MIGRATIONS))
+            if current_v < len(DATABASE_MIGRATIONS):
+                _backup_before_migration(db_path, current_v, len(DATABASE_MIGRATIONS))
         self.engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
         self._session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
         migrated = [False]
@@ -454,7 +486,7 @@ class DatabaseManager:
             await conn.run_sync(_add_missing_columns)
             await conn.run_sync(
                 lambda c: migrated.__setitem__(
-                    0, _run_migrations(c, LOGBOOK_MIGRATIONS, "settings")
+                    0, _run_migrations(c, DATABASE_MIGRATIONS, "settings")
                 )
             )
             await conn.execute(
@@ -470,11 +502,11 @@ class DatabaseManager:
         if migrated[0]:
             async with self.engine.begin() as conn:
                 await conn.execute(text("VACUUM"))
-                logger.info("Vacuumed logbook database after migration")
+                logger.info("Vacuumed database after migration")
         async with self.engine.connect() as conn:
             sv = await conn.run_sync(lambda c: _get_schema_version(c, "settings"))
         await self.record_last_opened(db_path.stem)
-        logger.info("Opened logbook: %s (schema v%d)", db_path, sv)
+        logger.info("Opened database: %s (schema v%d)", db_path, sv)
 
     async def close(self) -> None:
         if self.engine:
@@ -556,7 +588,7 @@ class DatabaseManager:
         logger.info("Migrated last_opened.json to global database")
 
     async def record_last_opened(self, name: str) -> None:
-        """Record when a logbook was last opened (in global DB)."""
+        """Record when a database was last opened (in global DB)."""
         if self._global_session_factory is None:
             return
         async with self._global_session_factory() as session:
@@ -585,7 +617,7 @@ db_manager = DatabaseManager()
 
 def async_session():
     if db_manager._session_factory is None:
-        raise RuntimeError("No logbook is currently open")
+        raise RuntimeError("No database is currently open")
     return db_manager._session_factory()
 
 
@@ -596,7 +628,7 @@ def global_async_session():
 
 
 async def resolve_setting(key: str, session: AsyncSession, default: str = "") -> str:
-    """Read a setting from the logbook DB, falling back to global DB if blank/missing."""
+    """Read a setting from the database, falling back to global DB if blank/missing."""
     result = await session.execute(select(Setting).where(Setting.key == key))
     row = result.scalar_one_or_none()
     if row and row.value:
@@ -631,36 +663,8 @@ async def init_db() -> None:
     DB_DIR.mkdir(parents=True, exist_ok=True)
     cleanup_stale_locks()
     await db_manager.open_global()
-    # Check global default_pick_mode if no CLI override or --pick flag
-    if (
-        not db_manager.picker_mode
-        and not db_manager._db_override
-        and db_manager._global_session_factory
-    ):
-        async with db_manager._global_session_factory() as gdb:
-            row = (
-                await gdb.execute(
-                    select(GlobalSetting).where(
-                        GlobalSetting.key == "default_pick_mode"
-                    )
-                )
-            ).scalar_one_or_none()
-            if not row or row.value != "false":
-                db_manager.picker_mode = True
     if db_manager.picker_mode:
         return
-    # Check global DB for default logbook name if no CLI override
-    if not db_manager._db_override and db_manager._global_session_factory:
-        async with db_manager._global_session_factory() as gdb:
-            row = (
-                await gdb.execute(
-                    select(GlobalSetting).where(
-                        GlobalSetting.key == "default_logbook_name"
-                    )
-                )
-            ).scalar_one_or_none()
-            if row and row.value:
-                db_manager._db_override = row.value
     db_path = db_manager.default_db_path
     if not db_path.exists() and db_manager._db_override:
         db_manager.pending_name = db_path.stem
@@ -698,7 +702,7 @@ def _add_missing_columns_global(conn):
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     if db_manager._session_factory is None:
-        raise HTTPException(status_code=503, detail="No logbook is currently open")
+        raise HTTPException(status_code=503, detail="No database is currently open")
     async with db_manager._session_factory() as session:
         yield session
 

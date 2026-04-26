@@ -20,7 +20,6 @@ from guidebook.db import (
     DatabaseLockError,
     DatabaseTooNewError,
     GlobalCache,
-    GlobalSetting,
     Setting,
     db_manager,
     get_global_session,
@@ -28,12 +27,14 @@ from guidebook.db import (
     init_db,
     global_async_session,
 )
-from guidebook.routes.logbooks import router as logbooks_router
+from guidebook.routes.auth import router as auth_router
+import guidebook.routes.auth as _auth_module
+from guidebook.routes.databases import router as databases_router
 from guidebook.routes.records import router as records_router
+from guidebook.routes.attachments import router as attachments_router
 from guidebook.routes.notifications import router as notifications_router
 from guidebook.sse import (
     router as sse_router,
-    start_auto_shutdown,
     stop_auto_shutdown as stop_sse_auto_shutdown,
 )
 from guidebook.routes.settings import (
@@ -44,6 +45,8 @@ from guidebook.routes.settings import (
 from guidebook.routes.query import router as query_router
 from guidebook.routes.global_settings import router as global_settings_router
 from guidebook.routes.update import router as update_router
+from guidebook.routes.scratchpad import router as scratchpad_router
+from guidebook.routes.media import router as media_router
 from guidebook._build_info import BUILD_GITHUB_ACTIONS, BUILD_ORIGIN_REPO, GIT_SHA
 
 logger = logging.getLogger("guidebook")
@@ -110,28 +113,8 @@ async def lifespan(app: FastAPI):
             )
         )
         await gdb.commit()
-    if not NO_SHUTDOWN:
-        async with global_async_session() as gdb:
-            row = (
-                await gdb.execute(
-                    select(GlobalSetting).where(GlobalSetting.key == "disable_shutdown")
-                )
-            ).scalar_one_or_none()
-            if row and row.value == "true":
-                NO_SHUTDOWN = True
     if db_manager.is_open:
         await start_auto_backup()
-        if not NO_SHUTDOWN:
-            async with global_async_session() as gdb:
-                row = (
-                    await gdb.execute(
-                        select(GlobalSetting).where(
-                            GlobalSetting.key == "auto_shutdown_on_disconnect"
-                        )
-                    )
-                ).scalar_one_or_none()
-                if row and row.value == "true":
-                    await start_auto_shutdown()
     yield
     await stop_sse_auto_shutdown()
     await stop_auto_backup()
@@ -142,17 +125,82 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan)
 
 
+# Paths that bypass auth checking
+_AUTH_EXEMPT_PREFIXES = (
+    "/api/auth/",
+    "/api/version",
+    "/api/global-settings/welcome_acknowledged",
+    "/api/databases/mode",
+    "/api/databases/current",
+)
+_AUTH_EXEMPT_EXACT = {"/api/version"}
+
+
 @app.middleware("http")
 async def http_middleware(request: Request, call_next):
+    path = request.url.path
+
+    # Auth check for API routes
+    if path.startswith("/api/") and not any(
+        path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES
+    ):
+        from guidebook.routes.auth import check_auth
+        from guidebook.db import db_manager
+
+        if db_manager._global_session_factory:
+            async with db_manager._global_session_factory() as gdb:
+                ok = await check_auth(request, gdb)
+                if not ok:
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Authentication required"},
+                    )
+
+    # Auth check for non-API routes (HTML pages only, not static assets)
+    if (
+        not path.startswith("/api/")
+        and not path.startswith("/assets/")
+        and "auth_token" not in request.url.query
+    ):
+        from guidebook.routes.auth import check_auth
+        from guidebook.db import db_manager
+
+        if db_manager._global_session_factory:
+            async with db_manager._global_session_factory() as gdb:
+                ok = await check_auth(request, gdb)
+                if not ok:
+                    from fastapi.responses import HTMLResponse
+
+                    return HTMLResponse(
+                        status_code=401,
+                        content="<html><head><style>"
+                        "body{background:#111;color:#ccc;font-family:sans-serif;"
+                        "display:flex;align-items:center;justify-content:center;"
+                        "min-height:100vh;margin:0;font-size:.95rem}"
+                        ".box{max-width:420px;text-align:center;line-height:1.6}"
+                        "code{background:#222;padding:2px 6px;border-radius:3px;font-size:.85rem;color:#e6a700}"
+                        ".dim{color:#777;font-size:.8rem;margin-top:1.2rem}"
+                        "</style></head><body>"
+                        '<div class="box">'
+                        "<p>You need a login link from the owner to access this site.</p>"
+                        '<p class="dim">If you are the owner and have lost access, restart the server with '
+                        "<code style='white-space:nowrap'>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
+                        "</div></body></html>",
+                    )
+
     response: Response = await call_next(request)
-    if not request.url.path.startswith("/api/"):
+    if path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    else:
         response.headers["Cache-Control"] = "no-cache"
     if response.status_code >= 400:
         logger.warning(
             '%s - "%s %s" %s',
             request.client.host,
             request.method,
-            request.url.path,
+            path,
             response.status_code,
         )
     return response
@@ -349,13 +397,17 @@ async def skip_update(
     return {"status": "skipped", "version": latest}
 
 
-app.include_router(logbooks_router)
+app.include_router(auth_router)
+app.include_router(databases_router)
 app.include_router(records_router)
+app.include_router(attachments_router)
 app.include_router(settings_router)
 app.include_router(global_settings_router)
 app.include_router(notifications_router)
 app.include_router(query_router)
 app.include_router(update_router)
+app.include_router(scratchpad_router)
+app.include_router(media_router)
 app.include_router(sse_router)
 
 static_dir = _resource_path("static")
@@ -394,14 +446,28 @@ def _check_running_instance(
     Returns False if nothing is running.
     """
     import json as _json
+    import ssl as _ssl
     import urllib.request
 
-    url = f"http://{host}:{port}"
+    # Create an unverified SSL context for probing self-signed certs
+    _noverify = _ssl.create_default_context()
+    _noverify.check_hostname = False
+    _noverify.verify_mode = _ssl.CERT_NONE
 
-    # Quick probe — is anything listening?
-    try:
-        urllib.request.urlopen(f"{url}/api/version", timeout=2)
-    except Exception:
+    # Quick probe — try HTTPS first, then HTTP
+    url = None
+    for _scheme in ("https", "http"):
+        try:
+            urllib.request.urlopen(
+                f"{_scheme}://{host}:{port}/api/version",
+                timeout=2,
+                context=_noverify,
+            )
+            url = f"{_scheme}://{host}:{port}"
+            break
+        except Exception:
+            continue
+    if url is None:
         return False  # nothing running
 
     # Something is running — gather info
@@ -409,12 +475,16 @@ def _check_running_instance(
     running_origin = None
     running_sha = None
     try:
-        resp = urllib.request.urlopen(f"{url}/api/version", timeout=2)
+        resp = urllib.request.urlopen(
+            f"{url}/api/version", timeout=2, context=_noverify
+        )
         running_version = _json.loads(resp.read()).get("version")
     except Exception:
         pass
     try:
-        resp = urllib.request.urlopen(f"{url}/api/update/platform", timeout=2)
+        resp = urllib.request.urlopen(
+            f"{url}/api/update/platform", timeout=2, context=_noverify
+        )
         platform_info = _json.loads(resp.read())
         running_origin = platform_info.get("build_origin_repo")
         running_sha = platform_info.get("build_git_sha")
@@ -501,7 +571,26 @@ def _check_running_instance(
 def run() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Guidebook - Web Application Template")
+    env_help = """
+environment variables (overridden by command line options):
+  GUIDEBOOK_DB              Database name to open (default: guidebook)
+  GUIDEBOOK_PICKER          Enable database picker mode (default: false)
+  GUIDEBOOK_NO_BROWSER      Skip opening browser (default: false)
+  GUIDEBOOK_NO_SHUTDOWN     Disable shutdown endpoint (default: false)
+  GUIDEBOOK_HOST            Bind address (default: 127.0.0.1)
+  GUIDEBOOK_PORT            Port (default: 4280)
+  GUIDEBOOK_BROWSER_URL     Override browser URL
+  GUIDEBOOK_DISABLE_AUTH    Disable authentication (default: false)
+  GUIDEBOOK_AUTH_SLOTS      Max concurrent sessions (default: 1)
+  GUIDEBOOK_AUTH_TTL        Session cookie TTL in seconds (default: 10 years)
+  GUIDEBOOK_ALLOW_TRANSFER  Enable session transfer (default: false)
+  GUIDEBOOK_NO_TLS          Disable TLS (default: false)
+"""
+    parser = argparse.ArgumentParser(
+        description="Guidebook - Web Application Template",
+        epilog=env_help,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "--version",
         action="version",
@@ -514,7 +603,7 @@ def run() -> None:
         "name",
         nargs="?",
         default=None,
-        help="Logbook name to open (e.g. my-project, default: guidebook)",
+        help="Database name to open (e.g. my-project, default: guidebook)",
     )
     parser.add_argument(
         "--pick",
@@ -538,17 +627,135 @@ def run() -> None:
         default=None,
         help="Port to listen on (default: auto-select starting from 4280)",
     )
+    parser.add_argument(
+        "--disable-auth",
+        action="store_true",
+        help="Disable authentication (allow unauthenticated access)",
+    )
+    parser.add_argument(
+        "--reset-auth",
+        action="store_true",
+        help="Reset all auth sessions and generate a new login link",
+    )
+    parser.add_argument(
+        "--auth-slots",
+        type=int,
+        default=None,
+        help="Set maximum concurrent sessions (default: 1)",
+    )
+    parser.add_argument(
+        "--auth-ttl",
+        type=int,
+        default=None,
+        help="Set session cookie TTL in seconds (default: 10 years)",
+    )
+    parser.add_argument(
+        "--allow-transfer",
+        action="store_true",
+        help="Enable session transfer (move session to another browser)",
+    )
+    parser.add_argument(
+        "--no-tls",
+        action="store_true",
+        help="Disable TLS (serve plain HTTP instead of HTTPS)",
+    )
     args = parser.parse_args()
 
     global NO_SHUTDOWN
+    if args.disable_auth:
+        _auth_module.DISABLE_AUTH = True
+    if args.allow_transfer or os.environ.get(
+        "GUIDEBOOK_ALLOW_TRANSFER", ""
+    ).lower() in ("1", "true", "yes"):
+        _auth_module.ALLOW_TRANSFER = True
+    # Apply --auth-slots / GUIDEBOOK_AUTH_SLOTS
+    if args.auth_slots is not None:
+        _auth_module.AUTH_SLOTS = args.auth_slots
+    else:
+        val = os.environ.get("GUIDEBOOK_AUTH_SLOTS", "").strip()
+        if val:
+            try:
+                _auth_module.AUTH_SLOTS = int(val)
+            except ValueError:
+                pass
+    # Apply --auth-ttl / GUIDEBOOK_AUTH_TTL
+    if args.auth_ttl is not None:
+        _auth_module.AUTH_TTL = args.auth_ttl
+    else:
+        val = os.environ.get("GUIDEBOOK_AUTH_TTL", "").strip()
+        if val:
+            try:
+                _auth_module.AUTH_TTL = max(30, int(val))
+            except ValueError:
+                pass
     if args.name and args.name.startswith("__"):
         print(
-            "Error: logbook name must not start with '__' (reserved for system databases)"
+            "Error: database name must not start with '__' (reserved for system databases)"
         )
         sys.exit(1)
     db_manager.configure(db_name=args.name, picker=args.pick)
     if args.no_shutdown:
         NO_SHUTDOWN = True
+
+    # Ensure auth tables exist and handle --reset-auth
+    if True:
+        import secrets
+        import sqlite3
+
+        from guidebook.db import META_DB_PATH
+
+        META_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(META_DB_PATH))
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS auth_tokens "
+            "(id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, label TEXT NOT NULL DEFAULT '', "
+            "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, last_ip TEXT, "
+            "is_transfer INTEGER NOT NULL DEFAULT 0)"
+        )
+        for col in ("expires_at REAL", "last_ip TEXT"):
+            try:
+                conn.execute(f"ALTER TABLE auth_tokens ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS settings "
+            "(id INTEGER NOT NULL PRIMARY KEY, key VARCHAR NOT NULL UNIQUE, value VARCHAR)"
+        )
+
+        if args.reset_auth:
+            conn.execute("DELETE FROM auth_tokens")
+            # Regenerate JWT secret on auth reset to invalidate all JWTs
+            jwt_secret = secrets.token_urlsafe(64)
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("auth_jwt_secret", jwt_secret),
+            )
+            token_str = secrets.token_urlsafe(48)
+            now = time.time()
+            conn.execute(
+                "INSERT INTO auth_tokens (token, label, created_at, last_seen_at, expires_at, is_transfer) VALUES (?, ?, ?, ?, ?, ?)",
+                (token_str, "Login link", now, None, None, 0),
+            )
+            conn.commit()
+            os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
+            print("Auth reset: all sessions cleared, new login token generated.")
+
+        # Ensure JWT signing secret exists
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = ?", ("auth_jwt_secret",)
+        ).fetchone()
+        if row:
+            _auth_module.JWT_SECRET = row[0]
+        else:
+            jwt_secret = secrets.token_urlsafe(64)
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)",
+                ("auth_jwt_secret", jwt_secret),
+            )
+            conn.commit()
+            _auth_module.JWT_SECRET = jwt_secret
+
+        conn.close()
 
     import webbrowser
 
@@ -625,24 +832,15 @@ def run() -> None:
 
     host = os.environ.get("GUIDEBOOK_HOST", "")
     if not host:
-        try:
-            import sqlite3 as _sqlite3
-
-            from guidebook.db import META_DB_PATH
-
-            if META_DB_PATH.exists():
-                _conn = _sqlite3.connect(str(META_DB_PATH))
-                _row = _conn.execute(
-                    "SELECT value FROM settings WHERE key = 'default_host'"
-                ).fetchone()
-                _conn.close()
-                if _row and _row[0]:
-                    host = _row[0]
-        except Exception:
-            pass
-        if not host:
-            host = "127.0.0.1"
+        host = "127.0.0.1"
     port = args.port or int(os.environ.get("GUIDEBOOK_PORT", "4280"))
+
+    no_tls = args.no_tls or os.environ.get("GUIDEBOOK_NO_TLS", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    scheme = "http" if no_tls else "https"
 
     # Check if guidebook is already running on this port
     no_browser = args.no_browser or os.environ.get(
@@ -654,40 +852,40 @@ def run() -> None:
 
     import threading
 
+    reset_token = os.environ.pop("_GUIDEBOOK_RESET_AUTH_TOKEN", "")
+    if reset_token:
+        login_url = f"{scheme}://{host}:{port}/?auth_token={reset_token}"
+        print(f"Login URL: {login_url}")
     no_browser = args.no_browser or os.environ.get(
         "GUIDEBOOK_NO_BROWSER", ""
     ).lower() in ("1", "true", "yes")
     if not no_browser:
-        default_url = f"http://{host}:{port}"
+        default_url = f"{scheme}://{host}:{port}"
+        if reset_token:
+            default_url = f"{scheme}://{host}:{port}/?auth_token={reset_token}"
         env_browser_url = os.environ.get("GUIDEBOOK_BROWSER_URL", "").strip()
 
         def open_browser():
-            import sqlite3
             import time
 
             time.sleep(1)
             url = env_browser_url or default_url
-            if not env_browser_url:
-                try:
-                    from guidebook.db import META_DB_PATH
-
-                    if META_DB_PATH.exists():
-                        conn = sqlite3.connect(str(META_DB_PATH))
-                        rows = conn.execute(
-                            "SELECT key, value FROM settings WHERE key IN ('browser_url_override', 'open_browser_on_startup')"
-                        ).fetchall()
-                        conn.close()
-                        settings = dict(rows)
-                        if settings.get("open_browser_on_startup") == "false":
-                            return
-                        if settings.get("browser_url_override"):
-                            url = settings["browser_url_override"]
-                except Exception:
-                    pass
             browser_name = _detect_browser_name()
             logger.info("Opening %s in %s", url, browser_name)
             webbrowser.open(url)
 
         threading.Thread(target=open_browser, daemon=True).start()
 
-    uvicorn.run(app, host=host, port=port, access_log=False, log_config=None)
+    ssl_kwargs = {}
+    if not no_tls:
+        from guidebook.db import META_DB_PATH
+        from guidebook.tls import ensure_tls_cert, write_tls_temp_files
+
+        cert_pem, key_pem = ensure_tls_cert(str(META_DB_PATH))
+        certfile, keyfile = write_tls_temp_files(cert_pem, key_pem)
+        ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
+        logger.info("TLS enabled (self-signed certificate)")
+
+    uvicorn.run(
+        app, host=host, port=port, access_log=False, log_config=None, **ssl_kwargs
+    )

@@ -3,19 +3,19 @@
 
   const dispatch = createEventDispatcher();
 
-  let logbookName = "guidebook";
-  let existingLogbooks = [];
+  let databaseName = "guidebook";
+  let existingDatabases = [];
   let saving = false;
   let error = "";
 
   onMount(async () => {
     try {
-      const res = await fetch("/api/logbooks/");
+      const res = await fetch("/api/databases/");
       if (res.ok) {
         const data = await res.json();
-        existingLogbooks = data.map(d => d.name);
-        if (existingLogbooks.length > 0) {
-          logbookName = existingLogbooks[0];
+        existingDatabases = data.map(d => d.name);
+        if (existingDatabases.length > 0) {
+          databaseName = existingDatabases[0];
         }
       }
     } catch {}
@@ -30,20 +30,19 @@
     });
   }
 
-  async function finish() {
+  async function finishDatabase() {
     saving = true;
     error = "";
     try {
-      const name = logbookName.trim() || "guidebook";
-      await saveGlobal("default_logbook_name", name);
+      const name = databaseName.trim() || "guidebook";
       await saveGlobal("welcome_acknowledged", "true");
-      const res = await fetch("/api/logbooks/open", {
+      const res = await fetch("/api/databases/open", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
       if (!res.ok) {
-        const createRes = await fetch("/api/logbooks/create", {
+        const createRes = await fetch("/api/databases/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name }),
@@ -55,8 +54,8 @@
           return;
         }
       }
-
-      dispatch("complete", { logbook: name });
+      saving = false;
+      dispatch("complete", { database: databaseName || "guidebook" });
     } catch (e) {
       error = e.message || "Something went wrong";
       saving = false;
@@ -68,7 +67,7 @@
     error = "";
     try {
       await saveGlobal("welcome_acknowledged", "true");
-      dispatch("complete", { logbook: null });
+      dispatch("complete", { database: null });
     } catch (e) {
       error = e.message || "Something went wrong";
       saving = false;
@@ -87,7 +86,7 @@
     return "";
   }
 
-  $: nameError = validateName(logbookName.trim());
+  $: nameError = validateName(databaseName.trim());
 </script>
 
 <div class="welcome-overlay">
@@ -97,15 +96,15 @@
 
     <div class="fields">
       <div class="field">
-        <label for="w-logbook">Project Name</label>
-        {#if existingLogbooks.length > 0}
-          <select id="w-logbook" bind:value={logbookName} style="max-width: 14rem">
-            {#each existingLogbooks as name}
+        <label for="w-database">Project Name</label>
+        {#if existingDatabases.length > 0}
+          <select id="w-database" bind:value={databaseName} style="max-width: 14rem">
+            {#each existingDatabases as name}
               <option value={name}>{name}</option>
             {/each}
           </select>
         {:else}
-          <input id="w-logbook" type="text" bind:value={logbookName} autocomplete="off" on:keydown={onNameKeydown} placeholder="guidebook" style="max-width: 14rem" />
+          <input id="w-database" type="text" bind:value={databaseName} autocomplete="off" on:keydown={onNameKeydown} placeholder="guidebook" style="max-width: 14rem" />
           {#if nameError}
             <span class="field-error">{nameError}</span>
           {:else}
@@ -121,7 +120,7 @@
 
     <div class="actions">
       <button class="skip-link" on:click={skip} disabled={saving}>Skip</button>
-      <button class="continue-btn" on:click={finish} disabled={saving || !!nameError}>
+      <button class="continue-btn" on:click={finishDatabase} disabled={saving || !!nameError}>
         {saving ? "Setting up..." : "Continue"}
       </button>
     </div>
@@ -144,7 +143,7 @@
     border: 1px solid var(--border, #3a3b3f);
     border-radius: 12px;
     padding: 2rem 2.5rem;
-    max-width: 420px;
+    max-width: 480px;
     width: 90vw;
   }
 
