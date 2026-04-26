@@ -129,9 +129,6 @@ app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan
 _AUTH_EXEMPT_PREFIXES = ("/api/auth/",)
 
 
-_AUTH_RATE_LIMIT_PATHS = ("/api/auth/login", "/api/auth/check-token")
-
-
 def _rate_limit_429(retry_after: int) -> Response:
     from fastapi.responses import JSONResponse
 
@@ -150,7 +147,7 @@ async def http_middleware(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
 
     # Rate limit: auth endpoints (check prior failures)
-    if path in _AUTH_RATE_LIMIT_PATHS:
+    if path.startswith("/api/auth/"):
         allowed, retry_after = auth_limiter.check(client_ip)
         if not allowed:
             return _rate_limit_429(retry_after)
@@ -204,7 +201,7 @@ async def http_middleware(request: Request, call_next):
     response: Response = await call_next(request)
 
     # Record auth failures for rate limiting (successful logins don't count)
-    if path in _AUTH_RATE_LIMIT_PATHS and response.status_code == 401:
+    if path.startswith("/api/auth/") and response.status_code == 401:
         auth_limiter.record(client_ip)
 
     if path.startswith("/api/"):
