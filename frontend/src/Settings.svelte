@@ -1559,15 +1559,15 @@
       <p class="hint">mTLS is unavailable in proxy mode. Configure mTLS at your reverse proxy instead.</p>
     {:else}
       <div class="mtls-radio-group">
-        <label class="mtls-radio">
+        <label class="mtls-radio" class:active={mtlsMode === "disabled"}>
           <input type="radio" name="mtls-mode" value="disabled" checked={mtlsMode === "disabled"} disabled={mtlsActivating} on:change={() => activateMtls("disabled")} />
           <span><strong>Disabled</strong> — cookie auth only</span>
         </label>
-        <label class="mtls-radio">
+        <label class="mtls-radio" class:active={mtlsMode === "optional"}>
           <input type="radio" name="mtls-mode" value="optional" checked={mtlsMode === "optional"} disabled={mtlsActivating} on:change={() => activateMtls("optional")} />
           <span><strong>Optional</strong> — both cookie and client certificate accepted</span>
         </label>
-        <label class="mtls-radio">
+        <label class="mtls-radio" class:active={mtlsMode === "required"}>
           <input type="radio" name="mtls-mode" value="required" checked={mtlsMode === "required"} disabled={mtlsActivating} on:change={() => activateMtls("required")} />
           <span><strong>Enforced</strong> — only client certificates accepted</span>
         </label>
@@ -2333,17 +2333,33 @@
   .mtls-radio-group {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    border: 1px solid var(--border, var(--border-color, #3a3b3f));
+    border-radius: 6px;
+    overflow: hidden;
   }
   .mtls-radio {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
     font-size: 0.8rem;
     cursor: pointer;
+    margin: 0;
+    border-bottom: 1px solid var(--border, var(--border-color, #3a3b3f));
+    transition: background 0.15s;
+  }
+  .mtls-radio:last-child {
+    border-bottom: none;
+  }
+  .mtls-radio:hover {
+    background: var(--bg-hover, rgba(255, 255, 255, 0.04));
+  }
+  .mtls-radio.active {
+    background: var(--bg-hover, rgba(255, 255, 255, 0.06));
   }
   .mtls-radio input[type="radio"] {
     margin: 0;
+    flex-shrink: 0;
     cursor: pointer;
   }
   .mtls-radio input[type="radio"]:disabled {
