@@ -1602,7 +1602,7 @@
 
       {#if mtlsCerts.length > 0}
         <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Issued Certificates</h4>
-        <div class="session-list">
+        <div class="session-list mtls-cert-list">
           {#each mtlsCerts as cert (cert.id)}
             <div class="session-item" class:session-current={cert.is_current} class:session-revoked={cert.revoked_at}>
               <div class="session-info">
@@ -2352,6 +2352,10 @@
   }
   .session-revoked {
     opacity: 0.5;
+  }
+  .mtls-cert-list {
+    max-height: 12rem;
+    overflow-y: auto;
   }
 
   /* mTLS radio group */
