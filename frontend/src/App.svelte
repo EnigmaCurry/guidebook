@@ -212,7 +212,7 @@
 
   async function checkWelcome() {
     // The welcome screen only shows once — before the first database is created.
-    // We use the /api/databases/mode endpoint (auth-exempt) to check.
+    // We use the /api/databases/mode endpoint to check.
     try {
       const res = await fetch("/api/databases/mode");
       if (res.ok) {

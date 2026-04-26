@@ -126,14 +126,7 @@ app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan
 
 
 # Paths that bypass auth checking
-_AUTH_EXEMPT_PREFIXES = (
-    "/api/auth/",
-    "/api/version",
-    "/api/global-settings/welcome_acknowledged",
-    "/api/databases/mode",
-    "/api/databases/current",
-)
-_AUTH_EXEMPT_EXACT = {"/api/version"}
+_AUTH_EXEMPT_PREFIXES = ("/api/auth/",)
 
 
 _AUTH_RATE_LIMIT_PATHS = ("/api/auth/login", "/api/auth/check-token")
