@@ -2,7 +2,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, field_serializer
-from sqlalchemy import or_, select
+from sqlalchemy import and_, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from guidebook.db import Attachment, Record, get_session
@@ -10,6 +10,17 @@ from guidebook.db import Attachment, Record, get_session
 router = APIRouter(prefix="/api/media", tags=["media"])
 
 MEDIA_TYPES = ("image/%", "video/%", "audio/%")
+
+TYPE_FILTERS = {
+    "image": [Attachment.content_type.like("image/%")],
+    "video": [Attachment.content_type.like("video/%")],
+    "audio": [Attachment.content_type.like("audio/%")],
+    "document": [
+        not_(Attachment.content_type.like("image/%")),
+        not_(Attachment.content_type.like("video/%")),
+        not_(Attachment.content_type.like("audio/%")),
+    ],
+}
 
 
 class MediaItem(BaseModel):
@@ -31,6 +42,7 @@ class MediaItem(BaseModel):
 @router.get("/", response_model=list[MediaItem])
 async def list_media(
     q: str | None = Query(None, description="Search query"),
+    type: str | None = Query(None, description="Filter: image, video, audio, document"),
     session: AsyncSession = Depends(get_session),
 ):
     stmt = (
@@ -44,14 +56,12 @@ async def list_media(
             Attachment.created_at,
         )
         .join(Record, Attachment.record_id == Record.id)
-        .where(
-            or_(
-                Attachment.content_type.like("image/%"),
-                Attachment.content_type.like("video/%"),
-                Attachment.content_type.like("audio/%"),
-            )
-        )
     )
+    if type and type in TYPE_FILTERS:
+        stmt = stmt.where(and_(*TYPE_FILTERS[type]))
+    else:
+        # "all" — no content_type restriction, show every attachment
+        pass
     if q and len(q) >= 2:
         pattern = f"%{q}%"
         stmt = stmt.where(
