@@ -270,18 +270,29 @@
     if (sortedRecords.length === 0) return;
     selectedIndex = selectedIndex < sortedRecords.length - 1 ? selectedIndex + 1 : 0;
     scrollToSelected();
+    dispatch("selectionchange", sortedRecords[selectedIndex]?.id ?? null);
   }
 
   export function selectPrev() {
     if (sortedRecords.length === 0) return;
     selectedIndex = selectedIndex > 0 ? selectedIndex - 1 : sortedRecords.length - 1;
     scrollToSelected();
+    dispatch("selectionchange", sortedRecords[selectedIndex]?.id ?? null);
   }
 
   export function openSelected() {
     if (selectedIndex >= 0 && selectedIndex < sortedRecords.length) {
       editRecord(sortedRecords[selectedIndex]);
     }
+  }
+
+  export function deselect() {
+    if (selectedIndex >= 0) {
+      selectedIndex = -1;
+      dispatch("selectionchange", null);
+      return true;
+    }
+    return false;
   }
 
   export function cancelIfClean() {

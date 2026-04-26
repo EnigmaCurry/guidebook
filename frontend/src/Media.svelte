@@ -2,14 +2,19 @@
   import { onMount, onDestroy } from "svelte";
 
   export let searchQuery = "";
+  export let selectedRecordId = null;
 
   let media = [];
   let loading = true;
   let previewIndex = -1;
   let eventSource = null;
 
-  $: previewItem = previewIndex >= 0 && previewIndex < media.length
-    ? media[previewIndex] : null;
+  $: displayMedia = selectedRecordId
+    ? media.filter(m => m.record_id === selectedRecordId)
+    : media;
+
+  $: previewItem = previewIndex >= 0 && previewIndex < displayMedia.length
+    ? displayMedia[previewIndex] : null;
 
   $: searchQuery, fetchMedia();
 
@@ -39,11 +44,11 @@
   }
 
   function previewNext() {
-    if (media.length > 1) previewIndex = (previewIndex + 1) % media.length;
+    if (displayMedia.length > 1) previewIndex = (previewIndex + 1) % displayMedia.length;
   }
 
   function previewPrev() {
-    if (media.length > 1) previewIndex = (previewIndex - 1 + media.length) % media.length;
+    if (displayMedia.length > 1) previewIndex = (previewIndex - 1 + displayMedia.length) % displayMedia.length;
   }
 
   function connectSSE() {
@@ -64,11 +69,11 @@
 <div class="media-page">
   {#if loading && media.length === 0}
     <p class="status">Loading media...</p>
-  {:else if media.length === 0}
-    <p class="status">{searchQuery ? "No media matches your search." : "No media attachments yet."}</p>
+  {:else if displayMedia.length === 0}
+    <p class="status">{searchQuery || selectedRecordId ? "No media matches your filter." : "No media attachments yet."}</p>
   {:else}
     <div class="media-grid">
-      {#each media as item, i (item.id)}
+      {#each displayMedia as item, i (item.id)}
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div class="media-card" on:click={() => openPreview(i)}>
@@ -97,7 +102,7 @@
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="lightbox" on:click|self={() => { previewIndex = -1; }}>
-    {#if media.length > 1}
+    {#if displayMedia.length > 1}
       <button class="lightbox-arrow lightbox-prev" on:click|stopPropagation={previewPrev}>&lsaquo;</button>
     {/if}
     <div class="lightbox-content">
@@ -115,7 +120,7 @@
       {/if}
       <div class="lightbox-caption">{previewItem.record_title} &mdash; {previewItem.filename} ({formatFileSize(previewItem.size)})</div>
     </div>
-    {#if media.length > 1}
+    {#if displayMedia.length > 1}
       <button class="lightbox-arrow lightbox-next" on:click|stopPropagation={previewNext}>&rsaquo;</button>
     {/if}
   </div>

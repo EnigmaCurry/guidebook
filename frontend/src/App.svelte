@@ -65,6 +65,7 @@
   let recordAutoCreated = false;
   let databaseRight = false;
   let mediaSearchQuery = "";
+  let mediaSelectedRecordId = null;
   let dualSplit = 50;
   let draggingSplit = false;
 
@@ -938,7 +939,7 @@
       e.preventDefault();
       recordsRef.openSelected();
     } else if (e.key === "Escape" && recordsRef) {
-      recordsRef.cancelIfClean();
+      if (!recordsRef.deselect()) recordsRef.cancelIfClean();
     } else if ((e.key === "PageDown" || e.key === "PageUp" || e.key === "Home" || e.key === "End") && recordsRef) {
       const tw = document.querySelector(".table-wrap");
       if (tw) {
@@ -1138,13 +1139,13 @@
   {#if page === "dual"}
     <div class="dual-layout" class:dual-narrow={!wide} class:dragging={draggingSplit} class:dual-reversed={databaseRight}>
       <div class="dual-pane" style="flex: 0 0 {dualSplit}%">
-        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} autoCreated={recordAutoCreated} bind:formDirty on:dropcreated={() => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { recordAutoCreated = false; if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} />
+        <Records bind:this={recordsRef} showForm={dualShowForm || !!prefill || !!editId} {prefill} editId={editId} autoCreated={recordAutoCreated} bind:formDirty on:dropcreated={() => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; dualShowForm = !!e.detail; }} on:navigate={e => { recordAutoCreated = false; if (e.detail === "records" || e.detail === "back") { prefill = null; editId = null; dualShowForm = false; if (!wide) navigate(dualRightPage); } else navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
       </div>
       <!-- svelte-ignore a11y-no-static-element-interactions -->
       <div class="dual-divider" on:mousedown={onDividerDown} on:touchstart={onDividerDown}></div>
       <div class="dual-pane" style="flex: 1">
         {#if dualRightPage === "media"}
-          <Media searchQuery={mediaSearchQuery} />
+          <Media searchQuery={mediaSearchQuery} selectedRecordId={editId || mediaSelectedRecordId} />
         {:else if dualRightPage === "notifications"}
           <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
         {/if}
@@ -1153,9 +1154,9 @@
   {:else}
     <div class="page-content">
     {#if page === "records"}
-      <Records bind:this={recordsRef} showForm={false} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} on:searchchange={e => { mediaSearchQuery = e.detail; }} />
+      <Records bind:this={recordsRef} showForm={false} on:dropcreated={e => { recordAutoCreated = true; }} on:editchange={e => { editId = e.detail; navigate("add"); window.location.hash = `/records/${e.detail}`; }} on:navigate={e => navigate(e.detail)} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
     {:else if page === "add"}
-      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} />
+      <Records bind:this={recordsRef} showForm={true} editId={editId} {prefill} autoCreated={recordAutoCreated} bind:formDirty on:editchange={e => { editId = e.detail; window.location.hash = e.detail ? `/records/${e.detail}` : "/add"; }} on:navigate={e => { recordAutoCreated = false; navigate(e.detail); }} on:prefillconsumed={() => prefill = null} on:searchchange={e => { mediaSearchQuery = e.detail; }} on:selectionchange={e => { mediaSelectedRecordId = e.detail; }} />
     {:else if page === "query"}
       <Query initialSql={querySql} />
     {:else if page === "media"}
