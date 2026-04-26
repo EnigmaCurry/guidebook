@@ -126,19 +126,31 @@ app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan
 
 
 # Paths that bypass auth checking
-_AUTH_EXEMPT_PREFIXES = (
-    "/api/auth/",
-    "/api/version",
-    "/api/global-settings/welcome_acknowledged",
-    "/api/databases/mode",
-    "/api/databases/current",
-)
-_AUTH_EXEMPT_EXACT = {"/api/version"}
+_AUTH_EXEMPT_PREFIXES = ("/api/auth/",)
+
+
+def _rate_limit_429(retry_after: int) -> Response:
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Too many requests"},
+        headers={"Retry-After": str(retry_after)},
+    )
 
 
 @app.middleware("http")
 async def http_middleware(request: Request, call_next):
+    from guidebook.ratelimit import auth_limiter
+
     path = request.url.path
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Rate limit: auth endpoints (check prior failures)
+    if path.startswith("/api/auth/"):
+        allowed, retry_after = auth_limiter.check(client_ip)
+        if not allowed:
+            return _rate_limit_429(retry_after)
 
     # Auth check for API routes
     if path.startswith("/api/") and not any(
@@ -158,12 +170,8 @@ async def http_middleware(request: Request, call_next):
                         content={"detail": "Authentication required"},
                     )
 
-    # Auth check for non-API routes (HTML pages only, not static assets)
-    if (
-        not path.startswith("/api/")
-        and not path.startswith("/assets/")
-        and "auth_token" not in request.url.query
-    ):
+    # Auth check for non-API routes (HTML pages and static assets)
+    if not path.startswith("/api/") and "auth_token" not in request.url.query:
         from guidebook.routes.auth import check_auth
         from guidebook.db import db_manager
 
@@ -191,6 +199,11 @@ async def http_middleware(request: Request, call_next):
                     )
 
     response: Response = await call_next(request)
+
+    # Record auth failures for rate limiting (successful logins don't count)
+    if path.startswith("/api/auth/") and response.status_code == 401:
+        auth_limiter.record(client_ip)
+
     if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     else:

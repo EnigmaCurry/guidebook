@@ -153,15 +153,12 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        if (!data.valid) {
-          // Token already used or expired — redirect to base URL for server 401 page
-          const url = new URL(window.location.href);
-          url.searchParams.delete("auth_token");
-          window.location.replace(url.pathname);
-          return true;
-        }
+      if (!res.ok) {
+        // Token invalid, used, or expired — redirect to base URL for server 401 page
+        const url = new URL(window.location.href);
+        url.searchParams.delete("auth_token");
+        window.location.replace(url.pathname);
+        return true;
       }
     } catch {}
     // Token is valid — show confirmation screen
@@ -212,7 +209,7 @@
 
   async function checkWelcome() {
     // The welcome screen only shows once — before the first database is created.
-    // We use the /api/databases/mode endpoint (auth-exempt) to check.
+    // We use the /api/databases/mode endpoint to check.
     try {
       const res = await fetch("/api/databases/mode");
       if (res.ok) {
