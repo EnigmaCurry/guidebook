@@ -40,8 +40,8 @@
     // Dual with subpage
     const dualMatch = hash.match(/^\/dual(?:\/(\w+))?$/);
     if (dualMatch) {
-      const sub = dualMatch[1] || "notifications";
-      return { page: "dual", editId: null, dualRight: DUAL_RIGHT_PAGES.has(sub) ? sub : "notifications" };
+      const sub = dualMatch[1] || "media";
+      return { page: "dual", editId: null, dualRight: DUAL_RIGHT_PAGES.has(sub) ? sub : "media" };
     }
     const recordMatch = hash.match(/^\/records\/(\d+)$/);
     if (recordMatch) return { page: isWide() ? "dual" : "add", editId: parseInt(recordMatch[1], 10), dualRight: null };
@@ -52,7 +52,7 @@
   let wide = typeof window !== "undefined" && window.innerWidth >= 1200;
   let _parsed = parseHash();
   let { page, editId } = _parsed;
-  let dualRightPage = _parsed.dualRight || "notifications";
+  let dualRightPage = _parsed.dualRight || "media";
   let previousPage = "records";
   let defaultPage = "records";
   let settingsTab = _parsed.settingsTab || null;
@@ -695,7 +695,8 @@
       const res = await fetch("/api/settings/default_page");
       if (res.ok) {
         const data = await res.json();
-        defaultPage = data.value || "records";
+        const v = data.value || "log";
+        defaultPage = v === "log" ? "records" : v;
       }
     } catch {}
   }
