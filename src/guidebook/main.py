@@ -130,6 +130,27 @@ app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan
 _AUTH_EXEMPT_PREFIXES = ("/api/auth/",)
 
 
+_INLINE_STYLE = (
+    "body{background:#111;color:#ccc;font-family:sans-serif;"
+    "display:flex;align-items:center;justify-content:center;"
+    "min-height:100vh;margin:0;font-size:.95rem}"
+    ".box{max-width:420px;text-align:center;line-height:1.6}"
+    "code{background:#222;padding:2px 6px;border-radius:3px;font-size:.85rem;color:#e6a700}"
+    ".dim{color:#777;font-size:.8rem;margin-top:1.2rem}"
+    "button{background:#e6a700;color:#111;border:none;padding:10px 24px;"
+    "border-radius:4px;font-size:1rem;cursor:pointer;margin-top:1rem}"
+    "button:hover{background:#f0b800}"
+    "h2{margin:0 0 .5rem;font-size:1.2rem}"
+)
+
+
+def _inline_page(body: str) -> str:
+    return (
+        f"<html><head><style>{_INLINE_STYLE}</style></head>"
+        f'<body><div class="box">{body}</div></body></html>'
+    )
+
+
 def _rate_limit_429(retry_after: int) -> Response:
     from fastapi.responses import JSONResponse
 
@@ -171,16 +192,53 @@ async def http_middleware(request: Request, call_next):
                         content={"detail": "Authentication required"},
                     )
 
-    # Auth check for non-API routes (HTML pages; hashed assets are public)
-    if (
-        not path.startswith("/api/")
-        and not path.startswith("/assets/")
-        and "auth_token" not in request.url.query
-    ):
-        from guidebook.routes.auth import check_auth
+    # Server-side auth_token login (no SPA/JS needed)
+    if not path.startswith("/api/"):
         from guidebook.db import db_manager
 
+        auth_token = request.query_params.get("auth_token")
+        if auth_token and db_manager._global_session_factory:
+            from guidebook.routes.auth import (
+                server_side_check_token,
+                server_side_login,
+            )
+            from fastapi.responses import HTMLResponse, RedirectResponse
+            from urllib.parse import urlencode
+
+            async with db_manager._global_session_factory() as gdb:
+                err = await server_side_check_token(gdb, auth_token)
+            if err:
+                return HTMLResponse(
+                    status_code=401,
+                    content=_inline_page(f"<p>{err}</p>"),
+                )
+            if request.method == "POST":
+                async with db_manager._global_session_factory() as gdb:
+                    redirect = RedirectResponse(url="/", status_code=303)
+                    login_err = await server_side_login(
+                        gdb, request, redirect, auth_token
+                    )
+                if login_err:
+                    return HTMLResponse(
+                        status_code=401,
+                        content=_inline_page(f"<p>{login_err}</p>"),
+                    )
+                return redirect
+            # GET with auth_token — show confirmation page
+            return HTMLResponse(
+                content=_inline_page(
+                    "<h2>Create Session</h2>"
+                    "<p>You are about to create a long-term browser session with Guidebook.</p>"
+                    f'<form method="POST" action="/?{urlencode({"auth_token": auth_token})}">'
+                    '<button type="submit">Create Session</button>'
+                    "</form>",
+                ),
+            )
+
+        # Auth check for non-API routes (HTML pages and static assets)
         if db_manager._global_session_factory:
+            from guidebook.routes.auth import check_auth
+
             async with db_manager._global_session_factory() as gdb:
                 ok = await check_auth(request, gdb)
                 if not ok:
@@ -188,19 +246,11 @@ async def http_middleware(request: Request, call_next):
 
                     return HTMLResponse(
                         status_code=401,
-                        content="<html><head><style>"
-                        "body{background:#111;color:#ccc;font-family:sans-serif;"
-                        "display:flex;align-items:center;justify-content:center;"
-                        "min-height:100vh;margin:0;font-size:.95rem}"
-                        ".box{max-width:420px;text-align:center;line-height:1.6}"
-                        "code{background:#222;padding:2px 6px;border-radius:3px;font-size:.85rem;color:#e6a700}"
-                        ".dim{color:#777;font-size:.8rem;margin-top:1.2rem}"
-                        "</style></head><body>"
-                        '<div class="box">'
-                        "<p>You need a login link from the owner to access this site.</p>"
-                        '<p class="dim">If you are the owner and have lost access, restart the server with '
-                        "<code style='white-space:nowrap'>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
-                        "</div></body></html>",
+                        content=_inline_page(
+                            "<p>You need a login link from the owner to access this site.</p>"
+                            '<p class="dim">If you are the owner and have lost access, restart the server with '
+                            "<code style='white-space:nowrap'>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
+                        ),
                     )
 
     response: Response = await call_next(request)

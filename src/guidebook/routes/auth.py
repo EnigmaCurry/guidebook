@@ -404,6 +404,74 @@ async def login_with_token(
     return LoginResponse(status="ok")
 
 
+async def server_side_check_token(gdb: AsyncSession, token_str: str) -> str | None:
+    """Check if a login token is valid. Returns None if valid, or an error message."""
+    if not token_str:
+        return "Invalid token"
+    tok = await _validate_token_by_raw(gdb, token_str)
+    if not tok:
+        return "Invalid or expired token"
+    if tok.last_seen_at is not None and not tok.is_transfer:
+        return "This login link has already been used"
+    if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
+        await gdb.delete(tok)
+        await gdb.commit()
+        return "Login link has expired"
+    return None
+
+
+async def server_side_login(
+    gdb: AsyncSession, request: Request, response: Response, token_str: str
+) -> str | None:
+    """Complete a token login server-side. Returns None on success, or error message."""
+    tok = await _validate_token_by_raw(gdb, token_str)
+    if not tok:
+        return "Invalid or expired token"
+    if tok.last_seen_at is not None and not tok.is_transfer:
+        return "This login link has already been used"
+    if tok.last_seen_at is None and (time.time() - tok.created_at) > LOGIN_LINK_TTL:
+        await gdb.delete(tok)
+        await gdb.commit()
+        return "Login link has expired"
+
+    now = time.time()
+    tok.expires_at = now + AUTH_TTL
+
+    if tok.is_transfer:
+        tok.is_transfer = 0
+        tok.label = "Transferred session"
+        tok.last_seen_at = now
+        result = await gdb.execute(
+            select(AuthToken).where(AuthToken.id != tok.id, AuthToken.is_transfer == 0)
+        )
+        for old_tok in result.scalars().all():
+            await gdb.delete(old_tok)
+        await gdb.commit()
+        broadcast("auth-revoked", {})
+        logger.info("Session transferred to new browser")
+    else:
+        tok.last_seen_at = now
+        tok.label = "Logged in session"
+        await gdb.commit()
+        try:
+            await create_notification(
+                "New session logged in",
+                "A new browser session was authenticated via login link.",
+            )
+        except Exception:
+            logger.warning("Failed to create login notification")
+        logger.info("New session logged in via token")
+
+    tok.token = secrets.token_urlsafe(48)
+    nonce = secrets.token_urlsafe(16)
+    tok.jwt_nonce = nonce
+    await gdb.commit()
+
+    jwt_token = _create_jwt(tok.id, nonce)
+    _set_auth_cookie(response, request, jwt_token)
+    return None
+
+
 def _is_secure(request: Request) -> bool:
     if PROXY_MODE:
         return request.url.scheme == "https"
