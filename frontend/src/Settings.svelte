@@ -1765,6 +1765,7 @@
     {/if}
   </section>
 
+  {#if mtlsMode !== "required"}
   <section class="settings-section">
     <h3>Generate Login Link</h3>
     <p class="hint">Generate a one-time login URL to share with another browser.</p>
@@ -1797,8 +1798,9 @@
       <p class="hint">Share this link with the new browser. It expires in 5 minutes and is consumed on first use.</p>
     {/if}
   </section>
+  {/if}
 
-  {#if authAllowTransfer}
+  {#if authAllowTransfer && mtlsMode !== "required"}
   <section class="settings-section">
     <h3>Transfer Session</h3>
     <p class="hint">Move your current session to a new browser. Your current session will be logged out as soon as the new browser logs in.</p>

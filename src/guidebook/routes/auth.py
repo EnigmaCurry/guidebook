@@ -252,6 +252,8 @@ async def generate_token(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Generate a login token for a new session. Auth enforced by middleware."""
+    if MTLS_MODE == "required":
+        raise HTTPException(400, "Login links are disabled in mTLS enforced mode. Use client certificates instead.")
     enabled = await _is_auth_enabled(gdb)
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")
@@ -290,6 +292,8 @@ async def transfer_session(
 ):
     """Generate a transfer token — logs out current session when new one logs in.
     Auth enforced by middleware."""
+    if MTLS_MODE == "required":
+        raise HTTPException(400, "Session transfer is disabled in mTLS enforced mode.")
     if not ALLOW_TRANSFER:
         raise HTTPException(
             400,
