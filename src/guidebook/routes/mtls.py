@@ -128,6 +128,24 @@ async def mtls_status(
     )
 
 
+@router.get("/ca.pem")
+async def download_ca_cert(
+    gdb: AsyncSession = Depends(get_global_session),
+):
+    """Download the CA public certificate in PEM format."""
+    ca_cert_pem = await _get_setting(gdb, "ca_cert_pem")
+    if not ca_cert_pem:
+        raise HTTPException(404, "CA certificate not found.")
+    return Response(
+        content=ca_cert_pem,
+        media_type="application/x-pem-file",
+        headers={
+            "Content-Disposition": 'attachment; filename="guidebook-ca.pem"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 class GenerateCertResponse(BaseModel):
     download_token: str
     password: str

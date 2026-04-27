@@ -1642,7 +1642,11 @@
     {/if}
 
     {#if mtlsCaFingerprint}
-      <p class="hint" style="margin-top: 0.75rem;">CA fingerprint (SHA-256): <code style="font-size: 0.65rem; word-break: break-all;">{mtlsCaFingerprint}</code></p>
+      <div class="mtls-ca-box">
+        <span class="mtls-ca-label">Certificate Authority</span>
+        <span class="mtls-ca-fingerprint">SHA-256: {mtlsCaFingerprint}</span>
+        <a href="/api/auth/mtls/ca.pem" download="guidebook-ca.pem" class="mtls-ca-download">Download CA Certificate</a>
+      </div>
     {/if}
 
     {#if mtlsError}
@@ -2455,6 +2459,36 @@
     max-height: 12rem;
     overflow-y: auto;
   }
+  .mtls-ca-box {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--border, var(--border-color, #3a3b3f));
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .mtls-ca-label {
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: var(--text-dim);
+  }
+  .mtls-ca-fingerprint {
+    font-size: 0.65rem;
+    font-family: monospace;
+    word-break: break-all;
+    color: var(--text-dim);
+  }
+  .mtls-ca-download {
+    font-size: 0.75rem;
+    color: var(--accent, #00ff88);
+    text-decoration: none;
+    margin-top: 0.2rem;
+  }
+  .mtls-ca-download:hover {
+    text-decoration: underline;
+  }
+
   .mtls-revoked-accordion {
     font-size: 0.8rem;
   }
