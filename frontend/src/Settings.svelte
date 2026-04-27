@@ -2299,15 +2299,16 @@
   .session-delete {
     font-size: 0.75rem;
     padding: 0.2rem 0.5rem;
-    background: #ff4444;
-    color: #fff;
-    border: none;
+    background: var(--btn-secondary, #333);
+    color: var(--text-dim, #888);
+    border: 1px solid var(--border, #3a3b3f);
     border-radius: 3px;
     cursor: pointer;
     flex-shrink: 0;
   }
   .session-delete:hover {
-    background: #cc3333;
+    background: var(--btn-secondary-hover, #444);
+    color: var(--text, #eee);
   }
   .token-url-box {
     display: flex;
