@@ -202,8 +202,7 @@
 
   async function tryRenewSession() {
     try {
-      const res = await fetch("/api/auth/renew", { method: "POST" });
-      if (res.status === 401) location.reload();
+      await fetch("/api/auth/renew", { method: "POST" });
     } catch {}
   }
 
