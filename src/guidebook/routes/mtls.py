@@ -282,9 +282,10 @@ async def activate_mtls(
 @router.post("/logout")
 async def mtls_logout(
     request: Request,
+    response: Response,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    """Revoke the client certificate used for the current connection."""
+    """Revoke the client certificate and clear the cookie session."""
     current_serial = _get_peer_cert_serial(request)
     if not current_serial:
         raise HTTPException(400, "No client certificate detected on this connection.")
@@ -300,9 +301,24 @@ async def mtls_logout(
         raise HTTPException(404, "Current certificate not found or already revoked.")
 
     cert.revoked_at = time.time()
+
+    # Also clear the cookie session so the user is fully logged out
+    from guidebook.routes.auth import (
+        AUTH_COOKIE_NAME,
+        _get_current_session_id,
+        _validate_session,
+    )
+
+    session_id = _get_current_session_id(request)
+    if session_id:
+        tok = await _validate_session(gdb, session_id)
+        if tok:
+            await gdb.delete(tok)
+
     await gdb.commit()
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
     logger.info(
-        "mTLS logout: revoked current certificate %s (serial: %s)",
+        "mTLS logout: revoked certificate %s and cleared session (serial: %s)",
         cert.label,
         cert.serial_number,
     )

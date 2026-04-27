@@ -211,7 +211,7 @@
       mtlsError = e.message;
       return;
     }
-    await loadMtlsStatus();
+    location.reload();
   }
 
   let copiedField = null;
