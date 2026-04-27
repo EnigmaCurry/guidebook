@@ -9,6 +9,7 @@ import tempfile
 logger = logging.getLogger("guidebook")
 
 CERT_VALIDITY_DAYS = 3650  # ~10 years
+CA_VALIDITY_DAYS = 7300  # ~20 years
 
 
 def _generate_server_cert(
@@ -96,7 +97,7 @@ def generate_ca_cert() -> tuple[str, str]:
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=CERT_VALIDITY_DAYS))
+        .not_valid_after(now + datetime.timedelta(days=CA_VALIDITY_DAYS))
         .add_extension(
             x509.BasicConstraints(ca=True, path_length=0),
             critical=True,
@@ -149,7 +150,7 @@ def ensure_ca_cert(meta_db_path: str) -> tuple[str, str]:
         logger.info("Loaded CA certificate from database")
         return row_cert[0], row_key[0]
 
-    logger.info("Generating new CA certificate (valid %d days)", CERT_VALIDITY_DAYS)
+    logger.info("Generating new CA certificate (valid %d days)", CA_VALIDITY_DAYS)
     cert_pem, key_pem = generate_ca_cert()
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('ca_cert_pem', ?)",
