@@ -510,6 +510,8 @@ async def renew_session(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Renew the current session cookie if eligible."""
+    if not await _is_auth_enabled(gdb):
+        return {"status": "ok", "reason": "auth disabled"}
     claims = _get_jwt_claims(request)
     if not claims or "sid" not in claims:
         raise HTTPException(401, "Not authenticated")
