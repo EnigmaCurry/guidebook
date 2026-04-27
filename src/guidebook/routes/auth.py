@@ -30,6 +30,7 @@ AUTH_RENEW_COOLDOWN: int = AUTH_RENEW_COOLDOWN_DEFAULT  # --auth-renew-cooldown
 ALLOW_TRANSFER: bool = False  # --allow-transfer
 PROXY_MODE: bool = False  # --proxy
 TLS_ENABLED: bool = True  # True unless --no-tls
+MTLS_MODE: str = "disabled"  # "disabled", "optional", "required"
 
 
 def parse_duration(value: str) -> int:
@@ -202,6 +203,8 @@ class SessionResponse(BaseModel):
     last_ip: str | None
     is_current: bool
     is_transfer: bool
+    user_agent: str | None
+    is_connected: bool
 
 
 @router.get("/sessions")
@@ -209,7 +212,10 @@ async def list_sessions(
     request: Request,
     gdb: AsyncSession = Depends(get_global_session),
 ):
+    from guidebook.sse import connected_session_ids
+
     current_session_id = _get_current_session_id(request)
+    active_sids = connected_session_ids()
     result = await gdb.execute(select(AuthToken).order_by(AuthToken.created_at))
     sessions = []
     for tok in result.scalars().all():
@@ -223,9 +229,15 @@ async def list_sessions(
                 last_ip=tok.last_ip,
                 is_current=tok.id == current_session_id,
                 is_transfer=tok.is_transfer == 1,
+                user_agent=tok.user_agent,
+                is_connected=tok.id in active_sids,
             )
         )
     return sessions
+
+
+class GenerateTokenRequest(BaseModel):
+    label: str | None = None
 
 
 class GenerateTokenResponse(BaseModel):
@@ -236,17 +248,15 @@ class GenerateTokenResponse(BaseModel):
 @router.post("/generate-token")
 async def generate_token(
     request: Request,
+    body: GenerateTokenRequest,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    """Generate a login token for a new session."""
+    """Generate a login token for a new session. Auth enforced by middleware."""
+    if MTLS_MODE == "required":
+        raise HTTPException(400, "Login links are disabled in mTLS enforced mode. Use client certificates instead.")
     enabled = await _is_auth_enabled(gdb)
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")
-
-    # Check current user is authenticated
-    current_sid = _get_current_session_id(request)
-    if not current_sid or not await _validate_session(gdb, current_sid):
-        raise HTTPException(401, "Not authenticated")
 
     # Check slot availability
     count = await _token_count(gdb)
@@ -256,11 +266,12 @@ async def generate_token(
             f"All {AUTH_SLOTS} session slot(s) are in use. Remove a session first.",
         )
 
+    label = body.label.strip() if body.label else "Invited session"
     token_str = secrets.token_urlsafe(48)
     gdb.add(
         AuthToken(
             token=token_str,
-            label="Invited session",
+            label=label,
             created_at=time.time(),
             last_seen_at=None,
             is_transfer=0,
@@ -279,7 +290,10 @@ async def transfer_session(
     request: Request,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    """Generate a transfer token — logs out current session when new one logs in."""
+    """Generate a transfer token — logs out current session when new one logs in.
+    Auth enforced by middleware."""
+    if MTLS_MODE == "required":
+        raise HTTPException(400, "Session transfer is disabled in mTLS enforced mode.")
     if not ALLOW_TRANSFER:
         raise HTTPException(
             400,
@@ -288,13 +302,6 @@ async def transfer_session(
     enabled = await _is_auth_enabled(gdb)
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")
-
-    current_sid = _get_current_session_id(request)
-    if not current_sid:
-        raise HTTPException(401, "Not authenticated")
-    current_tok = await _validate_session(gdb, current_sid)
-    if not current_tok:
-        raise HTTPException(401, "Not authenticated")
 
     token_str = secrets.token_urlsafe(48)
     gdb.add(
@@ -367,11 +374,12 @@ async def login_with_token(
     now = time.time()
     tok.expires_at = now + AUTH_TTL
 
+    tok.user_agent = request.headers.get("user-agent", "")
+
     if tok.is_transfer:
         # Transfer token: find the original session that created us and revoke it
         # The transfer token itself becomes the new permanent session
         tok.is_transfer = 0
-        tok.label = "Transferred session"
         tok.last_seen_at = now
 
         # Delete all other non-transfer tokens (the old session)
@@ -387,7 +395,6 @@ async def login_with_token(
     else:
         # Regular login token — just activate it
         tok.last_seen_at = now
-        tok.label = "Logged in session"
         await gdb.commit()
         try:
             await create_notification(
@@ -443,10 +450,10 @@ async def server_side_login(
 
     now = time.time()
     tok.expires_at = now + AUTH_TTL
+    tok.user_agent = request.headers.get("user-agent", "")
 
     if tok.is_transfer:
         tok.is_transfer = 0
-        tok.label = "Transferred session"
         tok.last_seen_at = now
         result = await gdb.execute(
             select(AuthToken).where(AuthToken.id != tok.id, AuthToken.is_transfer == 0)
@@ -458,7 +465,6 @@ async def server_side_login(
         logger.info("Session transferred to new browser")
     else:
         tok.last_seen_at = now
-        tok.label = "Logged in session"
         await gdb.commit()
         try:
             await create_notification(
@@ -504,6 +510,8 @@ async def renew_session(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Renew the current session cookie if eligible."""
+    if not await _is_auth_enabled(gdb):
+        return {"status": "ok", "reason": "auth disabled"}
     claims = _get_jwt_claims(request)
     if not claims or "sid" not in claims:
         raise HTTPException(401, "Not authenticated")
@@ -567,10 +575,13 @@ async def logout(
     response: Response,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    """Log out the current session."""
+    """Log out the current session. Auth enforced by middleware."""
     session_id = _get_current_session_id(request)
     if session_id:
-        tok = await _validate_session(gdb, session_id)
+        result = await gdb.execute(
+            select(AuthToken).where(AuthToken.id == session_id)
+        )
+        tok = result.scalar_one_or_none()
         if tok:
             await gdb.delete(tok)
             await gdb.commit()

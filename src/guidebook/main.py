@@ -127,8 +127,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan)
 
 
-# Paths that bypass auth checking
-_AUTH_EXEMPT_PREFIXES = ("/api/auth/",)
+# Paths that bypass auth checking (login flow + session renewal)
+_AUTH_EXEMPT_PATHS = {
+    "/api/auth/status",
+    "/api/auth/check-token",
+    "/api/auth/login",
+    "/api/auth/renew",
+}
 
 
 _INLINE_STYLE = (
@@ -163,7 +168,11 @@ def _rate_limit_429(retry_after: int) -> Response:
 
 
 async def _check_mtls_auth(request: Request, gdb) -> bool:
-    """Check if request is authenticated via mTLS client certificate."""
+    """Check if request is authenticated via mTLS client certificate.
+
+    If the cert has a pending_session_id (upgrade from cookie), revoke that
+    session on first use and clear the pending flag.
+    """
     peer_cert_der = request.scope.get("mtls_peer_cert_der")
     if not peer_cert_der:
         return False
@@ -173,7 +182,7 @@ async def _check_mtls_auth(request: Request, gdb) -> bool:
 
         cert = load_der_x509_certificate(peer_cert_der)
         serial_hex = format(cert.serial_number, "x")
-        from guidebook.db import ClientCert
+        from guidebook.db import AuthToken, ClientCert
 
         result = await gdb.execute(
             select(ClientCert).where(
@@ -181,7 +190,29 @@ async def _check_mtls_auth(request: Request, gdb) -> bool:
                 ClientCert.revoked_at.is_(None),
             )
         )
-        return result.scalar_one_or_none() is not None
+        client_cert = result.scalar_one_or_none()
+        if client_cert is None:
+            return False
+
+        # Complete the cookie-to-mTLS upgrade: revoke the old session
+        if client_cert.pending_session_id is not None:
+            old_session = (
+                await gdb.execute(
+                    select(AuthToken).where(
+                        AuthToken.id == client_cert.pending_session_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if old_session:
+                await gdb.delete(old_session)
+            client_cert.pending_session_id = None
+            await gdb.commit()
+            logger.info(
+                "mTLS upgrade complete: revoked cookie session for cert %s",
+                client_cert.label,
+            )
+
+        return True
     except Exception:
         return False
 
@@ -193,25 +224,30 @@ async def http_middleware(request: Request, call_next):
     path = request.url.path
     client_ip = request.client.host if request.client else "unknown"
 
-    # Rate limit: auth endpoints (check prior failures)
-    if path.startswith("/api/auth/"):
+    # Rate limit: login endpoints only (check prior failures)
+    if path in ("/api/auth/login", "/api/auth/check-token"):
         allowed, retry_after = auth_limiter.check(client_ip)
         if not allowed:
             return _rate_limit_429(retry_after)
 
     # Auth check for API routes
-    if path.startswith("/api/") and not any(
-        path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES
-    ):
-        from guidebook.routes.auth import check_auth
+    if path.startswith("/api/") and path not in _AUTH_EXEMPT_PATHS:
+        from guidebook.routes.auth import check_auth, MTLS_MODE, _is_auth_enabled
         from guidebook.db import db_manager
 
         if db_manager._global_session_factory:
             async with db_manager._global_session_factory() as gdb:
-                # Try mTLS auth first, fall back to cookie auth
-                ok = await _check_mtls_auth(request, gdb) or await check_auth(
-                    request, gdb
-                )
+                auth_enabled = await _is_auth_enabled(gdb)
+                if not auth_enabled:
+                    ok = True
+                elif MTLS_MODE == "required":
+                    # mTLS enforced: only client certs accepted, no cookie fallback
+                    ok = await _check_mtls_auth(request, gdb)
+                else:
+                    # Try mTLS auth first, fall back to cookie auth
+                    ok = await _check_mtls_auth(request, gdb) or await check_auth(
+                        request, gdb
+                    )
                 if not ok:
                     from fastapi.responses import JSONResponse
 
@@ -265,15 +301,31 @@ async def http_middleware(request: Request, call_next):
 
         # Auth check for non-API routes (HTML pages and static assets)
         if db_manager._global_session_factory:
-            from guidebook.routes.auth import check_auth
+            from guidebook.routes.auth import check_auth, MTLS_MODE, _is_auth_enabled
 
             async with db_manager._global_session_factory() as gdb:
-                ok = await _check_mtls_auth(request, gdb) or await check_auth(
-                    request, gdb
-                )
+                auth_enabled = await _is_auth_enabled(gdb)
+                if not auth_enabled:
+                    ok = True
+                elif MTLS_MODE == "required":
+                    ok = await _check_mtls_auth(request, gdb)
+                else:
+                    ok = await _check_mtls_auth(request, gdb) or await check_auth(
+                        request, gdb
+                    )
                 if not ok:
                     from fastapi.responses import HTMLResponse
 
+                    if MTLS_MODE == "required":
+                        return HTMLResponse(
+                            status_code=401,
+                            content=_inline_page(
+                                "<p>You need a valid mTLS client certificate to access this site.</p>"
+                                '<p class="dim">Ask the owner to generate a new client certificate for you, '
+                                "or restart the server with "
+                                "<code style='white-space:nowrap'>--reset-auth</code> to setup auth again from scratch.</p>"
+                            ),
+                        )
                     return HTMLResponse(
                         status_code=401,
                         content=_inline_page(
@@ -285,8 +337,8 @@ async def http_middleware(request: Request, call_next):
 
     response: Response = await call_next(request)
 
-    # Record auth failures for rate limiting (successful logins don't count)
-    if path.startswith("/api/auth/") and response.status_code == 401:
+    # Record auth failures for rate limiting (only login attempts, not general 401s)
+    if path in ("/api/auth/login", "/api/auth/check-token") and response.status_code == 401:
         auth_limiter.record(client_ip)
 
     if path.startswith("/api/"):
@@ -757,7 +809,7 @@ environment variables (overridden by command line options):
     parser.add_argument(
         "--reset-auth",
         action="store_true",
-        help="Reset all auth sessions and generate a new login link",
+        help="Reset all auth: sessions, CA, certificates, mTLS state, and generate a new login link",
     )
     parser.add_argument(
         "--auth-slots",
@@ -894,7 +946,7 @@ environment variables (overridden by command line options):
             "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, last_ip TEXT, "
             "is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
-        for col in ("expires_at REAL", "last_ip TEXT", "jwt_nonce TEXT"):
+        for col in ("expires_at REAL", "last_ip TEXT", "jwt_nonce TEXT", "user_agent TEXT"):
             try:
                 conn.execute(f"ALTER TABLE auth_tokens ADD COLUMN {col}")
             except sqlite3.OperationalError:
@@ -905,6 +957,34 @@ environment variables (overridden by command line options):
         )
 
         if args.reset_auth:
+            # Count what will be destroyed
+            session_count = conn.execute("SELECT COUNT(*) FROM auth_tokens").fetchone()[0]
+            try:
+                cert_count = conn.execute("SELECT COUNT(*) FROM client_certs").fetchone()[0]
+            except sqlite3.OperationalError:
+                cert_count = 0
+            ca_exists = bool(
+                conn.execute("SELECT 1 FROM settings WHERE key = 'ca_cert_pem'").fetchone()
+            )
+
+            print("--reset-auth will perform the following actions:")
+            print(f"  - Delete all cookie sessions ({session_count})")
+            print("  - Invalidate all JWTs (regenerate signing secret)")
+            if ca_exists:
+                print("  - Delete the Certificate Authority (CA)")
+            if cert_count:
+                print(f"  - Delete all client certificates ({cert_count})")
+            print("  - Delete server TLS certificate (will be regenerated)")
+            print("  - Reset mTLS mode to default")
+            print("  - Generate a new login link")
+            try:
+                answer = input("\nProceed? [y/N] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = ""
+            if answer not in ("y", "yes"):
+                print("Aborted.")
+                sys.exit(0)
+
             conn.execute("DELETE FROM auth_tokens")
             # Regenerate JWT secret on auth reset to invalidate all JWTs
             jwt_secret = secrets.token_urlsafe(64)
@@ -923,13 +1003,25 @@ environment variables (overridden by command line options):
                 conn.execute("DELETE FROM client_certs")
             except sqlite3.OperationalError:
                 pass  # table may not exist yet
-            for k in ("mtls_mode", "ca_cert_pem", "ca_key_pem"):
+            for k in ("mtls_mode", "ca_cert_pem", "ca_key_pem", "tls_cert_pem", "tls_key_pem"):
                 conn.execute("DELETE FROM settings WHERE key = ?", (k,))
             conn.commit()
             os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
             print(
-                "Auth reset: all sessions and mTLS state cleared, new login token generated."
+                "\nAuth reset complete: all sessions, CA, certificates, and mTLS state cleared."
             )
+
+        # If mTLS is enforced, cookie sessions are useless — clear them
+        _mtls_row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'mtls_mode'"
+        ).fetchone()
+        if _mtls_row and _mtls_row[0] == "required":
+            deleted = conn.execute("DELETE FROM auth_tokens").rowcount
+            if deleted:
+                conn.commit()
+                logger.info(
+                    "mTLS enforced: revoked %d cookie session(s) on startup", deleted
+                )
 
         # Ensure JWT signing secret exists
         row = conn.execute(
@@ -1067,12 +1159,13 @@ environment variables (overridden by command line options):
         import ssl as _ssl
 
         from guidebook.db import META_DB_PATH
-        from guidebook.tls import ensure_tls_cert, write_tls_temp_files
+        from guidebook.tls import ensure_ca_cert, ensure_tls_cert, write_tls_temp_files
 
+        ensure_ca_cert(str(META_DB_PATH))
         cert_pem, key_pem = ensure_tls_cert(str(META_DB_PATH))
         certfile, keyfile = write_tls_temp_files(cert_pem, key_pem)
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
-        logger.info("TLS enabled (self-signed certificate)")
+        logger.info("TLS enabled (CA-signed certificate)")
 
         # mTLS configuration
         import sqlite3 as _sq
@@ -1083,8 +1176,11 @@ environment variables (overridden by command line options):
         ).fetchone()
         _mtls_mode = _mrow[0] if _mrow and _mrow[0] else "disabled"
         _mconn.close()
+        _auth_module.MTLS_MODE = _mtls_mode
 
-        if _mtls_mode in ("optional", "required"):
+        if _mtls_mode in ("optional", "required") and not (
+            _auth_module.DISABLE_AUTH or _auth_module._env_disable_auth()
+        ):
             from guidebook.tls import (
                 ensure_ca_cert,
                 generate_crl,

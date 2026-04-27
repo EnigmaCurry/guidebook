@@ -202,8 +202,7 @@
 
   async function tryRenewSession() {
     try {
-      const res = await fetch("/api/auth/renew", { method: "POST" });
-      if (res.status === 401) location.reload();
+      await fetch("/api/auth/renew", { method: "POST" });
     } catch {}
   }
 
@@ -556,7 +555,11 @@
     });
     eventSource.addEventListener("clients", (e) => {
       const data = JSON.parse(e.data);
+      const prev = clientCount;
       clientCount = data.count;
+      if (data.count !== prev) {
+        authRefreshTrigger++;
+      }
     });
     eventSource.addEventListener("disconnect", (e) => {
       const data = JSON.parse(e.data);

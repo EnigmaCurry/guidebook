@@ -9,10 +9,16 @@ import tempfile
 logger = logging.getLogger("guidebook")
 
 CERT_VALIDITY_DAYS = 3650  # ~10 years
+CA_VALIDITY_DAYS = 7300  # ~20 years
 
 
-def generate_self_signed_cert() -> tuple[str, str]:
-    """Generate a self-signed TLS certificate. Returns (cert_pem, key_pem)."""
+def _generate_server_cert(
+    ca_cert_pem: str | None = None, ca_key_pem: str | None = None
+) -> tuple[str, str]:
+    """Generate a server TLS certificate. If CA cert/key are provided, the
+    server cert is signed by the CA. Otherwise it is self-signed.
+    Returns (cert_pem, key_pem).
+    """
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
@@ -21,11 +27,20 @@ def generate_self_signed_cert() -> tuple[str, str]:
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
-    subject = issuer = x509.Name(
+    subject = x509.Name(
         [
             x509.NameAttribute(NameOID.COMMON_NAME, "guidebook"),
         ]
     )
+
+    if ca_cert_pem and ca_key_pem:
+        ca_cert = x509.load_pem_x509_certificate(ca_cert_pem.encode())
+        ca_key = serialization.load_pem_private_key(ca_key_pem.encode(), password=None)
+        issuer = ca_cert.subject
+        signing_key = ca_key
+    else:
+        issuer = subject
+        signing_key = key
 
     now = datetime.datetime.now(datetime.timezone.utc)
     cert = (
@@ -46,7 +61,7 @@ def generate_self_signed_cert() -> tuple[str, str]:
             ),
             critical=False,
         )
-        .sign(key, hashes.SHA256())
+        .sign(signing_key, hashes.SHA256())
     )
 
     cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
@@ -82,7 +97,7 @@ def generate_ca_cert() -> tuple[str, str]:
         .public_key(key.public_key())
         .serial_number(x509.random_serial_number())
         .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=CERT_VALIDITY_DAYS))
+        .not_valid_after(now + datetime.timedelta(days=CA_VALIDITY_DAYS))
         .add_extension(
             x509.BasicConstraints(ca=True, path_length=0),
             critical=True,
@@ -135,7 +150,7 @@ def ensure_ca_cert(meta_db_path: str) -> tuple[str, str]:
         logger.info("Loaded CA certificate from database")
         return row_cert[0], row_key[0]
 
-    logger.info("Generating new CA certificate (valid %d days)", CERT_VALIDITY_DAYS)
+    logger.info("Generating new CA certificate (valid %d days)", CA_VALIDITY_DAYS)
     cert_pem, key_pem = generate_ca_cert()
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('ca_cert_pem', ?)",
@@ -155,15 +170,16 @@ def generate_client_cert(
 ) -> tuple[bytes, str, str, str]:
     """Generate a client certificate signed by the CA, bundled as PKCS#12.
 
+    Uses legacy 3DES+SHA1 encryption for maximum browser compatibility
+    (Firefox's NSS library does not support AES-256-CBC PKCS#12 files).
+
     Returns (p12_bytes, password, serial_hex, fingerprint_sha256).
     """
+    import subprocess
+
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.hazmat.primitives.serialization import (
-        pkcs12,
-        BestAvailableEncryption,
-    )
     from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
     ca_cert = x509.load_pem_x509_certificate(ca_cert_pem.encode())
@@ -196,17 +212,78 @@ def generate_client_cert(
         .sign(ca_key, hashes.SHA256())
     )
 
-    password = secrets.token_urlsafe(24)
-    p12_bytes = pkcs12.serialize_key_and_certificates(
-        name=b"guidebook-client",
-        key=client_key,
-        cert=client_cert,
-        cas=[ca_cert],
-        encryption_algorithm=BestAvailableEncryption(password.encode()),
-    )
-
     fingerprint = client_cert.fingerprint(hashes.SHA256()).hex()
     serial_hex = format(serial, "x")
+
+    # Build PKCS#12 with legacy 3DES+SHA1 via openssl for browser compatibility
+    password = secrets.token_urlsafe(24)
+    client_cert_pem = client_cert.public_bytes(serialization.Encoding.PEM)
+    client_key_pem = client_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+
+    cert_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".pem", prefix="guidebook_ccert_"
+    )
+    cert_file.write(client_cert_pem)
+    cert_file.close()
+    key_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".pem", prefix="guidebook_ckey_"
+    )
+    key_file.write(client_key_pem)
+    key_file.close()
+    ca_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".pem", prefix="guidebook_cacert_"
+    )
+    ca_file.write(ca_cert_pem.encode())
+    ca_file.close()
+    p12_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".p12", prefix="guidebook_p12_"
+    )
+    p12_file.close()
+
+    try:
+        result = subprocess.run(
+            [
+                "openssl",
+                "pkcs12",
+                "-export",
+                "-inkey",
+                key_file.name,
+                "-in",
+                cert_file.name,
+                "-certfile",
+                ca_file.name,
+                "-out",
+                p12_file.name,
+                "-passout",
+                f"pass:{password}",
+                "-keypbe",
+                "pbeWithSHA1And3-KeyTripleDES-CBC",
+                "-certpbe",
+                "pbeWithSHA1And3-KeyTripleDES-CBC",
+                "-macalg",
+                "sha1",
+                "-name",
+                f"guidebook-{label}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"openssl pkcs12 failed: {result.stderr}")
+
+        with open(p12_file.name, "rb") as f:
+            p12_bytes = f.read()
+    finally:
+        for path in (cert_file.name, key_file.name, ca_file.name, p12_file.name):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     return p12_bytes, password, serial_hex, fingerprint
 
@@ -246,14 +323,42 @@ def generate_crl(
     return crl.public_bytes(serialization.Encoding.PEM).decode()
 
 
+def _load_ca_from_db(conn) -> tuple[str | None, str | None]:
+    """Load CA cert/key from the database if they exist."""
+    row_ca_cert = conn.execute(
+        "SELECT value FROM settings WHERE key = 'ca_cert_pem'"
+    ).fetchone()
+    row_ca_key = conn.execute(
+        "SELECT value FROM settings WHERE key = 'ca_key_pem'"
+    ).fetchone()
+    ca_cert = row_ca_cert[0] if row_ca_cert and row_ca_cert[0] else None
+    ca_key = row_ca_key[0] if row_ca_key and row_ca_key[0] else None
+    return ca_cert, ca_key
+
+
+def _is_signed_by_ca(cert_pem: str, ca_cert_pem: str) -> bool:
+    """Check if a certificate was issued by the given CA."""
+    from cryptography import x509
+
+    cert = x509.load_pem_x509_certificate(cert_pem.encode())
+    ca_cert = x509.load_pem_x509_certificate(ca_cert_pem.encode())
+    return cert.issuer == ca_cert.subject
+
+
 def ensure_tls_cert(meta_db_path: str) -> tuple[str, str]:
-    """Load or generate TLS cert/key from the global database. Returns (cert_pem, key_pem)."""
+    """Load or generate TLS cert/key from the global database. Returns (cert_pem, key_pem).
+
+    If a CA exists, the server cert is signed by the CA. If the existing server
+    cert is self-signed but a CA now exists, it is regenerated as CA-signed.
+    """
     os.makedirs(os.path.dirname(meta_db_path), exist_ok=True)
     conn = sqlite3.connect(meta_db_path)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS settings "
         "(id INTEGER NOT NULL PRIMARY KEY, key VARCHAR NOT NULL UNIQUE, value VARCHAR)"
     )
+
+    ca_cert_pem, ca_key_pem = _load_ca_from_db(conn)
 
     row_cert = conn.execute(
         "SELECT value FROM settings WHERE key = 'tls_cert_pem'"
@@ -263,14 +368,25 @@ def ensure_tls_cert(meta_db_path: str) -> tuple[str, str]:
     ).fetchone()
 
     if row_cert and row_key and row_cert[0] and row_key[0]:
-        conn.close()
-        logger.info("Loaded TLS certificate from database")
-        return row_cert[0], row_key[0]
+        # Check if we need to regenerate: CA exists but cert is not CA-signed
+        if ca_cert_pem and not _is_signed_by_ca(row_cert[0], ca_cert_pem):
+            logger.info("Regenerating server certificate (signing with CA)")
+        else:
+            conn.close()
+            logger.info("Loaded TLS certificate from database")
+            return row_cert[0], row_key[0]
 
-    logger.info(
-        "Generating new self-signed TLS certificate (valid %d days)", CERT_VALIDITY_DAYS
-    )
-    cert_pem, key_pem = generate_self_signed_cert()
+    if ca_cert_pem and ca_key_pem:
+        logger.info(
+            "Generating CA-signed server certificate (valid %d days)", CERT_VALIDITY_DAYS
+        )
+        cert_pem, key_pem = _generate_server_cert(ca_cert_pem, ca_key_pem)
+    else:
+        logger.info(
+            "Generating self-signed server certificate (valid %d days)", CERT_VALIDITY_DAYS
+        )
+        cert_pem, key_pem = _generate_server_cert()
+
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('tls_cert_pem', ?)",
         (cert_pem,),

@@ -16,6 +16,14 @@ logger = logging.getLogger("guidebook")
 
 router = APIRouter(prefix="/api/auth/mtls", tags=["mtls"])
 
+
+def _check_auth_enabled():
+    """Raise 403 if authentication is disabled via --disable-auth."""
+    from guidebook.routes.auth import DISABLE_AUTH, _env_disable_auth
+
+    if DISABLE_AUTH or _env_disable_auth():
+        raise HTTPException(403, "Authentication is disabled. Certificate management is unavailable.")
+
 PENDING_DOWNLOAD_TTL = 600  # 10 minutes
 
 
@@ -23,6 +31,7 @@ PENDING_DOWNLOAD_TTL = 600  # 10 minutes
 class PendingDownload:
     p12_bytes: bytes
     password: str
+    label: str
     created_at: float
     expires_at: float
 
@@ -57,6 +66,7 @@ async def _set_setting(gdb: AsyncSession, key: str, value: str) -> None:
 class MtlsStatusResponse(BaseModel):
     mode: str
     ca_initialized: bool
+    ca_fingerprint: str | None
     tls_enabled: bool
     proxy_mode: bool
     certs: list[dict]
@@ -82,10 +92,23 @@ async def mtls_status(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED, PROXY_MODE
+    from guidebook.sse import connected_cert_serials
 
     mode = await _get_setting(gdb, "mtls_mode") or "disabled"
-    ca_cert = await _get_setting(gdb, "ca_cert_pem")
+    ca_cert_pem = await _get_setting(gdb, "ca_cert_pem")
     current_serial = _get_peer_cert_serial(request)
+
+    ca_fingerprint = None
+    if ca_cert_pem:
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.primitives import hashes
+
+            ca_cert = x509.load_pem_x509_certificate(ca_cert_pem.encode())
+            ca_fingerprint = ca_cert.fingerprint(hashes.SHA256()).hex()
+        except Exception:
+            pass
+    active_serials = connected_cert_serials()
 
     result = await gdb.execute(select(ClientCert).order_by(ClientCert.issued_at.desc()))
     certs = [
@@ -99,17 +122,42 @@ async def mtls_status(
             "fingerprint_sha256": c.fingerprint_sha256,
             "is_current": current_serial is not None
             and c.serial_number == current_serial,
+            "is_connected": c.serial_number in active_serials,
         }
         for c in result.scalars().all()
     ]
 
     return MtlsStatusResponse(
         mode=mode,
-        ca_initialized=bool(ca_cert),
+        ca_initialized=bool(ca_cert_pem),
+        ca_fingerprint=ca_fingerprint,
         tls_enabled=TLS_ENABLED,
         proxy_mode=PROXY_MODE,
         certs=certs,
     )
+
+
+@router.get("/ca.pem")
+async def download_ca_cert(
+    gdb: AsyncSession = Depends(get_global_session),
+):
+    """Download the CA public certificate in PEM format."""
+    _check_auth_enabled()
+    ca_cert_pem = await _get_setting(gdb, "ca_cert_pem")
+    if not ca_cert_pem:
+        raise HTTPException(404, "CA certificate not found.")
+    return Response(
+        content=ca_cert_pem,
+        media_type="application/x-pem-file",
+        headers={
+            "Content-Disposition": 'attachment; filename="guidebook-ca.pem"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+class GenerateCertRequest(BaseModel):
+    label: str | None = None
 
 
 class GenerateCertResponse(BaseModel):
@@ -122,9 +170,11 @@ class GenerateCertResponse(BaseModel):
 @router.post("/generate-cert")
 async def generate_cert(
     request: Request,
+    body: GenerateCertRequest,
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Generate a client certificate. Returns download token and password (shown once)."""
+    _check_auth_enabled()
     from guidebook.routes.auth import TLS_ENABLED, PROXY_MODE
 
     if not TLS_ENABLED:
@@ -132,17 +182,42 @@ async def generate_cert(
     if PROXY_MODE:
         raise HTTPException(400, "mTLS is not available in proxy mode.")
 
+    from guidebook.routes.auth import (
+        AUTH_SLOTS,
+        _get_current_session_id,
+        _token_count,
+    )
+
     from guidebook.db import META_DB_PATH
     from guidebook.tls import ensure_ca_cert, generate_client_cert
 
     ca_cert_pem, ca_key_pem = ensure_ca_cert(str(META_DB_PATH))
 
-    # Count active (non-revoked) certs
+    # Count active (non-revoked) certs (exclude pending-upgrade certs from count)
     result = await gdb.execute(
         select(ClientCert).where(ClientCert.revoked_at.is_(None))
     )
-    active_count = len(result.scalars().all())
-    label = f"client-{active_count + 1}"
+    active_certs = result.scalars().all()
+    active_cert_count = len(active_certs)
+
+    # Check slot availability (sessions + certs share the same slots)
+    session_count = await _token_count(gdb)
+    total_used = session_count + active_cert_count
+    pending_session_id = None
+
+    if AUTH_SLOTS > 0 and total_used >= AUTH_SLOTS:
+        # If the user has a cookie session, allow the upgrade — the session
+        # will be revoked when the new cert is first used (state machine)
+        current_sid = _get_current_session_id(request)
+        if current_sid:
+            pending_session_id = current_sid
+        else:
+            raise HTTPException(
+                400,
+                f"All {AUTH_SLOTS} slot(s) are in use ({session_count} session(s), {active_cert_count} cert(s)). Revoke a session or certificate first.",
+            )
+
+    label = body.label.strip() if body.label else f"client-{active_cert_count + 1}"
 
     p12_bytes, password, serial_hex, fingerprint = generate_client_cert(
         ca_cert_pem, ca_key_pem, label
@@ -159,6 +234,7 @@ async def generate_cert(
             issued_at=now,
             expires_at=now + CERT_VALIDITY_DAYS * 86400,
             fingerprint_sha256=fingerprint,
+            pending_session_id=pending_session_id,
         )
     )
     await gdb.commit()
@@ -169,6 +245,7 @@ async def generate_cert(
     _pending_downloads[download_token] = PendingDownload(
         p12_bytes=p12_bytes,
         password=password,
+        label=label,
         created_at=now,
         expires_at=now + PENDING_DOWNLOAD_TTL,
     )
@@ -196,11 +273,17 @@ async def download_cert(download_token: str):
     if time.time() > pending.expires_at:
         raise HTTPException(410, "Download link expired.")
 
+    # Sanitize label for filename
+    safe_label = "".join(
+        c if c.isalnum() or c in "-_" else "-" for c in pending.label
+    ).strip("-")
+    filename = f"guidebook-{safe_label}.p12" if safe_label else "guidebook-client.p12"
+
     return Response(
         content=pending.p12_bytes,
         media_type="application/x-pkcs12",
         headers={
-            "Content-Disposition": 'attachment; filename="guidebook-client.p12"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
         },
     )
@@ -232,6 +315,7 @@ async def revoke_cert(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Revoke a client certificate."""
+    _check_auth_enabled()
     result = await gdb.execute(select(ClientCert).where(ClientCert.id == cert_id))
     cert = result.scalar_one_or_none()
     if not cert:
@@ -257,6 +341,7 @@ async def activate_mtls(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Set mTLS mode. Requires server restart to take effect."""
+    _check_auth_enabled()
     from guidebook.routes.auth import TLS_ENABLED, PROXY_MODE
 
     if not TLS_ENABLED:
@@ -265,13 +350,6 @@ async def activate_mtls(
         raise HTTPException(400, "mTLS is not available in proxy mode.")
     if body.mode not in ("disabled", "optional", "required"):
         raise HTTPException(400, f"Invalid mode: {body.mode}")
-
-    if body.mode != "disabled":
-        # Ensure CA exists
-        from guidebook.db import META_DB_PATH
-        from guidebook.tls import ensure_ca_cert
-
-        ensure_ca_cert(str(META_DB_PATH))
 
     await _set_setting(gdb, "mtls_mode", body.mode)
     await gdb.commit()
@@ -282,9 +360,11 @@ async def activate_mtls(
 @router.post("/logout")
 async def mtls_logout(
     request: Request,
+    response: Response,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    """Revoke the client certificate used for the current connection."""
+    """Revoke the client certificate and clear the cookie session."""
+    _check_auth_enabled()
     current_serial = _get_peer_cert_serial(request)
     if not current_serial:
         raise HTTPException(400, "No client certificate detected on this connection.")
@@ -300,9 +380,24 @@ async def mtls_logout(
         raise HTTPException(404, "Current certificate not found or already revoked.")
 
     cert.revoked_at = time.time()
+
+    # Also clear the cookie session so the user is fully logged out
+    from guidebook.routes.auth import (
+        AUTH_COOKIE_NAME,
+        _get_current_session_id,
+        _validate_session,
+    )
+
+    session_id = _get_current_session_id(request)
+    if session_id:
+        tok = await _validate_session(gdb, session_id)
+        if tok:
+            await gdb.delete(tok)
+
     await gdb.commit()
+    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
     logger.info(
-        "mTLS logout: revoked current certificate %s (serial: %s)",
+        "mTLS logout: revoked certificate %s and cleared session (serial: %s)",
         cert.label,
         cert.serial_number,
     )
