@@ -273,10 +273,12 @@
   let mtlsGenerating = false;
   let mtlsError = "";
   let mtlsShowCertModal = false;
+  let mtlsCertGenerated = false;
   let mtlsCertDownloadToken = "";
   let mtlsCertPassword = "";
   let mtlsCertFingerprint = "";
   let mtlsCertLabel = "";
+  let mtlsCertLabelInput = "";
   let mtlsActivating = false;
 
   async function loadMtlsStatus() {
@@ -294,18 +296,32 @@
     } catch {}
   }
 
+  function openCertModal() {
+    mtlsCertGenerated = false;
+    mtlsCertLabelInput = `client-${mtlsCerts.filter(c => !c.revoked_at).length + 1}`;
+    mtlsCertDownloadToken = "";
+    mtlsCertPassword = "";
+    mtlsCertFingerprint = "";
+    mtlsCertLabel = "";
+    mtlsShowCertModal = true;
+  }
+
   async function generateClientCert() {
     mtlsError = "";
     mtlsGenerating = true;
     try {
-      const res = await fetch("/api/auth/mtls/generate-cert", { method: "POST" });
+      const res = await fetch("/api/auth/mtls/generate-cert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: mtlsCertLabelInput }),
+      });
       if (res.ok) {
         const data = await res.json();
         mtlsCertDownloadToken = data.download_token;
         mtlsCertPassword = data.password;
         mtlsCertFingerprint = data.fingerprint;
         mtlsCertLabel = data.label;
-        mtlsShowCertModal = true;
+        mtlsCertGenerated = true;
       } else {
         const data = await res.json().catch(() => null);
         mtlsError = data?.detail || "Failed to generate certificate";
@@ -319,10 +335,12 @@
 
   function dismissCertModal() {
     mtlsShowCertModal = false;
+    mtlsCertGenerated = false;
     mtlsCertDownloadToken = "";
     mtlsCertPassword = "";
     mtlsCertFingerprint = "";
     mtlsCertLabel = "";
+    mtlsCertLabelInput = "";
   }
 
   function downloadCert() {
@@ -1614,8 +1632,8 @@
       {#if mtlsMode !== "disabled" || mtlsCerts.length > 0}
         <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Generate Client Certificate</h4>
         <div class="setting-row">
-          <button on:click={generateClientCert} disabled={mtlsGenerating || (authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current))}>
-            {mtlsGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current) ? `No slots available (${authSlots} used)` : "Generate Client Certificate"}
+          <button on:click={openCertModal} disabled={authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current)}>
+            {authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current) ? `No slots available (${authSlots} used)` : "Generate Client Certificate"}
           </button>
         </div>
       {/if}
@@ -1805,41 +1823,61 @@
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div class="mtls-modal" on:click|stopPropagation>
-    <div class="mtls-modal-header">
-      <h3>Client Certificate Generated</h3>
-      <button class="modal-close" on:click={dismissCertModal}>&times;</button>
-    </div>
-    <div class="mtls-modal-body">
-      <p style="color: var(--warning-color, #e6a700); font-weight: bold; margin-bottom: 1rem;">
-        This information will not be shown again. The download link is single-use.
-      </p>
-      <div style="margin-bottom: 1rem;">
-        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Label</span>
-        <div style="font-family: monospace;">{mtlsCertLabel}</div>
+    {#if !mtlsCertGenerated}
+      <div class="mtls-modal-header">
+        <h3>Generate Client Certificate</h3>
+        <button class="modal-close" on:click={dismissCertModal}>&times;</button>
       </div>
-      <div style="margin-bottom: 1rem;">
-        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Fingerprint (SHA-256)</span>
-        <div style="font-family: monospace; font-size: 0.8rem; word-break: break-all;">{mtlsCertFingerprint}</div>
-      </div>
-      <div style="margin-bottom: 1rem;">
-        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Import Password</span>
-        <div class="token-url-box">
-          <input type="text" value={mtlsCertPassword} readonly on:click={(e) => e.target.select()} />
-          <button class="copy-btn" class:copied={copiedField === 'mtls-pw'} on:click={() => copyToClipboard(mtlsCertPassword, 'mtls-pw')}>{copiedField === 'mtls-pw' ? 'Copied!' : 'Copy'}</button>
+      <div class="mtls-modal-body">
+        <div style="margin-bottom: 1rem;">
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block; margin-bottom: 0.3rem;">Label</span>
+          <input type="text" bind:value={mtlsCertLabelInput} placeholder="client-1" style="width: 100%; box-sizing: border-box;" />
         </div>
+        <p class="hint">Choose a name to identify this certificate (e.g. browser name, device, or person).</p>
       </div>
-      <div style="margin-bottom: 1rem;">
-        <button on:click={downloadCert} style="width: 100%;">Download .p12 Certificate</button>
+      <div class="mtls-modal-footer">
+        <button on:click={dismissCertModal} style="margin-right: auto;">Cancel</button>
+        <button on:click={generateClientCert} disabled={mtlsGenerating || !mtlsCertLabelInput.trim()}>
+          {mtlsGenerating ? "Generating..." : "Generate"}
+        </button>
       </div>
-      <p class="hint">
-        1. Download the .p12 file above.<br>
-        2. Import it into your browser's certificate store using the password shown.<br>
-        3. When prompted by the server, select this certificate.
-      </p>
-    </div>
-    <div class="mtls-modal-footer">
-      <button on:click={dismissCertModal}>Done</button>
-    </div>
+    {:else}
+      <div class="mtls-modal-header">
+        <h3>Client Certificate Generated</h3>
+        <button class="modal-close" on:click={dismissCertModal}>&times;</button>
+      </div>
+      <div class="mtls-modal-body">
+        <p style="color: var(--warning-color, #e6a700); font-weight: bold; margin-bottom: 1rem;">
+          This information will not be shown again. The download link is single-use.
+        </p>
+        <div style="margin-bottom: 1rem;">
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Label</span>
+          <div style="font-family: monospace;">{mtlsCertLabel}</div>
+        </div>
+        <div style="margin-bottom: 1rem;">
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Fingerprint (SHA-256)</span>
+          <div style="font-family: monospace; font-size: 0.8rem; word-break: break-all;">{mtlsCertFingerprint}</div>
+        </div>
+        <div style="margin-bottom: 1rem;">
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Import Password</span>
+          <div class="token-url-box">
+            <input type="text" value={mtlsCertPassword} readonly on:click={(e) => e.target.select()} />
+            <button class="copy-btn" class:copied={copiedField === 'mtls-pw'} on:click={() => copyToClipboard(mtlsCertPassword, 'mtls-pw')}>{copiedField === 'mtls-pw' ? 'Copied!' : 'Copy'}</button>
+          </div>
+        </div>
+        <div style="margin-bottom: 1rem;">
+          <button on:click={downloadCert} style="width: 100%;">Download .p12 Certificate</button>
+        </div>
+        <p class="hint">
+          1. Download the .p12 file above.<br>
+          2. Import it into your browser's certificate store using the password shown.<br>
+          3. When prompted by the server, select this certificate.
+        </p>
+      </div>
+      <div class="mtls-modal-footer">
+        <button on:click={dismissCertModal}>Done</button>
+      </div>
+    {/if}
   </div>
 </div>
 {/if}

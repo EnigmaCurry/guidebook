@@ -146,6 +146,10 @@ async def download_ca_cert(
     )
 
 
+class GenerateCertRequest(BaseModel):
+    label: str | None = None
+
+
 class GenerateCertResponse(BaseModel):
     download_token: str
     password: str
@@ -156,6 +160,7 @@ class GenerateCertResponse(BaseModel):
 @router.post("/generate-cert")
 async def generate_cert(
     request: Request,
+    body: GenerateCertRequest,
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Generate a client certificate. Returns download token and password (shown once)."""
@@ -201,7 +206,7 @@ async def generate_cert(
                 f"All {AUTH_SLOTS} slot(s) are in use ({session_count} session(s), {active_cert_count} cert(s)). Revoke a session or certificate first.",
             )
 
-    label = f"client-{active_cert_count + 1}"
+    label = body.label.strip() if body.label else f"client-{active_cert_count + 1}"
 
     p12_bytes, password, serial_hex, fingerprint = generate_client_cert(
         ca_cert_pem, ca_key_pem, label
