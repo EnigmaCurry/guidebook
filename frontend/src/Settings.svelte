@@ -254,7 +254,7 @@
     return ua.length > 30 ? ua.slice(0, 30) + "..." : ua;
   }
 
-  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); }
+  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); authTokenUrl = ""; authTransferUrl = ""; }
   $: activeCertCount = mtlsCerts.filter(c => !c.revoked_at).length;
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length - activeCertCount);
   $: mtlsCurrentCert = mtlsCerts.find(c => c.is_current && !c.revoked_at);
