@@ -60,5 +60,5 @@ class RateLimiter:
         dq.append(now)
 
 
-# Auth: 5 failed attempts per 5-minute window
-auth_limiter = RateLimiter(max_requests=5, window_seconds=300)
+# Auth: 20 failed attempts per 5-minute window
+auth_limiter = RateLimiter(max_requests=20, window_seconds=300)

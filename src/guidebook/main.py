@@ -223,8 +223,8 @@ async def http_middleware(request: Request, call_next):
     path = request.url.path
     client_ip = request.client.host if request.client else "unknown"
 
-    # Rate limit: auth endpoints (check prior failures)
-    if path.startswith("/api/auth/"):
+    # Rate limit: login endpoints only (check prior failures)
+    if path in ("/api/auth/login", "/api/auth/check-token"):
         allowed, retry_after = auth_limiter.check(client_ip)
         if not allowed:
             return _rate_limit_429(retry_after)
@@ -330,8 +330,8 @@ async def http_middleware(request: Request, call_next):
 
     response: Response = await call_next(request)
 
-    # Record auth failures for rate limiting (successful logins don't count)
-    if path.startswith("/api/auth/") and response.status_code == 401:
+    # Record auth failures for rate limiting (only login attempts, not general 401s)
+    if path in ("/api/auth/login", "/api/auth/check-token") and response.status_code == 401:
         auth_limiter.record(client_ip)
 
     if path.startswith("/api/"):
