@@ -241,17 +241,10 @@ async def generate_token(
     request: Request,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    """Generate a login token for a new session."""
+    """Generate a login token for a new session. Auth enforced by middleware."""
     enabled = await _is_auth_enabled(gdb)
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")
-
-    # Check current user is authenticated
-    claims = _get_jwt_claims(request)
-    if not claims or "sid" not in claims:
-        raise HTTPException(401, "Not authenticated")
-    if not await _validate_session(gdb, claims["sid"], claims.get("nonce")):
-        raise HTTPException(401, "Not authenticated")
 
     # Check slot availability
     count = await _token_count(gdb)
@@ -284,7 +277,8 @@ async def transfer_session(
     request: Request,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    """Generate a transfer token — logs out current session when new one logs in."""
+    """Generate a transfer token — logs out current session when new one logs in.
+    Auth enforced by middleware."""
     if not ALLOW_TRANSFER:
         raise HTTPException(
             400,
@@ -293,13 +287,6 @@ async def transfer_session(
     enabled = await _is_auth_enabled(gdb)
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")
-
-    claims = _get_jwt_claims(request)
-    if not claims or "sid" not in claims:
-        raise HTTPException(401, "Not authenticated")
-    current_tok = await _validate_session(gdb, claims["sid"], claims.get("nonce"))
-    if not current_tok:
-        raise HTTPException(401, "Not authenticated")
 
     token_str = secrets.token_urlsafe(48)
     gdb.add(
@@ -575,10 +562,13 @@ async def logout(
     response: Response,
     gdb: AsyncSession = Depends(get_global_session),
 ):
-    """Log out the current session."""
-    claims = _get_jwt_claims(request)
-    if claims and "sid" in claims:
-        tok = await _validate_session(gdb, claims["sid"], claims.get("nonce"))
+    """Log out the current session. Auth enforced by middleware."""
+    session_id = _get_current_session_id(request)
+    if session_id:
+        result = await gdb.execute(
+            select(AuthToken).where(AuthToken.id == session_id)
+        )
+        tok = result.scalar_one_or_none()
         if tok:
             await gdb.delete(tok)
             await gdb.commit()
