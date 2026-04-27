@@ -939,7 +939,7 @@ environment variables (overridden by command line options):
             "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, last_ip TEXT, "
             "is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
-        for col in ("expires_at REAL", "last_ip TEXT", "jwt_nonce TEXT"):
+        for col in ("expires_at REAL", "last_ip TEXT", "jwt_nonce TEXT", "user_agent TEXT"):
             try:
                 conn.execute(f"ALTER TABLE auth_tokens ADD COLUMN {col}")
             except sqlite3.OperationalError:

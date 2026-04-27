@@ -241,6 +241,19 @@
     return `in ${Math.floor(fdiff / 86400)}d`;
   }
 
+  function shortUserAgent(ua) {
+    if (!ua) return "";
+    // Extract browser name from user agent
+    if (ua.includes("Firefox/")) return "Firefox";
+    if (ua.includes("Edg/")) return "Edge";
+    if (ua.includes("OPR/") || ua.includes("Opera")) return "Opera";
+    if (ua.includes("Chrome/") && ua.includes("Safari/")) return "Chrome";
+    if (ua.includes("Safari/") && !ua.includes("Chrome/")) return "Safari";
+    if (ua.includes("curl/")) return "curl";
+    // Fallback: first 30 chars
+    return ua.length > 30 ? ua.slice(0, 30) + "..." : ua;
+  }
+
   $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); }
   $: activeCertCount = mtlsCerts.filter(c => !c.revoked_at).length;
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length - activeCertCount);
@@ -1662,7 +1675,7 @@
                 {#if session.is_current && !mtlsCurrentCert} <strong>(current)</strong>{/if}
                 {#if session.is_transfer} <em>(transfer pending)</em>{/if}
               </span>
-              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.last_ip} — IP {session.last_ip}{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
+              <span class="session-meta">{#if session.user_agent}{shortUserAgent(session.user_agent)} — {/if}Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.last_ip} — IP {session.last_ip}{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
             </div>
             {#if !session.is_current || mtlsCurrentCert}
               <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>

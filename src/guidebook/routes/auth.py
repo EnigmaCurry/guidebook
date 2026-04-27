@@ -203,6 +203,7 @@ class SessionResponse(BaseModel):
     last_ip: str | None
     is_current: bool
     is_transfer: bool
+    user_agent: str | None
 
 
 @router.get("/sessions")
@@ -224,6 +225,7 @@ async def list_sessions(
                 last_ip=tok.last_ip,
                 is_current=tok.id == current_session_id,
                 is_transfer=tok.is_transfer == 1,
+                user_agent=tok.user_agent,
             )
         )
     return sessions
@@ -368,6 +370,8 @@ async def login_with_token(
     now = time.time()
     tok.expires_at = now + AUTH_TTL
 
+    tok.user_agent = request.headers.get("user-agent", "")
+
     if tok.is_transfer:
         # Transfer token: find the original session that created us and revoke it
         # The transfer token itself becomes the new permanent session
@@ -444,6 +448,7 @@ async def server_side_login(
 
     now = time.time()
     tok.expires_at = now + AUTH_TTL
+    tok.user_agent = request.headers.get("user-agent", "")
 
     if tok.is_transfer:
         tok.is_transfer = 0

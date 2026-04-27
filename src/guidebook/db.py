@@ -222,6 +222,7 @@ class AuthToken(GlobalBase):
     last_ip: Mapped[str | None] = mapped_column(String, nullable=True)
     is_transfer: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     jwt_nonce: Mapped[str | None] = mapped_column(String, nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class ClientCert(GlobalBase):
