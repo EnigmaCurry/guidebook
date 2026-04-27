@@ -1172,7 +1172,9 @@ environment variables (overridden by command line options):
         _mconn.close()
         _auth_module.MTLS_MODE = _mtls_mode
 
-        if _mtls_mode in ("optional", "required"):
+        if _mtls_mode in ("optional", "required") and not (
+            _auth_module.DISABLE_AUTH or _auth_module._env_disable_auth()
+        ):
             from guidebook.tls import (
                 ensure_ca_cert,
                 generate_crl,
