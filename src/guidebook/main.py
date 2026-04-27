@@ -298,10 +298,13 @@ async def http_middleware(request: Request, call_next):
 
         # Auth check for non-API routes (HTML pages and static assets)
         if db_manager._global_session_factory:
-            from guidebook.routes.auth import check_auth, MTLS_MODE
+            from guidebook.routes.auth import check_auth, MTLS_MODE, _is_auth_enabled
 
             async with db_manager._global_session_factory() as gdb:
-                if MTLS_MODE == "required":
+                auth_enabled = await _is_auth_enabled(gdb)
+                if not auth_enabled:
+                    ok = True
+                elif MTLS_MODE == "required":
                     ok = await _check_mtls_auth(request, gdb)
                 else:
                     ok = await _check_mtls_auth(request, gdb) or await check_auth(
