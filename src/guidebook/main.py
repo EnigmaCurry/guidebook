@@ -977,6 +977,18 @@ environment variables (overridden by command line options):
                 "Auth reset: all sessions and mTLS state cleared, new login token generated."
             )
 
+        # If mTLS is enforced, cookie sessions are useless — clear them
+        _mtls_row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'mtls_mode'"
+        ).fetchone()
+        if _mtls_row and _mtls_row[0] == "required":
+            deleted = conn.execute("DELETE FROM auth_tokens").rowcount
+            if deleted:
+                conn.commit()
+                logger.info(
+                    "mTLS enforced: revoked %d cookie session(s) on startup", deleted
+                )
+
         # Ensure JWT signing secret exists
         row = conn.execute(
             "SELECT value FROM settings WHERE key = ?", ("auth_jwt_secret",)
