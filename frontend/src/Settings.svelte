@@ -2041,22 +2041,15 @@
     {#if !tlsEnabled}
       <p class="hint" style="color: var(--error-color, #e74c3c); font-weight: bold;">TLS is disabled via <code style="font-size: 0.75rem; white-space: nowrap">--no-tls</code>. Remove this flag to configure TLS certificates.</p>
     {:else}
-      <p class="hint">Configure how the server's TLS certificate is provisioned. The self-signed CA is always used for mTLS client certificates regardless of this setting.</p>
+      {#if tlsMode === "acme"}
+        <p class="hint">Server certificate is provisioned via <strong>Let's Encrypt</strong> (ACME-DNS). The self-signed CA is still used for mTLS client certificates.</p>
+      {:else}
+        <p class="hint">Server certificate is signed by the <strong>built-in self-signed CA</strong>. You can optionally switch to a trusted Let's Encrypt certificate below.</p>
+      {/if}
 
       {#if tlsRestartRequired}
         <p class="hint" style="color: var(--warning-color, #e6a700); font-weight: bold; margin-top: 0.5rem;">A new certificate has been provisioned. Restart the server to activate it.</p>
       {/if}
-
-      <div class="mtls-radio-group" style="margin-top: 0.75rem;">
-        <label class="mtls-radio" class:active={tlsMode === "self-signed"}>
-          <input type="radio" name="tls-mode" value="self-signed" checked={tlsMode === "self-signed"} disabled />
-          <span><strong>Self-signed CA</strong> — server cert signed by the built-in CA</span>
-        </label>
-        <label class="mtls-radio" class:active={tlsMode === "acme"}>
-          <input type="radio" name="tls-mode" value="acme" checked={tlsMode === "acme"} disabled />
-          <span><strong>Let's Encrypt</strong> — trusted cert via ACME-DNS</span>
-        </label>
-      </div>
     {/if}
   </section>
 
