@@ -1671,11 +1671,11 @@
             <div class="session-info">
               <span class="session-label">
                 <span class="auth-badge cookie">cookie</span>
-                {session.label}
+                {shortUserAgent(session.user_agent) || "Unknown browser"}{#if session.last_ip} — {session.last_ip}{/if}
                 {#if session.is_current && !mtlsCurrentCert} <strong>(you)</strong>{/if}
                 {#if session.is_transfer} <em>(transfer pending)</em>{/if}
               </span>
-              <span class="session-meta">{#if session.user_agent}{shortUserAgent(session.user_agent)} — {/if}Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.last_ip} — IP {session.last_ip}{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
+              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
             </div>
             {#if !session.is_current || mtlsCurrentCert}
               <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>
