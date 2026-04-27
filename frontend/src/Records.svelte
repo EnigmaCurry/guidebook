@@ -791,6 +791,7 @@
       <table>
         <thead>
           <tr>
+            <th class="action-col"></th>
             {#each columns as col (col.key)}
               <th class:drag-over={dragOverCol === col.key && dragCol !== col.key}
                   on:dragover={e => onColDragOver(e, col.key)}
@@ -814,14 +815,14 @@
           {#each sortedRecords as r, i (r.id)}
             <!-- svelte-ignore a11y-click-events-have-key-events -->
             <tr class="clickable" class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => selectRow(i)}>
+              <td class="action-cell">
+                {#if selectedIndex === i}
+                  <button class="edit-row-btn" on:click|stopPropagation={() => editRecord(r)} title="Edit record">&#9998;</button>
+                {/if}
+              </td>
               {#each columns as col (col.key)}
                 {#if col.key === "title"}
-                  <td class="title-cell">
-                    {r.title}
-                    {#if selectedIndex === i}
-                      <button class="edit-row-btn" on:click|stopPropagation={() => editRecord(r)} title="Edit record">&#9998;</button>
-                    {/if}
-                  </td>
+                  <td class="title-cell">{r.title}</td>
                 {:else if col.key === "tags"}
                   <td class="tags-cell">{r.tags || ""}</td>
                 {:else if col.key === "content"}
@@ -1137,17 +1138,30 @@
     background: var(--row-editing);
   }
 
+  .action-col {
+    width: 1.8rem;
+    min-width: 1.8rem;
+    max-width: 1.8rem;
+    padding: 0 !important;
+  }
+
+  .action-cell {
+    width: 1.8rem;
+    min-width: 1.8rem;
+    max-width: 1.8rem;
+    padding: 0 !important;
+    text-align: center;
+    overflow: visible;
+  }
+
   .edit-row-btn {
-    display: inline-block;
-    margin-left: 0.4rem;
-    padding: 0.1rem 0.35rem;
+    padding: 0.1rem 0.3rem;
     border: 1px solid var(--accent, #00ff88);
     border-radius: 4px;
     background: transparent;
     color: var(--accent, #00ff88);
     font-size: 0.8rem;
     cursor: pointer;
-    vertical-align: middle;
     line-height: 1;
   }
 
