@@ -82,10 +82,12 @@ async def mtls_status(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED, PROXY_MODE
+    from guidebook.sse import connected_cert_serials
 
     mode = await _get_setting(gdb, "mtls_mode") or "disabled"
     ca_cert = await _get_setting(gdb, "ca_cert_pem")
     current_serial = _get_peer_cert_serial(request)
+    active_serials = connected_cert_serials()
 
     result = await gdb.execute(select(ClientCert).order_by(ClientCert.issued_at.desc()))
     certs = [
@@ -99,6 +101,7 @@ async def mtls_status(
             "fingerprint_sha256": c.fingerprint_sha256,
             "is_current": current_serial is not None
             and c.serial_number == current_serial,
+            "is_connected": c.serial_number in active_serials,
         }
         for c in result.scalars().all()
     ]

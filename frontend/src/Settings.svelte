@@ -258,6 +258,10 @@
   $: activeCertCount = mtlsCerts.filter(c => !c.revoked_at).length;
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length - activeCertCount);
   $: mtlsCurrentCert = mtlsCerts.find(c => c.is_current && !c.revoked_at);
+  $: connectedCerts = mtlsCerts.filter(c => !c.revoked_at && c.is_connected);
+  $: inactiveCerts = mtlsCerts.filter(c => !c.revoked_at && !c.is_connected);
+  $: connectedSessions = authSessions.filter(s => s.is_connected);
+  $: inactiveSessions = authSessions.filter(s => !s.is_connected);
 
   // mTLS
   let mtlsMode = "disabled";
@@ -1642,12 +1646,10 @@
 
 
   <section class="settings-section">
-    <h3>Active Clients</h3>
-    {#if authSessions.length === 0 && mtlsCerts.filter(c => !c.revoked_at).length === 0}
-      <p class="hint">No active clients.</p>
-    {:else}
+    <h3>Clients</h3>
+    {#if connectedCerts.length > 0 || connectedSessions.length > 0}
       <div class="session-list">
-        {#each mtlsCerts.filter(c => !c.revoked_at) as cert (cert.serial_number)}
+        {#each connectedCerts as cert (cert.serial_number)}
           <div class="session-item" class:session-current={cert.is_current}>
             <div class="session-info">
               <span class="session-label">
@@ -1658,7 +1660,6 @@
               <span class="session-meta">
                 Fingerprint: {cert.fingerprint_sha256.slice(0, 16)}...
                 — Issued {formatAuthTime(cert.issued_at)}
-                — Expires {formatAuthTime(cert.expires_at)}
               </span>
             </div>
             {#if !cert.is_current}
@@ -1666,16 +1667,15 @@
             {/if}
           </div>
         {/each}
-        {#each authSessions as session (session.id)}
+        {#each connectedSessions as session (session.id)}
           <div class="session-item" class:session-current={session.is_current}>
             <div class="session-info">
               <span class="session-label">
                 <span class="auth-badge cookie">cookie</span>
                 {shortUserAgent(session.user_agent) || "Unknown browser"}{#if session.last_ip} — {session.last_ip}{/if}
                 {#if session.is_current && !mtlsCurrentCert} <strong>(you)</strong>{/if}
-                {#if session.is_transfer} <em>(transfer pending)</em>{/if}
               </span>
-              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
+              <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
             </div>
             {#if !session.is_current || mtlsCurrentCert}
               <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>
@@ -1683,6 +1683,44 @@
           </div>
         {/each}
       </div>
+    {/if}
+
+    {#if inactiveCerts.length > 0 || inactiveSessions.length > 0}
+      <h4 style="margin-top: 0.75rem; margin-bottom: 0.4rem; font-size: 0.8rem; color: var(--text-dim);">Inactive</h4>
+      <div class="session-list">
+        {#each inactiveCerts as cert (cert.serial_number)}
+          <div class="session-item">
+            <div class="session-info">
+              <span class="session-label">
+                <span class="auth-badge mtls">mTLS</span>
+                {cert.label}
+              </span>
+              <span class="session-meta">
+                Fingerprint: {cert.fingerprint_sha256.slice(0, 16)}...
+                — Issued {formatAuthTime(cert.issued_at)}
+              </span>
+            </div>
+            <button class="session-delete" on:click={() => revokeClientCert(cert.id)} title="Revoke this certificate">Revoke</button>
+          </div>
+        {/each}
+        {#each inactiveSessions as session (session.id)}
+          <div class="session-item">
+            <div class="session-info">
+              <span class="session-label">
+                <span class="auth-badge cookie">cookie</span>
+                {shortUserAgent(session.user_agent) || "Unknown browser"}{#if session.last_ip} — {session.last_ip}{/if}
+                {#if session.is_transfer} <em>(invited)</em>{/if}
+              </span>
+              <span class="session-meta">{#if session.last_seen_at}Last seen {formatAuthTime(session.last_seen_at)}{:else}Never connected{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
+            </div>
+            <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if connectedCerts.length === 0 && connectedSessions.length === 0 && inactiveCerts.length === 0 && inactiveSessions.length === 0}
+      <p class="hint">No clients.</p>
     {/if}
   </section>
 

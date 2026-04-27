@@ -27,6 +27,20 @@ _on_disconnect_callbacks: list[Callable[[], None]] = []
 _ever_had_client: bool = False
 _auto_shutdown_task: asyncio.Task | None = None
 
+# Track which auth sessions and certs are connected via SSE
+_connected_session_ids: dict[int, int] = {}  # session_id -> refcount
+_connected_cert_serials: dict[str, int] = {}  # serial_hex -> refcount
+
+
+def connected_session_ids() -> set[int]:
+    """Return set of auth session IDs with active SSE connections."""
+    return {k for k, v in _connected_session_ids.items() if v > 0}
+
+
+def connected_cert_serials() -> set[str]:
+    """Return set of client cert serial numbers with active SSE connections."""
+    return {k for k, v in _connected_cert_serials.items() if v > 0}
+
 AUTO_SHUTDOWN_DELAY_DEFAULT = 300  # seconds
 _auto_shutdown_delay: int = AUTO_SHUTDOWN_DELAY_DEFAULT
 
@@ -180,6 +194,35 @@ async def event_stream(request: Request):
     queue: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
     _subscribers.append(queue)
     _ever_had_client = True
+
+    # Track which auth identity owns this SSE connection
+    _sse_session_id = None
+    _sse_cert_serial = None
+    try:
+        from guidebook.routes.auth import _get_current_session_id
+
+        _sse_session_id = _get_current_session_id(request)
+    except Exception:
+        pass
+    try:
+        peer_cert_der = request.scope.get("mtls_peer_cert_der")
+        if peer_cert_der:
+            from cryptography.x509 import load_der_x509_certificate
+
+            cert = load_der_x509_certificate(peer_cert_der)
+            _sse_cert_serial = format(cert.serial_number, "x")
+    except Exception:
+        pass
+
+    if _sse_session_id is not None:
+        _connected_session_ids[_sse_session_id] = (
+            _connected_session_ids.get(_sse_session_id, 0) + 1
+        )
+    if _sse_cert_serial is not None:
+        _connected_cert_serials[_sse_cert_serial] = (
+            _connected_cert_serials.get(_sse_cert_serial, 0) + 1
+        )
+
     logger.info(
         "SSE client    connected from %s (total: %d)", client_addr, len(_subscribers)
     )
@@ -197,6 +240,15 @@ async def event_stream(request: Request):
         finally:
             if queue in _subscribers:
                 _subscribers.remove(queue)
+            # Untrack auth identity
+            if _sse_session_id is not None and _sse_session_id in _connected_session_ids:
+                _connected_session_ids[_sse_session_id] -= 1
+                if _connected_session_ids[_sse_session_id] <= 0:
+                    del _connected_session_ids[_sse_session_id]
+            if _sse_cert_serial is not None and _sse_cert_serial in _connected_cert_serials:
+                _connected_cert_serials[_sse_cert_serial] -= 1
+                if _connected_cert_serials[_sse_cert_serial] <= 0:
+                    del _connected_cert_serials[_sse_cert_serial]
             if len(_subscribers) == 0:
                 _last_client_disconnected_at = time.time()
             logger.info(

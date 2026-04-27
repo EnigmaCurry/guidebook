@@ -204,6 +204,7 @@ class SessionResponse(BaseModel):
     is_current: bool
     is_transfer: bool
     user_agent: str | None
+    is_connected: bool
 
 
 @router.get("/sessions")
@@ -211,7 +212,10 @@ async def list_sessions(
     request: Request,
     gdb: AsyncSession = Depends(get_global_session),
 ):
+    from guidebook.sse import connected_session_ids
+
     current_session_id = _get_current_session_id(request)
+    active_sids = connected_session_ids()
     result = await gdb.execute(select(AuthToken).order_by(AuthToken.created_at))
     sessions = []
     for tok in result.scalars().all():
@@ -226,6 +230,7 @@ async def list_sessions(
                 is_current=tok.id == current_session_id,
                 is_transfer=tok.is_transfer == 1,
                 user_agent=tok.user_agent,
+                is_connected=tok.id in active_sids,
             )
         )
     return sessions
