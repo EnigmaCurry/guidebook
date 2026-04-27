@@ -203,15 +203,19 @@ async def http_middleware(request: Request, call_next):
     if path.startswith("/api/") and not any(
         path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES
     ):
-        from guidebook.routes.auth import check_auth
+        from guidebook.routes.auth import check_auth, MTLS_MODE
         from guidebook.db import db_manager
 
         if db_manager._global_session_factory:
             async with db_manager._global_session_factory() as gdb:
-                # Try mTLS auth first, fall back to cookie auth
-                ok = await _check_mtls_auth(request, gdb) or await check_auth(
-                    request, gdb
-                )
+                if MTLS_MODE == "required":
+                    # mTLS enforced: only client certs accepted, no cookie fallback
+                    ok = await _check_mtls_auth(request, gdb)
+                else:
+                    # Try mTLS auth first, fall back to cookie auth
+                    ok = await _check_mtls_auth(request, gdb) or await check_auth(
+                        request, gdb
+                    )
                 if not ok:
                     from fastapi.responses import JSONResponse
 
@@ -265,12 +269,15 @@ async def http_middleware(request: Request, call_next):
 
         # Auth check for non-API routes (HTML pages and static assets)
         if db_manager._global_session_factory:
-            from guidebook.routes.auth import check_auth
+            from guidebook.routes.auth import check_auth, MTLS_MODE
 
             async with db_manager._global_session_factory() as gdb:
-                ok = await _check_mtls_auth(request, gdb) or await check_auth(
-                    request, gdb
-                )
+                if MTLS_MODE == "required":
+                    ok = await _check_mtls_auth(request, gdb)
+                else:
+                    ok = await _check_mtls_auth(request, gdb) or await check_auth(
+                        request, gdb
+                    )
                 if not ok:
                     from fastapi.responses import HTMLResponse
 
@@ -1083,6 +1090,7 @@ environment variables (overridden by command line options):
         ).fetchone()
         _mtls_mode = _mrow[0] if _mrow and _mrow[0] else "disabled"
         _mconn.close()
+        _auth_module.MTLS_MODE = _mtls_mode
 
         if _mtls_mode in ("optional", "required"):
             from guidebook.tls import (

@@ -30,6 +30,7 @@ AUTH_RENEW_COOLDOWN: int = AUTH_RENEW_COOLDOWN_DEFAULT  # --auth-renew-cooldown
 ALLOW_TRANSFER: bool = False  # --allow-transfer
 PROXY_MODE: bool = False  # --proxy
 TLS_ENABLED: bool = True  # True unless --no-tls
+MTLS_MODE: str = "disabled"  # "disabled", "optional", "required"
 
 
 def parse_duration(value: str) -> int:
