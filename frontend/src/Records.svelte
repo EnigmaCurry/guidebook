@@ -1,6 +1,8 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from "svelte";
   import { storageGet, storageSet } from "./storage.js";
+  import Icon from "@iconify/svelte";
+  import iconPencil from "@iconify-icons/twemoji/pencil";
 
   const dispatch = createEventDispatcher();
 
@@ -331,6 +333,12 @@
     if (selectedIndex >= 0 && selectedIndex < sortedRecords.length) {
       editRecord(sortedRecords[selectedIndex]);
     }
+  }
+
+  function selectRow(i) {
+    selectedIndex = i;
+    scrollToSelected();
+    dispatch("selectionchange", sortedRecords[selectedIndex]?.id ?? null);
   }
 
   export function deselect() {
@@ -785,6 +793,7 @@
       <table>
         <thead>
           <tr>
+            <th class="action-col"></th>
             {#each columns as col (col.key)}
               <th class:drag-over={dragOverCol === col.key && dragCol !== col.key}
                   on:dragover={e => onColDragOver(e, col.key)}
@@ -807,7 +816,12 @@
         <tbody>
           {#each sortedRecords as r, i (r.id)}
             <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <tr class="clickable" class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => editRecord(r)}>
+            <tr class:clickable={!showForm} class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => { if (!showForm) selectRow(i); }} on:dblclick={() => { if (!showForm) editRecord(r); }}>
+              <td class="action-cell">
+                {#if selectedIndex === i && !showForm}
+                  <button class="edit-row-btn" on:click|stopPropagation={() => editRecord(r)} title="Edit record"><Icon icon={iconPencil} width="14" height="14" /></button>
+                {/if}
+              </td>
               {#each columns as col (col.key)}
                 {#if col.key === "title"}
                   <td class="title-cell">{r.title}</td>
@@ -1124,6 +1138,38 @@
 
   tr.editing {
     background: var(--row-editing);
+  }
+
+  .action-col {
+    width: 1.8rem;
+    min-width: 1.8rem;
+    max-width: 1.8rem;
+    padding: 0 !important;
+  }
+
+  .action-cell {
+    width: 1.8rem;
+    min-width: 1.8rem;
+    max-width: 1.8rem;
+    padding: 0 !important;
+    text-align: center;
+    overflow: visible;
+  }
+
+  .edit-row-btn {
+    padding: 0.1rem 0.3rem;
+    border: 1px solid var(--accent, #00ff88);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--accent, #00ff88);
+    font-size: 0.8rem;
+    cursor: pointer;
+    line-height: 1;
+  }
+
+  .edit-row-btn:hover {
+    background: var(--accent, #00ff88);
+    color: var(--bg, #1a1b1e);
   }
 
   /* --- Attachments --- */

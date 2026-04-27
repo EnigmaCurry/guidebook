@@ -1772,7 +1772,7 @@
   {#if mtlsMode !== "required"}
   <section class="settings-section">
     <h3>Generate Login Link</h3>
-    <p class="hint">Generate a one-time login URL to share with another browser.</p>
+    <p class="hint">Generate a one-time login URL to share with another browser. {#if authSlots > 0}{authAvailableSlots} of {authSlots} slots available.{:else}Unlimited slots.{/if}</p>
     {#if !authShowLinkForm && !authTokenUrl}
       <div class="setting-row">
         <button on:click={openLoginLinkForm} disabled={authSlots > 0 && authAvailableSlots <= 0}>
