@@ -1616,7 +1616,11 @@
   <div class="tab-scroll"><div class="tab-content" use:masonry>
   <section class="settings-section">
     <h3>Authentication</h3>
+    {#if !authEnabled}
+    <p class="hint" style="color: var(--error-color, #e74c3c); font-weight: bold;">⚠ Authentication is disabled via <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code>. Anyone can access this app without credentials.</p>
+    {:else}
     <p class="hint">{#if mtlsMode === "required"}Authentication is currently enforced with mTLS certificates only.{:else if mtlsMode === "disabled"}Authentication is currently enforced with session cookies only.{:else}Authentication is currently enforced with session cookies and/or mTLS certificates.{/if} Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off completely.</p>
+    {/if}
   </section>
 
   <section class="settings-section">
