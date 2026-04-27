@@ -968,7 +968,7 @@ environment variables (overridden by command line options):
                 conn.execute("DELETE FROM client_certs")
             except sqlite3.OperationalError:
                 pass  # table may not exist yet
-            for k in ("mtls_mode", "ca_cert_pem", "ca_key_pem"):
+            for k in ("mtls_mode", "ca_cert_pem", "ca_key_pem", "tls_cert_pem", "tls_key_pem"):
                 conn.execute("DELETE FROM settings WHERE key = ?", (k,))
             conn.commit()
             os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
