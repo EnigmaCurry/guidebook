@@ -247,8 +247,10 @@ async def generate_token(
         raise HTTPException(400, "Authentication is not enabled")
 
     # Check current user is authenticated
-    current_sid = _get_current_session_id(request)
-    if not current_sid or not await _validate_session(gdb, current_sid):
+    claims = _get_jwt_claims(request)
+    if not claims or "sid" not in claims:
+        raise HTTPException(401, "Not authenticated")
+    if not await _validate_session(gdb, claims["sid"], claims.get("nonce")):
         raise HTTPException(401, "Not authenticated")
 
     # Check slot availability
@@ -292,10 +294,10 @@ async def transfer_session(
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")
 
-    current_sid = _get_current_session_id(request)
-    if not current_sid:
+    claims = _get_jwt_claims(request)
+    if not claims or "sid" not in claims:
         raise HTTPException(401, "Not authenticated")
-    current_tok = await _validate_session(gdb, current_sid)
+    current_tok = await _validate_session(gdb, claims["sid"], claims.get("nonce"))
     if not current_tok:
         raise HTTPException(401, "Not authenticated")
 
@@ -574,9 +576,9 @@ async def logout(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Log out the current session."""
-    session_id = _get_current_session_id(request)
-    if session_id:
-        tok = await _validate_session(gdb, session_id)
+    claims = _get_jwt_claims(request)
+    if claims and "sid" in claims:
+        tok = await _validate_session(gdb, claims["sid"], claims.get("nonce"))
         if tok:
             await gdb.delete(tok)
             await gdb.commit()
