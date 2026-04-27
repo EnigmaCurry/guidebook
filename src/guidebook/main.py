@@ -803,7 +803,7 @@ environment variables (overridden by command line options):
     parser.add_argument(
         "--reset-auth",
         action="store_true",
-        help="Reset all auth sessions and generate a new login link",
+        help="Reset all auth: sessions, CA, certificates, mTLS state, and generate a new login link",
     )
     parser.add_argument(
         "--auth-slots",
@@ -951,6 +951,34 @@ environment variables (overridden by command line options):
         )
 
         if args.reset_auth:
+            # Count what will be destroyed
+            session_count = conn.execute("SELECT COUNT(*) FROM auth_tokens").fetchone()[0]
+            try:
+                cert_count = conn.execute("SELECT COUNT(*) FROM client_certs").fetchone()[0]
+            except sqlite3.OperationalError:
+                cert_count = 0
+            ca_exists = bool(
+                conn.execute("SELECT 1 FROM settings WHERE key = 'ca_cert_pem'").fetchone()
+            )
+
+            print("--reset-auth will perform the following actions:")
+            print(f"  - Delete all cookie sessions ({session_count})")
+            print("  - Invalidate all JWTs (regenerate signing secret)")
+            if ca_exists:
+                print("  - Delete the Certificate Authority (CA)")
+            if cert_count:
+                print(f"  - Delete all client certificates ({cert_count})")
+            print("  - Delete server TLS certificate (will be regenerated)")
+            print("  - Reset mTLS mode to default")
+            print("  - Generate a new login link")
+            try:
+                answer = input("\nProceed? [y/N] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                answer = ""
+            if answer not in ("y", "yes"):
+                print("Aborted.")
+                sys.exit(0)
+
             conn.execute("DELETE FROM auth_tokens")
             # Regenerate JWT secret on auth reset to invalidate all JWTs
             jwt_secret = secrets.token_urlsafe(64)
@@ -974,7 +1002,7 @@ environment variables (overridden by command line options):
             conn.commit()
             os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
             print(
-                "Auth reset: all sessions and mTLS state cleared, new login token generated."
+                "\nAuth reset complete: all sessions, CA, certificates, and mTLS state cleared."
             )
 
         # If mTLS is enforced, cookie sessions are useless — clear them
