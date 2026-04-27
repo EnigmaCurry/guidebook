@@ -23,6 +23,7 @@ PENDING_DOWNLOAD_TTL = 600  # 10 minutes
 class PendingDownload:
     p12_bytes: bytes
     password: str
+    label: str
     created_at: float
     expires_at: float
 
@@ -234,6 +235,7 @@ async def generate_cert(
     _pending_downloads[download_token] = PendingDownload(
         p12_bytes=p12_bytes,
         password=password,
+        label=label,
         created_at=now,
         expires_at=now + PENDING_DOWNLOAD_TTL,
     )
@@ -261,11 +263,17 @@ async def download_cert(download_token: str):
     if time.time() > pending.expires_at:
         raise HTTPException(410, "Download link expired.")
 
+    # Sanitize label for filename
+    safe_label = "".join(
+        c if c.isalnum() or c in "-_" else "-" for c in pending.label
+    ).strip("-")
+    filename = f"guidebook-{safe_label}.p12" if safe_label else "guidebook-client.p12"
+
     return Response(
         content=pending.p12_bytes,
         media_type="application/x-pkcs12",
         headers={
-            "Content-Disposition": 'attachment; filename="guidebook-client.p12"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-store",
         },
     )

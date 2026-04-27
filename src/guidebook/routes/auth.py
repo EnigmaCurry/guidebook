@@ -236,6 +236,10 @@ async def list_sessions(
     return sessions
 
 
+class GenerateTokenRequest(BaseModel):
+    label: str | None = None
+
+
 class GenerateTokenResponse(BaseModel):
     token: str
     login_url: str
@@ -244,6 +248,7 @@ class GenerateTokenResponse(BaseModel):
 @router.post("/generate-token")
 async def generate_token(
     request: Request,
+    body: GenerateTokenRequest,
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Generate a login token for a new session. Auth enforced by middleware."""
@@ -259,11 +264,12 @@ async def generate_token(
             f"All {AUTH_SLOTS} session slot(s) are in use. Remove a session first.",
         )
 
+    label = body.label.strip() if body.label else "Invited session"
     token_str = secrets.token_urlsafe(48)
     gdb.add(
         AuthToken(
             token=token_str,
-            label="Invited session",
+            label=label,
             created_at=time.time(),
             last_seen_at=None,
             is_transfer=0,
@@ -370,7 +376,6 @@ async def login_with_token(
         # Transfer token: find the original session that created us and revoke it
         # The transfer token itself becomes the new permanent session
         tok.is_transfer = 0
-        tok.label = "Transferred session"
         tok.last_seen_at = now
 
         # Delete all other non-transfer tokens (the old session)
@@ -386,7 +391,6 @@ async def login_with_token(
     else:
         # Regular login token — just activate it
         tok.last_seen_at = now
-        tok.label = "Logged in session"
         await gdb.commit()
         try:
             await create_notification(
@@ -446,7 +450,6 @@ async def server_side_login(
 
     if tok.is_transfer:
         tok.is_transfer = 0
-        tok.label = "Transferred session"
         tok.last_seen_at = now
         result = await gdb.execute(
             select(AuthToken).where(AuthToken.id != tok.id, AuthToken.is_transfer == 0)
@@ -458,7 +461,6 @@ async def server_side_login(
         logger.info("Session transferred to new browser")
     else:
         tok.last_seen_at = now
-        tok.label = "Logged in session"
         await gdb.commit()
         try:
             await create_notification(

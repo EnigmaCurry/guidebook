@@ -136,12 +136,25 @@
     } catch {}
   }
 
+  let authShowLinkForm = false;
+  let authLinkLabelInput = "";
+
+  function openLoginLinkForm() {
+    authShowLinkForm = true;
+    authLinkLabelInput = `session-${authSessions.filter(s => !s.is_transfer).length + 1}`;
+    authTokenUrl = "";
+  }
+
   async function generateLoginToken() {
     authError = "";
     authGenerating = true;
     authTokenUrl = "";
     try {
-      const res = await fetch("/api/auth/generate-token", { method: "POST" });
+      const res = await fetch("/api/auth/generate-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: authLinkLabelInput }),
+      });
       if (res.ok) {
         const data = await res.json();
         authTokenUrl = data.login_url;
@@ -254,7 +267,7 @@
     return ua.length > 30 ? ua.slice(0, 30) + "..." : ua;
   }
 
-  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); authTokenUrl = ""; authTransferUrl = ""; }
+  $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); authTokenUrl = ""; authTransferUrl = ""; authShowLinkForm = false; }
   $: activeCertCount = mtlsCerts.filter(c => !c.revoked_at).length;
   $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length - activeCertCount);
   $: mtlsCurrentCert = mtlsCerts.find(c => c.is_current && !c.revoked_at);
@@ -1755,15 +1768,28 @@
   <section class="settings-section">
     <h3>Generate Login Link</h3>
     <p class="hint">Generate a one-time login URL to share with another browser.</p>
-    <div class="setting-row">
-      <button on:click={generateLoginToken} disabled={authGenerating || (authSlots > 0 && authAvailableSlots <= 0)}>
-        {authGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 ? `No slots available (${authSlots}/${authSlots} used)` : "Generate Login Link"}
-      </button>
-    </div>
-    {#if authSlots > 0 && authAvailableSlots <= 0}
-      <p class="hint">Pass <code style="font-size: 0.75rem; white-space: nowrap">--auth-slots X</code> at startup to allow more concurrent sessions.</p>
-    {/if}
-    {#if authTokenUrl}
+    {#if !authShowLinkForm && !authTokenUrl}
+      <div class="setting-row">
+        <button on:click={openLoginLinkForm} disabled={authSlots > 0 && authAvailableSlots <= 0}>
+          {authSlots > 0 && authAvailableSlots <= 0 ? `No slots available (${authSlots}/${authSlots} used)` : "Generate Login Link"}
+        </button>
+      </div>
+      {#if authSlots > 0 && authAvailableSlots <= 0}
+        <p class="hint">Pass <code style="font-size: 0.75rem; white-space: nowrap">--auth-slots X</code> at startup to allow more concurrent sessions.</p>
+      {/if}
+    {:else if !authTokenUrl}
+      <div style="margin-top: 0.5rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block; margin-bottom: 0.3rem;">Label</span>
+        <input type="text" bind:value={authLinkLabelInput} placeholder="session-1" style="width: 100%; box-sizing: border-box; margin-bottom: 0.5rem;" />
+        <p class="hint" style="margin-bottom: 0.5rem;">Choose a name to identify this session (e.g. browser, device, or person).</p>
+        <div class="setting-row" style="gap: 0.5rem;">
+          <button on:click={() => { authShowLinkForm = false; }} style="margin-right: auto;">Cancel</button>
+          <button on:click={generateLoginToken} disabled={authGenerating || !authLinkLabelInput.trim()}>
+            {authGenerating ? "Generating..." : "Generate"}
+          </button>
+        </div>
+      </div>
+    {:else}
       <div class="token-url-box">
         <input type="text" value={authTokenUrl} readonly on:click={(e) => e.target.select()} />
         <button class="copy-btn" class:copied={copiedField === 'token'} on:click={() => copyToClipboard(authTokenUrl, 'token')}>{copiedField === 'token' ? 'Copied!' : 'Copy'}</button>
