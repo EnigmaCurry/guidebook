@@ -242,7 +242,8 @@
   }
 
   $: if (authRefreshTrigger) { loadAuthSessions(); loadAuthStatus(); loadMtlsStatus(); }
-  $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length);
+  $: activeCertCount = mtlsCerts.filter(c => !c.revoked_at).length;
+  $: authAvailableSlots = authSlots === 0 ? Infinity : Math.max(0, authSlots - authSessions.filter(s => !s.is_transfer).length - activeCertCount);
   $: mtlsCurrentCert = mtlsCerts.find(c => c.is_current && !c.revoked_at);
 
   // mTLS
@@ -1594,8 +1595,8 @@
       {#if mtlsMode !== "disabled" || mtlsCerts.length > 0}
         <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Generate Client Certificate</h4>
         <div class="setting-row">
-          <button on:click={generateClientCert} disabled={mtlsGenerating}>
-            {mtlsGenerating ? "Generating..." : "Generate Client Certificate"}
+          <button on:click={generateClientCert} disabled={mtlsGenerating || (authSlots > 0 && authAvailableSlots <= 0)}>
+            {mtlsGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 ? `No slots available (${authSlots} used)` : "Generate Client Certificate"}
           </button>
         </div>
       {/if}

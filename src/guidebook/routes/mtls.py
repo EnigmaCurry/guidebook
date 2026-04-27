@@ -132,6 +132,8 @@ async def generate_cert(
     if PROXY_MODE:
         raise HTTPException(400, "mTLS is not available in proxy mode.")
 
+    from guidebook.routes.auth import AUTH_SLOTS, _token_count
+
     from guidebook.db import META_DB_PATH
     from guidebook.tls import ensure_ca_cert, generate_client_cert
 
@@ -141,8 +143,19 @@ async def generate_cert(
     result = await gdb.execute(
         select(ClientCert).where(ClientCert.revoked_at.is_(None))
     )
-    active_count = len(result.scalars().all())
-    label = f"client-{active_count + 1}"
+    active_certs = result.scalars().all()
+    active_cert_count = len(active_certs)
+
+    # Check slot availability (sessions + certs share the same slots)
+    session_count = await _token_count(gdb)
+    total_used = session_count + active_cert_count
+    if AUTH_SLOTS > 0 and total_used >= AUTH_SLOTS:
+        raise HTTPException(
+            400,
+            f"All {AUTH_SLOTS} slot(s) are in use ({session_count} session(s), {active_cert_count} cert(s)). Revoke a session or certificate first.",
+        )
+
+    label = f"client-{active_cert_count + 1}"
 
     p12_bytes, password, serial_hex, fingerprint = generate_client_cert(
         ca_cert_pem, ca_key_pem, label
