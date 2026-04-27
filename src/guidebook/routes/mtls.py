@@ -57,6 +57,7 @@ async def _set_setting(gdb: AsyncSession, key: str, value: str) -> None:
 class MtlsStatusResponse(BaseModel):
     mode: str
     ca_initialized: bool
+    ca_fingerprint: str | None
     tls_enabled: bool
     proxy_mode: bool
     certs: list[dict]
@@ -85,8 +86,19 @@ async def mtls_status(
     from guidebook.sse import connected_cert_serials
 
     mode = await _get_setting(gdb, "mtls_mode") or "disabled"
-    ca_cert = await _get_setting(gdb, "ca_cert_pem")
+    ca_cert_pem = await _get_setting(gdb, "ca_cert_pem")
     current_serial = _get_peer_cert_serial(request)
+
+    ca_fingerprint = None
+    if ca_cert_pem:
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.primitives import hashes
+
+            ca_cert = x509.load_pem_x509_certificate(ca_cert_pem.encode())
+            ca_fingerprint = ca_cert.fingerprint(hashes.SHA256()).hex()
+        except Exception:
+            pass
     active_serials = connected_cert_serials()
 
     result = await gdb.execute(select(ClientCert).order_by(ClientCert.issued_at.desc()))
@@ -108,7 +120,8 @@ async def mtls_status(
 
     return MtlsStatusResponse(
         mode=mode,
-        ca_initialized=bool(ca_cert),
+        ca_initialized=bool(ca_cert_pem),
+        ca_fingerprint=ca_fingerprint,
         tls_enabled=TLS_ENABLED,
         proxy_mode=PROXY_MODE,
         certs=certs,

@@ -268,6 +268,7 @@
   let mtlsTlsEnabled = true;
   let mtlsProxyMode = false;
   let mtlsCaInitialized = false;
+  let mtlsCaFingerprint = null;
   let mtlsCerts = [];
   let mtlsGenerating = false;
   let mtlsError = "";
@@ -287,6 +288,7 @@
         mtlsTlsEnabled = data.tls_enabled;
         mtlsProxyMode = data.proxy_mode;
         mtlsCaInitialized = data.ca_initialized;
+        mtlsCaFingerprint = data.ca_fingerprint;
         mtlsCerts = data.certs;
       }
     } catch {}
@@ -1637,6 +1639,10 @@
           </div>
         </details>
       {/if}
+    {/if}
+
+    {#if mtlsCaFingerprint}
+      <p class="hint" style="margin-top: 0.75rem;">CA fingerprint (SHA-256): <code style="font-size: 0.65rem; word-break: break-all;">{mtlsCaFingerprint}</code></p>
     {/if}
 
     {#if mtlsError}
