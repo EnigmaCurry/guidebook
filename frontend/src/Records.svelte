@@ -814,7 +814,7 @@
         <tbody>
           {#each sortedRecords as r, i (r.id)}
             <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <tr class="clickable" class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => selectRow(i)}>
+            <tr class="clickable" class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => selectRow(i)} on:dblclick={() => editRecord(r)}>
               <td class="action-cell">
                 {#if selectedIndex === i}
                   <button class="edit-row-btn" on:click|stopPropagation={() => editRecord(r)} title="Edit record">&#9998;</button>
