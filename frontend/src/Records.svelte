@@ -817,7 +817,7 @@
             <tr class="clickable" class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => selectRow(i)} on:dblclick={() => editRecord(r)}>
               <td class="action-cell">
                 {#if selectedIndex === i}
-                  <button class="edit-row-btn" on:click|stopPropagation={() => editRecord(r)} title="Edit record">&#9998;</button>
+                  <button class="edit-row-btn" on:click|stopPropagation={() => editRecord(r)} title="Edit record"><svg viewBox="0 0 16 16" width="12" height="12" fill="currentColor"><path d="M12.1 1.3a1.1 1.1 0 0 1 1.6 0l1 1a1.1 1.1 0 0 1 0 1.6L5.7 12.9l-3.5.9.9-3.5Z"/></svg></button>
                 {/if}
               </td>
               {#each columns as col (col.key)}
