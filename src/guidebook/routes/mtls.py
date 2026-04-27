@@ -134,7 +134,7 @@ async def generate_cert(
 
     from guidebook.routes.auth import (
         AUTH_SLOTS,
-        _get_current_session_id,
+        _get_jwt_claims,
         _token_count,
         _validate_session,
     )
@@ -157,9 +157,11 @@ async def generate_cert(
     session_count = await _token_count(gdb)
     total_used = session_count + active_cert_count
     if AUTH_SLOTS > 0 and total_used >= AUTH_SLOTS:
-        current_sid = _get_current_session_id(request)
-        if current_sid:
-            tok = await _validate_session(gdb, current_sid)
+        claims = _get_jwt_claims(request)
+        if claims and "sid" in claims:
+            tok = await _validate_session(
+                gdb, claims["sid"], claims.get("nonce")
+            )
             if tok:
                 await gdb.delete(tok)
                 await gdb.flush()
