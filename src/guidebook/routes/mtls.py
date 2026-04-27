@@ -132,7 +132,12 @@ async def generate_cert(
     if PROXY_MODE:
         raise HTTPException(400, "mTLS is not available in proxy mode.")
 
-    from guidebook.routes.auth import AUTH_SLOTS, _token_count
+    from guidebook.routes.auth import (
+        AUTH_SLOTS,
+        _get_current_session_id,
+        _token_count,
+        _validate_session,
+    )
 
     from guidebook.db import META_DB_PATH
     from guidebook.tls import ensure_ca_cert, generate_client_cert
@@ -147,8 +152,21 @@ async def generate_cert(
     active_cert_count = len(active_certs)
 
     # Check slot availability (sessions + certs share the same slots)
+    # If slots are full but the current user has a cookie session, revoke it
+    # to make room — this is the cookie-to-mTLS upgrade path
     session_count = await _token_count(gdb)
     total_used = session_count + active_cert_count
+    if AUTH_SLOTS > 0 and total_used >= AUTH_SLOTS:
+        current_sid = _get_current_session_id(request)
+        if current_sid:
+            tok = await _validate_session(gdb, current_sid)
+            if tok:
+                await gdb.delete(tok)
+                await gdb.flush()
+                session_count -= 1
+                total_used -= 1
+                logger.info("Revoked cookie session to make room for client cert")
+
     if AUTH_SLOTS > 0 and total_used >= AUTH_SLOTS:
         raise HTTPException(
             400,
