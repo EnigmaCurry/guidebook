@@ -167,7 +167,11 @@ def _rate_limit_429(retry_after: int) -> Response:
 
 
 async def _check_mtls_auth(request: Request, gdb) -> bool:
-    """Check if request is authenticated via mTLS client certificate."""
+    """Check if request is authenticated via mTLS client certificate.
+
+    If the cert has a pending_session_id (upgrade from cookie), revoke that
+    session on first use and clear the pending flag.
+    """
     peer_cert_der = request.scope.get("mtls_peer_cert_der")
     if not peer_cert_der:
         return False
@@ -177,7 +181,7 @@ async def _check_mtls_auth(request: Request, gdb) -> bool:
 
         cert = load_der_x509_certificate(peer_cert_der)
         serial_hex = format(cert.serial_number, "x")
-        from guidebook.db import ClientCert
+        from guidebook.db import AuthToken, ClientCert
 
         result = await gdb.execute(
             select(ClientCert).where(
@@ -185,7 +189,29 @@ async def _check_mtls_auth(request: Request, gdb) -> bool:
                 ClientCert.revoked_at.is_(None),
             )
         )
-        return result.scalar_one_or_none() is not None
+        client_cert = result.scalar_one_or_none()
+        if client_cert is None:
+            return False
+
+        # Complete the cookie-to-mTLS upgrade: revoke the old session
+        if client_cert.pending_session_id is not None:
+            old_session = (
+                await gdb.execute(
+                    select(AuthToken).where(
+                        AuthToken.id == client_cert.pending_session_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if old_session:
+                await gdb.delete(old_session)
+            client_cert.pending_session_id = None
+            await gdb.commit()
+            logger.info(
+                "mTLS upgrade complete: revoked cookie session for cert %s",
+                client_cert.label,
+            )
+
+        return True
     except Exception:
         return False
 

@@ -134,9 +134,8 @@ async def generate_cert(
 
     from guidebook.routes.auth import (
         AUTH_SLOTS,
-        _get_jwt_claims,
+        _get_current_session_id,
         _token_count,
-        _validate_session,
     )
 
     from guidebook.db import META_DB_PATH
@@ -144,7 +143,7 @@ async def generate_cert(
 
     ca_cert_pem, ca_key_pem = ensure_ca_cert(str(META_DB_PATH))
 
-    # Count active (non-revoked) certs
+    # Count active (non-revoked) certs (exclude pending-upgrade certs from count)
     result = await gdb.execute(
         select(ClientCert).where(ClientCert.revoked_at.is_(None))
     )
@@ -152,28 +151,21 @@ async def generate_cert(
     active_cert_count = len(active_certs)
 
     # Check slot availability (sessions + certs share the same slots)
-    # If slots are full but the current user has a cookie session, revoke it
-    # to make room — this is the cookie-to-mTLS upgrade path
     session_count = await _token_count(gdb)
     total_used = session_count + active_cert_count
-    if AUTH_SLOTS > 0 and total_used >= AUTH_SLOTS:
-        claims = _get_jwt_claims(request)
-        if claims and "sid" in claims:
-            tok = await _validate_session(
-                gdb, claims["sid"], claims.get("nonce")
-            )
-            if tok:
-                await gdb.delete(tok)
-                await gdb.flush()
-                session_count -= 1
-                total_used -= 1
-                logger.info("Revoked cookie session to make room for client cert")
+    pending_session_id = None
 
     if AUTH_SLOTS > 0 and total_used >= AUTH_SLOTS:
-        raise HTTPException(
-            400,
-            f"All {AUTH_SLOTS} slot(s) are in use ({session_count} session(s), {active_cert_count} cert(s)). Revoke a session or certificate first.",
-        )
+        # If the user has a cookie session, allow the upgrade — the session
+        # will be revoked when the new cert is first used (state machine)
+        current_sid = _get_current_session_id(request)
+        if current_sid:
+            pending_session_id = current_sid
+        else:
+            raise HTTPException(
+                400,
+                f"All {AUTH_SLOTS} slot(s) are in use ({session_count} session(s), {active_cert_count} cert(s)). Revoke a session or certificate first.",
+            )
 
     label = f"client-{active_cert_count + 1}"
 
@@ -192,6 +184,7 @@ async def generate_cert(
             issued_at=now,
             expires_at=now + CERT_VALIDITY_DAYS * 86400,
             fingerprint_sha256=fingerprint,
+            pending_session_id=pending_session_id,
         )
     )
     await gdb.commit()

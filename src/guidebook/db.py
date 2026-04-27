@@ -234,6 +234,7 @@ class ClientCert(GlobalBase):
     expires_at: Mapped[float] = mapped_column(Float, nullable=False)
     revoked_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     fingerprint_sha256: Mapped[str] = mapped_column(String, nullable=False)
+    pending_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class DatabaseLockError(Exception):
@@ -373,6 +374,17 @@ def _global_migration_1_client_certs(conn):
 
 
 GLOBAL_MIGRATIONS.append(_global_migration_1_client_certs)
+
+
+def _global_migration_2_client_certs_pending_session(conn):
+    """Add pending_session_id column to client_certs for upgrade state tracking."""
+    try:
+        conn.execute(text("ALTER TABLE client_certs ADD COLUMN pending_session_id INTEGER"))
+    except Exception:
+        pass  # column may already exist
+
+
+GLOBAL_MIGRATIONS.append(_global_migration_2_client_certs_pending_session)
 
 
 class DatabaseManager:
