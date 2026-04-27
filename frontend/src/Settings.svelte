@@ -1822,7 +1822,7 @@
   <section class="settings-section">
     <h3>Logout</h3>
     {#if mtlsCurrentCert}
-      <p class="hint">Revoke your current client certificate. You will need a new mTLS certificate to reconnect, or restart the server with <code style="font-size: 0.75rem; white-space: nowrap">--reset-auth</code> to revert to login link mode.</p>
+      <p class="hint">Revoke your current client certificate. You will need a new mTLS certificate to reconnect. Otherwise you may restart the server with <code style="font-size: 0.75rem; white-space: nowrap">--reset-auth</code> to setup auth again from scratch.</p>
       <div class="setting-row">
         <button class="danger-btn" on:click={mtlsLogout}>Revoke Certificate &amp; Logout</button>
       </div>

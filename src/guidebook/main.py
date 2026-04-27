@@ -317,7 +317,7 @@ async def http_middleware(request: Request, call_next):
                                 "<p>You need a valid mTLS client certificate to access this site.</p>"
                                 '<p class="dim">Ask the owner to generate a new client certificate for you, '
                                 "or restart the server with "
-                                "<code style='white-space:nowrap'>--reset-auth</code> to revert to login link mode.</p>"
+                                "<code style='white-space:nowrap'>--reset-auth</code> to setup auth again from scratch.</p>"
                             ),
                         )
                     return HTMLResponse(
