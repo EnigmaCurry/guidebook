@@ -232,12 +232,15 @@ async def http_middleware(request: Request, call_next):
 
     # Auth check for API routes
     if path.startswith("/api/") and path not in _AUTH_EXEMPT_PATHS:
-        from guidebook.routes.auth import check_auth, MTLS_MODE
+        from guidebook.routes.auth import check_auth, MTLS_MODE, _is_auth_enabled
         from guidebook.db import db_manager
 
         if db_manager._global_session_factory:
             async with db_manager._global_session_factory() as gdb:
-                if MTLS_MODE == "required":
+                auth_enabled = await _is_auth_enabled(gdb)
+                if not auth_enabled:
+                    ok = True
+                elif MTLS_MODE == "required":
                     # mTLS enforced: only client certs accepted, no cookie fallback
                     ok = await _check_mtls_auth(request, gdb)
                 else:
