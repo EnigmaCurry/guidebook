@@ -348,8 +348,10 @@ def _is_signed_by_ca(cert_pem: str, ca_cert_pem: str) -> bool:
 def ensure_tls_cert(meta_db_path: str) -> tuple[str, str]:
     """Load or generate TLS cert/key from the global database. Returns (cert_pem, key_pem).
 
-    If a CA exists, the server cert is signed by the CA. If the existing server
-    cert is self-signed but a CA now exists, it is regenerated as CA-signed.
+    If ``tls_mode`` is ``"acme"`` and an ACME cert exists, it is returned as-is.
+    Otherwise, if a CA exists, the server cert is signed by the CA.  If the
+    existing server cert is self-signed but a CA now exists, it is regenerated
+    as CA-signed.
     """
     os.makedirs(os.path.dirname(meta_db_path), exist_ok=True)
     conn = sqlite3.connect(meta_db_path)
@@ -357,6 +359,12 @@ def ensure_tls_cert(meta_db_path: str) -> tuple[str, str]:
         "CREATE TABLE IF NOT EXISTS settings "
         "(id INTEGER NOT NULL PRIMARY KEY, key VARCHAR NOT NULL UNIQUE, value VARCHAR)"
     )
+
+    # If in ACME mode, use the stored cert directly (don't regenerate)
+    tls_mode_row = conn.execute(
+        "SELECT value FROM settings WHERE key = 'tls_mode'"
+    ).fetchone()
+    tls_mode = tls_mode_row[0] if tls_mode_row and tls_mode_row[0] else "self-signed"
 
     ca_cert_pem, ca_key_pem = _load_ca_from_db(conn)
 
@@ -368,6 +376,10 @@ def ensure_tls_cert(meta_db_path: str) -> tuple[str, str]:
     ).fetchone()
 
     if row_cert and row_key and row_cert[0] and row_key[0]:
+        if tls_mode == "acme":
+            conn.close()
+            logger.info("Loaded ACME TLS certificate from database")
+            return row_cert[0], row_key[0]
         # Check if we need to regenerate: CA exists but cert is not CA-signed
         if ca_cert_pem and not _is_signed_by_ca(row_cert[0], ca_cert_pem):
             logger.info("Regenerating server certificate (signing with CA)")
@@ -378,12 +390,14 @@ def ensure_tls_cert(meta_db_path: str) -> tuple[str, str]:
 
     if ca_cert_pem and ca_key_pem:
         logger.info(
-            "Generating CA-signed server certificate (valid %d days)", CERT_VALIDITY_DAYS
+            "Generating CA-signed server certificate (valid %d days)",
+            CERT_VALIDITY_DAYS,
         )
         cert_pem, key_pem = _generate_server_cert(ca_cert_pem, ca_key_pem)
     else:
         logger.info(
-            "Generating self-signed server certificate (valid %d days)", CERT_VALIDITY_DAYS
+            "Generating self-signed server certificate (valid %d days)",
+            CERT_VALIDITY_DAYS,
         )
         cert_pem, key_pem = _generate_server_cert()
 
