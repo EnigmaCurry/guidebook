@@ -1601,16 +1601,15 @@
         </div>
       {/if}
 
-      {#if mtlsCerts.length > 0}
-        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Issued Certificates</h4>
+      {#if mtlsCerts.filter(c => !c.revoked_at).length > 0}
+        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Active Certificates</h4>
         <div class="session-list mtls-cert-list">
-          {#each mtlsCerts as cert (cert.id)}
-            <div class="session-item" class:session-current={cert.is_current} class:session-revoked={cert.revoked_at}>
+          {#each mtlsCerts.filter(c => !c.revoked_at) as cert (cert.id)}
+            <div class="session-item" class:session-current={cert.is_current}>
               <div class="session-info">
                 <span class="session-label">
                   {cert.label}
                   {#if cert.is_current} <strong>(current)</strong>{/if}
-                  {#if cert.revoked_at}<em style="color: var(--danger-color, #cc3333);"> (revoked)</em>{/if}
                 </span>
                 <span class="session-meta">
                   Fingerprint: {cert.fingerprint_sha256.slice(0, 16)}...
@@ -1618,12 +1617,32 @@
                   — Expires {formatAuthTime(cert.expires_at)}
                 </span>
               </div>
-              {#if !cert.revoked_at && !cert.is_current}
+              {#if !cert.is_current}
                 <button class="session-delete" on:click={() => revokeClientCert(cert.id)} title="Revoke this certificate">Revoke</button>
               {/if}
             </div>
           {/each}
         </div>
+      {/if}
+
+      {#if mtlsCerts.filter(c => c.revoked_at).length > 0}
+        <details class="mtls-revoked-accordion" style="margin-top: 0.75rem;">
+          <summary>Revoked Certificates ({mtlsCerts.filter(c => c.revoked_at).length})</summary>
+          <div class="session-list mtls-cert-list">
+            {#each mtlsCerts.filter(c => c.revoked_at) as cert (cert.id)}
+              <div class="session-item session-revoked">
+                <div class="session-info">
+                  <span class="session-label">{cert.label}</span>
+                  <span class="session-meta">
+                    Fingerprint: {cert.fingerprint_sha256.slice(0, 16)}...
+                    — Issued {formatAuthTime(cert.issued_at)}
+                    — Revoked {formatAuthTime(cert.revoked_at)}
+                  </span>
+                </div>
+              </div>
+            {/each}
+          </div>
+        </details>
       {/if}
     {/if}
 
@@ -2357,6 +2376,20 @@
   .mtls-cert-list {
     max-height: 12rem;
     overflow-y: auto;
+  }
+  .mtls-revoked-accordion {
+    font-size: 0.8rem;
+  }
+  .mtls-revoked-accordion summary {
+    cursor: pointer;
+    color: var(--text-dim);
+    user-select: none;
+  }
+  .mtls-revoked-accordion summary:hover {
+    color: var(--text);
+  }
+  .mtls-revoked-accordion .session-list {
+    margin-top: 0.4rem;
   }
 
   /* mTLS radio group */
