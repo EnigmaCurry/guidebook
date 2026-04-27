@@ -308,13 +308,6 @@ async def activate_mtls(
     if body.mode not in ("disabled", "optional", "required"):
         raise HTTPException(400, f"Invalid mode: {body.mode}")
 
-    if body.mode != "disabled":
-        # Ensure CA exists
-        from guidebook.db import META_DB_PATH
-        from guidebook.tls import ensure_ca_cert
-
-        ensure_ca_cert(str(META_DB_PATH))
-
     await _set_setting(gdb, "mtls_mode", body.mode)
     await gdb.commit()
     logger.info("mTLS mode set to: %s (restart required)", body.mode)

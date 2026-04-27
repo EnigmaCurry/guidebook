@@ -1112,12 +1112,13 @@ environment variables (overridden by command line options):
         import ssl as _ssl
 
         from guidebook.db import META_DB_PATH
-        from guidebook.tls import ensure_tls_cert, write_tls_temp_files
+        from guidebook.tls import ensure_ca_cert, ensure_tls_cert, write_tls_temp_files
 
+        ensure_ca_cert(str(META_DB_PATH))
         cert_pem, key_pem = ensure_tls_cert(str(META_DB_PATH))
         certfile, keyfile = write_tls_temp_files(cert_pem, key_pem)
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
-        logger.info("TLS enabled (self-signed certificate)")
+        logger.info("TLS enabled (CA-signed certificate)")
 
         # mTLS configuration
         import sqlite3 as _sq
