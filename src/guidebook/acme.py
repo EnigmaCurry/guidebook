@@ -352,11 +352,14 @@ async def acme_finalize_order(
     account_key_pem: str,
     account_url: str,
     finalize_url: str,
+    order_url: str,
     csr_b64url: str,
 ) -> str:
     """Finalize an ACME order by submitting the CSR.
 
-    Returns the certificate URL.
+    After submitting the CSR the order typically enters ``processing`` state.
+    This function polls the order until it becomes ``valid`` and a certificate
+    URL is available, then returns that URL.
     """
     directory = await acme_directory(endpoint)
     key = _load_account_key(account_key_pem)
@@ -365,6 +368,12 @@ async def acme_finalize_order(
     if r.status_code not in (200, 201):
         raise RuntimeError(f"ACME finalize failed ({r.status_code}): {r.text}")
     order = r.json()
+    cert_url = order.get("certificate")
+    if cert_url:
+        return cert_url
+
+    # Order is still processing — poll until valid
+    order = await acme_poll_order(endpoint, account_key_pem, account_url, order_url)
     cert_url = order.get("certificate")
     if not cert_url:
         raise RuntimeError("No certificate URL in finalized order")
@@ -477,18 +486,16 @@ async def acme_provision_cert(
     order_url = order.get("_url") or order["authorizations"][0].rsplit("/", 2)[0]
     order = await acme_poll_order(endpoint, account_key_pem, account_url, order_url)
 
-    _progress("finalizing", "Submitting CSR")
+    _progress("finalizing", "Submitting CSR and waiting for certificate")
     csr_b64, key_pem = generate_csr(domain)
     cert_url = await acme_finalize_order(
-        endpoint, account_key_pem, account_url, order["finalize"], csr_b64
+        endpoint,
+        account_key_pem,
+        account_url,
+        order["finalize"],
+        order_url,
+        csr_b64,
     )
-
-    # Poll again until status is "valid" and certificate is available
-    if order.get("status") != "valid":
-        order = await acme_poll_order(
-            endpoint, account_key_pem, account_url, order["_url"]
-        )
-        cert_url = order.get("certificate", cert_url)
 
     _progress("downloading", "Downloading certificate")
     cert_pem = await acme_download_cert(
