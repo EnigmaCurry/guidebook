@@ -333,6 +333,12 @@
     }
   }
 
+  function selectRow(i) {
+    selectedIndex = i;
+    scrollToSelected();
+    dispatch("selectionchange", sortedRecords[selectedIndex]?.id ?? null);
+  }
+
   export function deselect() {
     if (selectedIndex >= 0) {
       selectedIndex = -1;
@@ -807,10 +813,15 @@
         <tbody>
           {#each sortedRecords as r, i (r.id)}
             <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <tr class="clickable" class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => editRecord(r)}>
+            <tr class="clickable" class:editing={formId === r.id} class:selected={selectedIndex === i} title={relativeTime(r.timestamp)} on:click={() => selectRow(i)}>
               {#each columns as col (col.key)}
                 {#if col.key === "title"}
-                  <td class="title-cell">{r.title}</td>
+                  <td class="title-cell">
+                    {r.title}
+                    {#if selectedIndex === i}
+                      <button class="edit-row-btn" on:click|stopPropagation={() => editRecord(r)} title="Edit record">&#9998;</button>
+                    {/if}
+                  </td>
                 {:else if col.key === "tags"}
                   <td class="tags-cell">{r.tags || ""}</td>
                 {:else if col.key === "content"}
@@ -1124,6 +1135,25 @@
 
   tr.editing {
     background: var(--row-editing);
+  }
+
+  .edit-row-btn {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.1rem 0.35rem;
+    border: 1px solid var(--accent, #00ff88);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--accent, #00ff88);
+    font-size: 0.8rem;
+    cursor: pointer;
+    vertical-align: middle;
+    line-height: 1;
+  }
+
+  .edit-row-btn:hover {
+    background: var(--accent, #00ff88);
+    color: var(--bg, #1a1b1e);
   }
 
   /* --- Attachments --- */
