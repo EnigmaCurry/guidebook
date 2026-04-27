@@ -56,7 +56,7 @@
   // Store global default values for use as placeholders
   let globalPlaceholders = {};
 
-  const validTabs = ["features", "appearance", "updates", "data", "auth", "global"];
+  const validTabs = ["features", "appearance", "updates", "data", "auth", "tls", "global"];
   let activeTab = (initialTab && validTabs.includes(initialTab)) ? initialTab : "features";
   let settingsLoaded = false;
 
@@ -396,6 +396,191 @@
       mtlsError = e.message;
     }
     mtlsActivating = false;
+  }
+
+  // TLS settings
+  let tlsEnabled = true;
+  let tlsMode = "self-signed";
+  let tlsCaFingerprint = null;
+  let tlsServerFingerprint = null;
+  let tlsCertIssuer = null;
+  let tlsCertNotBefore = null;
+  let tlsCertNotAfter = null;
+  let tlsCertSan = [];
+  let tlsNextRenewal = null;
+  let tlsAcmeDomain = "";
+  let tlsAcmeEndpoint = "le-production";
+  let tlsAcmeDnsServer = "https://auth.acme-dns.io";
+  let tlsAcmeFulldomain = null;
+  let tlsAcmeRegistered = false;
+  let tlsAcmeConfigured = false;
+  let tlsAcmeStep = "configure"; // configure, register, cname, provision, active
+  let tlsAcmeProvisioning = false;
+  let tlsAcmeError = "";
+  let tlsAcmeProgress = "";
+  let tlsAcmeCnameRecord = "";
+  let tlsAcmeCnameTarget = "";
+  let tlsAcmeCnameStatus = null;
+  let tlsAcmeVerifying = false;
+  let tlsAcmeConfiguring = false;
+  let tlsAcmeRegistering = false;
+  let tlsAcmeReverting = false;
+  let tlsRestartRequired = false;
+
+  async function loadTlsStatus() {
+    try {
+      const res = await fetch("/api/tls/status");
+      if (res.ok) {
+        const data = await res.json();
+        tlsEnabled = data.tls_enabled;
+        tlsMode = data.tls_mode;
+        tlsCaFingerprint = data.ca_fingerprint;
+        tlsServerFingerprint = data.server_cert_fingerprint;
+        tlsCertIssuer = data.cert_issuer;
+        tlsCertNotBefore = data.cert_not_before;
+        tlsCertNotAfter = data.cert_not_after;
+        tlsCertSan = data.cert_san || [];
+        tlsNextRenewal = data.next_renewal;
+        if (data.acme_domain) tlsAcmeDomain = data.acme_domain;
+        if (data.acme_endpoint) tlsAcmeEndpoint = data.acme_endpoint;
+        if (data.acme_dns_server) tlsAcmeDnsServer = data.acme_dns_server;
+        tlsAcmeFulldomain = data.acme_dns_fulldomain;
+        tlsAcmeRegistered = data.acme_registered;
+        tlsAcmeConfigured = data.acme_configured;
+        // Determine step
+        if (tlsMode === "acme") {
+          tlsAcmeStep = "active";
+        } else if (data.acme_registered) {
+          tlsAcmeStep = "cname";
+        } else if (data.acme_configured) {
+          tlsAcmeStep = "register";
+        } else {
+          tlsAcmeStep = "configure";
+        }
+        if (data.acme_domain) {
+          tlsAcmeCnameRecord = `_acme-challenge.${data.acme_domain}`;
+          if (data.acme_dns_fulldomain) {
+            tlsAcmeCnameTarget = `${data.acme_dns_fulldomain}.`;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  async function tlsAcmeConfigure() {
+    tlsAcmeError = "";
+    tlsAcmeConfiguring = true;
+    try {
+      const res = await fetch("/api/tls/acme/configure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domain: tlsAcmeDomain,
+          endpoint: tlsAcmeEndpoint,
+          acme_dns_server: tlsAcmeDnsServer,
+        }),
+      });
+      if (res.ok) {
+        await loadTlsStatus();
+        tlsAcmeStep = "register";
+      } else {
+        const data = await res.json().catch(() => null);
+        tlsAcmeError = data?.detail || "Failed to save configuration";
+      }
+    } catch (e) {
+      tlsAcmeError = e.message;
+    }
+    tlsAcmeConfiguring = false;
+  }
+
+  async function tlsAcmeRegister() {
+    tlsAcmeError = "";
+    tlsAcmeRegistering = true;
+    try {
+      const res = await fetch("/api/tls/acme/register", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        tlsAcmeFulldomain = data.fulldomain;
+        tlsAcmeCnameRecord = data.cname_record;
+        tlsAcmeCnameTarget = data.cname_target;
+        tlsAcmeRegistered = true;
+        tlsAcmeStep = "cname";
+      } else {
+        const data = await res.json().catch(() => null);
+        tlsAcmeError = data?.detail || "Failed to register with acme-dns";
+      }
+    } catch (e) {
+      tlsAcmeError = e.message;
+    }
+    tlsAcmeRegistering = false;
+  }
+
+  async function tlsAcmeVerifyCname() {
+    tlsAcmeError = "";
+    tlsAcmeVerifying = true;
+    tlsAcmeCnameStatus = null;
+    try {
+      const res = await fetch("/api/tls/acme/verify-cname", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        tlsAcmeCnameStatus = data;
+      } else {
+        const data = await res.json().catch(() => null);
+        tlsAcmeError = data?.detail || "DNS verification failed";
+      }
+    } catch (e) {
+      tlsAcmeError = e.message;
+    }
+    tlsAcmeVerifying = false;
+  }
+
+  async function tlsAcmeProvision() {
+    tlsAcmeError = "";
+    tlsAcmeProvisioning = true;
+    tlsAcmeProgress = "Starting certificate provisioning...";
+    try {
+      const res = await fetch("/api/tls/acme/provision", { method: "POST" });
+      if (res.ok) {
+        tlsAcmeStep = "active";
+        tlsRestartRequired = true;
+        await loadTlsStatus();
+      } else {
+        const data = await res.json().catch(() => null);
+        tlsAcmeError = data?.detail || "Provisioning failed";
+      }
+    } catch (e) {
+      tlsAcmeError = e.message;
+    }
+    tlsAcmeProvisioning = false;
+    tlsAcmeProgress = "";
+  }
+
+  async function tlsAcmeRevert() {
+    tlsAcmeError = "";
+    tlsAcmeReverting = true;
+    try {
+      const res = await fetch("/api/tls/acme/revert", { method: "POST" });
+      if (res.ok) {
+        tlsMode = "self-signed";
+        tlsAcmeStep = "configure";
+        tlsRestartRequired = true;
+        await loadTlsStatus();
+      } else {
+        const data = await res.json().catch(() => null);
+        tlsAcmeError = data?.detail || "Failed to revert";
+      }
+    } catch (e) {
+      tlsAcmeError = e.message;
+    }
+    tlsAcmeReverting = false;
+  }
+
+  function formatIsoDate(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch { return iso; }
   }
 
   async function loadDbInfo() {
@@ -1222,6 +1407,7 @@
     loadAuthStatus();
     loadAuthSessions();
     loadMtlsStatus();
+    loadTlsStatus();
   });
 
   onDestroy(() => {
@@ -1238,6 +1424,7 @@
     <button class="tab" class:active={activeTab === "updates"} on:click={() => switchTab("updates")}>Updates</button>
     <button class="tab" class:active={activeTab === "data"} on:click={() => switchTab("data")}>Data</button>
     <button class="tab" class:active={activeTab === "auth"} on:click={() => switchTab("auth")}>Auth</button>
+    <button class="tab" class:active={activeTab === "tls"} on:click={() => switchTab("tls")}>TLS</button>
   </div>
 
   {#if activeTab === "features"}
@@ -1649,6 +1836,7 @@
 
       {#if mtlsMode !== "disabled" || mtlsCerts.length > 0}
         <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Generate Client Certificate</h4>
+        <p class="hint">Generate a client certificate for mTLS authentication. {#if authSlots > 0}{authAvailableSlots} of {authSlots} slot{authSlots === 1 ? '' : 's'} available.{:else}Unlimited slots.{/if}</p>
         <div class="setting-row">
           <button on:click={openCertModal} disabled={authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current)}>
             {authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current) ? `No slots available (${authSlots} used)` : "Generate Client Certificate"}
@@ -1844,6 +2032,202 @@
       <p class="danger-error">{authError}</p>
     </section>
   {/if}
+  </div></div>
+  {/if}
+
+  {#if activeTab === "tls"}
+  <div class="tab-scroll"><div class="tab-content" use:masonry>
+  <section class="settings-section">
+    <h3>TLS Certificates</h3>
+    {#if !tlsEnabled}
+      <p class="hint" style="color: var(--error-color, #e74c3c); font-weight: bold;">TLS is disabled via <code style="font-size: 0.75rem; white-space: nowrap">--no-tls</code>. Remove this flag to configure TLS certificates.</p>
+    {:else}
+      {#if tlsMode === "acme"}
+        <p class="hint">Server certificate is provisioned via <strong>Let's Encrypt</strong> (ACME-DNS). The self-signed CA is still used for mTLS client certificates.</p>
+      {:else}
+        <p class="hint">Server certificate is signed by the <strong>built-in self-signed CA</strong>. You can optionally switch to a trusted Let's Encrypt certificate below.</p>
+      {/if}
+
+      {#if tlsRestartRequired}
+        <p class="hint" style="color: var(--warning-color, #e6a700); font-weight: bold; margin-top: 0.5rem;">A new certificate has been provisioned. Restart the server to activate it.</p>
+      {/if}
+    {/if}
+  </section>
+
+  {#if tlsEnabled && tlsMode === "self-signed"}
+  <section class="settings-section">
+    <h3>Self-signed Certificate Info</h3>
+    {#if tlsCaFingerprint}
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">CA Fingerprint (SHA-256)</span>
+        <div style="font-family: monospace; font-size: 0.75rem; word-break: break-all;">{tlsCaFingerprint}</div>
+      </div>
+    {/if}
+    {#if tlsServerFingerprint}
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Server Cert Fingerprint (SHA-256)</span>
+        <div style="font-family: monospace; font-size: 0.75rem; word-break: break-all;">{tlsServerFingerprint}</div>
+      </div>
+    {/if}
+    {#if tlsCertIssuer}
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Issuer</span>
+        <div style="font-family: monospace; font-size: 0.85rem;">{tlsCertIssuer}</div>
+      </div>
+    {/if}
+    {#if tlsCertNotBefore && tlsCertNotAfter}
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Validity</span>
+        <div style="font-size: 0.85rem;">{formatIsoDate(tlsCertNotBefore)} — {formatIsoDate(tlsCertNotAfter)}</div>
+      </div>
+    {/if}
+    <div class="setting-row">
+      <a href="/api/tls/ca.pem" download="guidebook-ca.pem" style="display: inline-block;">
+        <button type="button">Download CA Certificate</button>
+      </a>
+    </div>
+  </section>
+  {/if}
+
+  {#if tlsEnabled && (tlsMode === "acme" || tlsAcmeStep !== "configure" || tlsMode !== "acme")}
+  <section class="settings-section">
+    <h3>Let's Encrypt via ACME-DNS</h3>
+
+    {#if tlsMode === "acme" && tlsAcmeStep === "active"}
+      <!-- Active ACME cert -->
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Domain</span>
+        <div style="font-family: monospace; font-size: 0.85rem;">{tlsAcmeDomain}</div>
+      </div>
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Issuer</span>
+        <div style="font-family: monospace; font-size: 0.85rem;">{tlsCertIssuer}</div>
+      </div>
+      {#if tlsServerFingerprint}
+        <div style="margin-bottom: 0.75rem;">
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Server Cert Fingerprint (SHA-256)</span>
+          <div style="font-family: monospace; font-size: 0.75rem; word-break: break-all;">{tlsServerFingerprint}</div>
+        </div>
+      {/if}
+      {#if tlsCertNotBefore && tlsCertNotAfter}
+        <div style="margin-bottom: 0.75rem;">
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Validity</span>
+          <div style="font-size: 0.85rem;">{formatIsoDate(tlsCertNotBefore)} — {formatIsoDate(tlsCertNotAfter)}</div>
+        </div>
+      {/if}
+      {#if tlsNextRenewal}
+        <div style="margin-bottom: 0.75rem;">
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block;">Auto-renewal at</span>
+          <div style="font-size: 0.85rem;">{formatIsoDate(tlsNextRenewal)}</div>
+        </div>
+      {/if}
+      {#if tlsAcmeFulldomain}
+        <div style="margin-bottom: 0.75rem;">
+          <span style="font-size: 0.8rem; opacity: 0.7; display: block;">ACME-DNS Fulldomain</span>
+          <div style="font-family: monospace; font-size: 0.85rem;">{tlsAcmeFulldomain}</div>
+        </div>
+      {/if}
+      <div class="setting-row" style="margin-top: 1rem;">
+        <button class="danger-btn" on:click={tlsAcmeRevert} disabled={tlsAcmeReverting}>
+          {tlsAcmeReverting ? "Reverting..." : "Revert to Self-signed"}
+        </button>
+      </div>
+
+    {:else}
+      <!-- ACME setup wizard -->
+      <h4 style="margin-bottom: 0.5rem;">Step 1: Configure</h4>
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block; margin-bottom: 0.3rem;">Domain name</span>
+        <input type="text" bind:value={tlsAcmeDomain} placeholder="notes.example.com" style="width: 100%; box-sizing: border-box;" disabled={tlsAcmeStep !== "configure"} />
+      </div>
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block; margin-bottom: 0.3rem;">ACME endpoint</span>
+        <select bind:value={tlsAcmeEndpoint} style="width: 100%; box-sizing: border-box;" disabled={tlsAcmeStep !== "configure"}>
+          <option value="le-production">Let's Encrypt (Production)</option>
+          <option value="le-staging">Let's Encrypt (Staging)</option>
+          <option value="custom">Custom URL</option>
+        </select>
+        {#if tlsAcmeEndpoint === "custom"}
+          <input type="text" bind:value={tlsAcmeEndpoint} placeholder="https://acme.example.com/directory" style="width: 100%; box-sizing: border-box; margin-top: 0.3rem;" />
+        {/if}
+      </div>
+      <div style="margin-bottom: 0.75rem;">
+        <span style="font-size: 0.8rem; opacity: 0.7; display: block; margin-bottom: 0.3rem;">ACME-DNS server</span>
+        <input type="text" bind:value={tlsAcmeDnsServer} placeholder="https://auth.acme-dns.io" style="width: 100%; box-sizing: border-box;" disabled={tlsAcmeStep !== "configure"} />
+        <p class="hint" style="margin-top: 0.25rem;">The default is a free public instance. You can host your own <a href="https://github.com/joohoi/acme-dns" target="_blank" rel="noopener">acme-dns</a> server.</p>
+      </div>
+      {#if tlsAcmeStep === "configure"}
+        <div class="setting-row">
+          <button on:click={tlsAcmeConfigure} disabled={tlsAcmeConfiguring || !tlsAcmeDomain.trim()}>
+            {tlsAcmeConfiguring ? "Saving..." : "Save & Continue"}
+          </button>
+        </div>
+      {/if}
+
+      {#if tlsAcmeStep === "register" || tlsAcmeStep === "cname" || tlsAcmeStep === "provision"}
+        <h4 style="margin-top: 1.25rem; margin-bottom: 0.5rem;">Step 2: Register with ACME-DNS</h4>
+        {#if !tlsAcmeRegistered}
+          <p class="hint">Register with the ACME-DNS server to get a subdomain for DNS validation.</p>
+          <div class="setting-row">
+            <button on:click={tlsAcmeRegister} disabled={tlsAcmeRegistering}>
+              {tlsAcmeRegistering ? "Registering..." : "Register"}
+            </button>
+          </div>
+        {:else}
+          <p class="hint" style="color: var(--success-color, #27ae60);">Registered. ACME-DNS fulldomain: <code style="font-size: 0.75rem;">{tlsAcmeFulldomain}</code></p>
+        {/if}
+      {/if}
+
+      {#if (tlsAcmeStep === "cname" || tlsAcmeStep === "provision") && tlsAcmeRegistered}
+        <h4 style="margin-top: 1.25rem; margin-bottom: 0.5rem;">Step 3: Create DNS CNAME Record</h4>
+        <p class="hint">Add this CNAME record to your DNS provider:</p>
+        <div style="background: var(--input-bg, #1a1b20); padding: 0.75rem; border-radius: 4px; margin: 0.5rem 0; font-family: monospace; font-size: 0.8rem; word-break: break-all;">
+          <div><strong>{tlsAcmeCnameRecord}</strong></div>
+          <div style="opacity: 0.6;">CNAME →</div>
+          <div><strong>{tlsAcmeCnameTarget}</strong></div>
+        </div>
+        <div class="setting-row" style="gap: 0.5rem; display: flex; align-items: center;">
+          <button on:click={tlsAcmeVerifyCname} disabled={tlsAcmeVerifying}>
+            {tlsAcmeVerifying ? "Checking..." : "Verify DNS"}
+          </button>
+          {#if tlsAcmeCnameStatus}
+            {#if tlsAcmeCnameStatus.status === "ok"}
+              <span style="color: var(--success-color, #27ae60); font-size: 0.85rem;">CNAME verified</span>
+            {:else if tlsAcmeCnameStatus.status === "resolved"}
+              <span style="color: var(--warning-color, #e6a700); font-size: 0.85rem;">DNS resolved (CNAME not directly confirmed)</span>
+            {:else}
+              <span style="color: var(--error-color, #e74c3c); font-size: 0.85rem;">CNAME not found</span>
+            {/if}
+          {/if}
+        </div>
+
+        <h4 style="margin-top: 1.25rem; margin-bottom: 0.5rem;">Step 4: Request Certificate</h4>
+        <p class="hint">Once the CNAME is in place, request a certificate from Let's Encrypt.</p>
+        {#if tlsAcmeProvisioning}
+          <div style="margin: 0.5rem 0; font-size: 0.85rem; opacity: 0.8;">
+            {tlsAcmeProgress}
+          </div>
+        {/if}
+        <div class="setting-row">
+          <button on:click={tlsAcmeProvision} disabled={tlsAcmeProvisioning}>
+            {tlsAcmeProvisioning ? "Provisioning..." : "Request Certificate"}
+          </button>
+        </div>
+      {/if}
+
+      {#if tlsAcmeStep === "configure" && (tlsAcmeConfigured || tlsAcmeRegistered)}
+        <div class="setting-row" style="margin-top: 1rem;">
+          <button on:click={() => { if (tlsAcmeRegistered) tlsAcmeStep = "cname"; else if (tlsAcmeConfigured) tlsAcmeStep = "register"; }}>Resume Setup</button>
+        </div>
+      {/if}
+    {/if}
+
+    {#if tlsAcmeError}
+      <p class="danger-error" style="margin-top: 0.5rem;">{tlsAcmeError}</p>
+    {/if}
+  </section>
+  {/if}
+
   </div></div>
   {/if}
 

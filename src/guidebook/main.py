@@ -49,6 +49,11 @@ from guidebook.routes.update import router as update_router
 from guidebook.routes.scratchpad import router as scratchpad_router
 from guidebook.routes.media import router as media_router
 from guidebook.routes.mtls import router as mtls_router
+from guidebook.routes.tls import (
+    router as tls_router,
+    start_acme_renewal,
+    stop_acme_renewal,
+)
 from guidebook._build_info import BUILD_GITHUB_ACTIONS, BUILD_ORIGIN_REPO, GIT_SHA
 
 logger = logging.getLogger("guidebook")
@@ -117,7 +122,9 @@ async def lifespan(app: FastAPI):
         await gdb.commit()
     if db_manager.is_open:
         await start_auto_backup()
+    await start_acme_renewal()
     yield
+    await stop_acme_renewal()
     await stop_sse_auto_shutdown()
     await stop_auto_backup()
     await db_manager.close()
@@ -338,7 +345,10 @@ async def http_middleware(request: Request, call_next):
     response: Response = await call_next(request)
 
     # Record auth failures for rate limiting (only login attempts, not general 401s)
-    if path in ("/api/auth/login", "/api/auth/check-token") and response.status_code == 401:
+    if (
+        path in ("/api/auth/login", "/api/auth/check-token")
+        and response.status_code == 401
+    ):
         auth_limiter.record(client_ip)
 
     if path.startswith("/api/"):
@@ -580,6 +590,7 @@ app.include_router(update_router)
 app.include_router(scratchpad_router)
 app.include_router(media_router)
 app.include_router(mtls_router)
+app.include_router(tls_router)
 app.include_router(sse_router)
 
 static_dir = _resource_path("static")
@@ -946,7 +957,12 @@ environment variables (overridden by command line options):
             "created_at REAL NOT NULL, last_seen_at REAL, expires_at REAL, last_ip TEXT, "
             "is_transfer INTEGER NOT NULL DEFAULT 0)"
         )
-        for col in ("expires_at REAL", "last_ip TEXT", "jwt_nonce TEXT", "user_agent TEXT"):
+        for col in (
+            "expires_at REAL",
+            "last_ip TEXT",
+            "jwt_nonce TEXT",
+            "user_agent TEXT",
+        ):
             try:
                 conn.execute(f"ALTER TABLE auth_tokens ADD COLUMN {col}")
             except sqlite3.OperationalError:
@@ -958,13 +974,19 @@ environment variables (overridden by command line options):
 
         if args.reset_auth:
             # Count what will be destroyed
-            session_count = conn.execute("SELECT COUNT(*) FROM auth_tokens").fetchone()[0]
+            session_count = conn.execute("SELECT COUNT(*) FROM auth_tokens").fetchone()[
+                0
+            ]
             try:
-                cert_count = conn.execute("SELECT COUNT(*) FROM client_certs").fetchone()[0]
+                cert_count = conn.execute(
+                    "SELECT COUNT(*) FROM client_certs"
+                ).fetchone()[0]
             except sqlite3.OperationalError:
                 cert_count = 0
             ca_exists = bool(
-                conn.execute("SELECT 1 FROM settings WHERE key = 'ca_cert_pem'").fetchone()
+                conn.execute(
+                    "SELECT 1 FROM settings WHERE key = 'ca_cert_pem'"
+                ).fetchone()
             )
 
             print("--reset-auth will perform the following actions:")
@@ -1003,7 +1025,13 @@ environment variables (overridden by command line options):
                 conn.execute("DELETE FROM client_certs")
             except sqlite3.OperationalError:
                 pass  # table may not exist yet
-            for k in ("mtls_mode", "ca_cert_pem", "ca_key_pem", "tls_cert_pem", "tls_key_pem"):
+            for k in (
+                "mtls_mode",
+                "ca_cert_pem",
+                "ca_key_pem",
+                "tls_cert_pem",
+                "tls_key_pem",
+            ):
                 conn.execute("DELETE FROM settings WHERE key = ?", (k,))
             conn.commit()
             os.environ["_GUIDEBOOK_RESET_AUTH_TOKEN"] = token_str
