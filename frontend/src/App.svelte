@@ -557,6 +557,7 @@
     eventSource.addEventListener("clients", (e) => {
       const data = JSON.parse(e.data);
       clientCount = data.count;
+      authRefreshTrigger++;
     });
     eventSource.addEventListener("disconnect", (e) => {
       const data = JSON.parse(e.data);
