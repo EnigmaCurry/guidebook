@@ -2306,8 +2306,8 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .session-delete:hover {
-    background: #ff4444;
+  .session-delete:hover:not(:disabled) {
+    background: #ff4444 !important;
     color: #fff;
     border-color: #ff4444;
   }
