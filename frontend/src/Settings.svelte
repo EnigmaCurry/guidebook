@@ -1616,7 +1616,7 @@
   <div class="tab-scroll"><div class="tab-content" use:masonry>
   <section class="settings-section">
     <h3>Authentication</h3>
-    <p class="hint">Authentication is currently enforced. Only browsers with a valid session cookie{#if mtlsMode !== "disabled"} or mTLS client certificate{/if} can access the app. Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off.</p>
+    <p class="hint">{#if mtlsMode === "required"}Authentication is currently enforced with mTLS certificates only.{:else if mtlsMode === "disabled"}Authentication is currently enforced with session cookies only.{:else}Authentication is currently enforced with session cookies and/or mTLS certificates.{/if} Use <code style="font-size: 0.75rem; white-space: nowrap">--disable-auth</code> at startup to turn authentication off completely.</p>
   </section>
 
   <section class="settings-section">
