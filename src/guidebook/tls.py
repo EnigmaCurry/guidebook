@@ -170,15 +170,16 @@ def generate_client_cert(
 ) -> tuple[bytes, str, str, str]:
     """Generate a client certificate signed by the CA, bundled as PKCS#12.
 
+    Uses legacy 3DES+SHA1 encryption for maximum browser compatibility
+    (Firefox's NSS library does not support AES-256-CBC PKCS#12 files).
+
     Returns (p12_bytes, password, serial_hex, fingerprint_sha256).
     """
+    import subprocess
+
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.hazmat.primitives.serialization import (
-        pkcs12,
-        BestAvailableEncryption,
-    )
     from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
     ca_cert = x509.load_pem_x509_certificate(ca_cert_pem.encode())
@@ -211,17 +212,78 @@ def generate_client_cert(
         .sign(ca_key, hashes.SHA256())
     )
 
-    password = secrets.token_urlsafe(24)
-    p12_bytes = pkcs12.serialize_key_and_certificates(
-        name=b"guidebook-client",
-        key=client_key,
-        cert=client_cert,
-        cas=[ca_cert],
-        encryption_algorithm=BestAvailableEncryption(password.encode()),
-    )
-
     fingerprint = client_cert.fingerprint(hashes.SHA256()).hex()
     serial_hex = format(serial, "x")
+
+    # Build PKCS#12 with legacy 3DES+SHA1 via openssl for browser compatibility
+    password = secrets.token_urlsafe(24)
+    client_cert_pem = client_cert.public_bytes(serialization.Encoding.PEM)
+    client_key_pem = client_key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.TraditionalOpenSSL,
+        serialization.NoEncryption(),
+    )
+
+    cert_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".pem", prefix="guidebook_ccert_"
+    )
+    cert_file.write(client_cert_pem)
+    cert_file.close()
+    key_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".pem", prefix="guidebook_ckey_"
+    )
+    key_file.write(client_key_pem)
+    key_file.close()
+    ca_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".pem", prefix="guidebook_cacert_"
+    )
+    ca_file.write(ca_cert_pem.encode())
+    ca_file.close()
+    p12_file = tempfile.NamedTemporaryFile(
+        delete=False, suffix=".p12", prefix="guidebook_p12_"
+    )
+    p12_file.close()
+
+    try:
+        result = subprocess.run(
+            [
+                "openssl",
+                "pkcs12",
+                "-export",
+                "-inkey",
+                key_file.name,
+                "-in",
+                cert_file.name,
+                "-certfile",
+                ca_file.name,
+                "-out",
+                p12_file.name,
+                "-passout",
+                f"pass:{password}",
+                "-keypbe",
+                "pbeWithSHA1And3-KeyTripleDES-CBC",
+                "-certpbe",
+                "pbeWithSHA1And3-KeyTripleDES-CBC",
+                "-macalg",
+                "sha1",
+                "-name",
+                f"guidebook-{label}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"openssl pkcs12 failed: {result.stderr}")
+
+        with open(p12_file.name, "rb") as f:
+            p12_bytes = f.read()
+    finally:
+        for path in (cert_file.name, key_file.name, ca_file.name, p12_file.name):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     return p12_bytes, password, serial_hex, fingerprint
 
