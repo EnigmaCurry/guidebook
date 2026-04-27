@@ -283,6 +283,16 @@ async def http_middleware(request: Request, call_next):
                 if not ok:
                     from fastapi.responses import HTMLResponse
 
+                    if MTLS_MODE == "required":
+                        return HTMLResponse(
+                            status_code=401,
+                            content=_inline_page(
+                                "<p>You need a valid mTLS client certificate to access this site.</p>"
+                                '<p class="dim">Ask the owner to generate a new client certificate for you, '
+                                "or restart the server with "
+                                "<code style='white-space:nowrap'>--reset-auth</code> to revert to login link mode.</p>"
+                            ),
+                        )
                     return HTMLResponse(
                         status_code=401,
                         content=_inline_page(
