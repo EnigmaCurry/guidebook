@@ -1836,6 +1836,7 @@
 
       {#if mtlsMode !== "disabled" || mtlsCerts.length > 0}
         <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Generate Client Certificate</h4>
+        <p class="hint">Generate a client certificate for mTLS authentication. {#if authSlots > 0}{authAvailableSlots} of {authSlots} slot{authSlots === 1 ? '' : 's'} available.{:else}Unlimited slots.{/if}</p>
         <div class="setting-row">
           <button on:click={openCertModal} disabled={authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current)}>
             {authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current) ? `No slots available (${authSlots} used)` : "Generate Client Certificate"}
