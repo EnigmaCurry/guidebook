@@ -1595,8 +1595,8 @@
       {#if mtlsMode !== "disabled" || mtlsCerts.length > 0}
         <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Generate Client Certificate</h4>
         <div class="setting-row">
-          <button on:click={generateClientCert} disabled={mtlsGenerating || (authSlots > 0 && authAvailableSlots <= 0)}>
-            {mtlsGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 ? `No slots available (${authSlots} used)` : "Generate Client Certificate"}
+          <button on:click={generateClientCert} disabled={mtlsGenerating || (authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current))}>
+            {mtlsGenerating ? "Generating..." : authSlots > 0 && authAvailableSlots <= 0 && !authSessions.some(s => s.is_current) ? `No slots available (${authSlots} used)` : "Generate Client Certificate"}
           </button>
         </div>
       {/if}
