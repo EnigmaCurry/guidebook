@@ -1623,6 +1623,7 @@
     {/if}
   </section>
 
+  {#if authEnabled}
   <section class="settings-section">
     <h3>Client Certificates (mTLS)</h3>
     {#if !mtlsTlsEnabled}
@@ -1688,7 +1689,6 @@
       <p class="danger-error" style="margin-top: 0.5rem;">{mtlsError}</p>
     {/if}
   </section>
-
 
   <section class="settings-section">
     <h3>Clients</h3>
@@ -1837,6 +1837,7 @@
       </div>
     {/if}
   </section>
+  {/if}
 
   {#if authError}
     <section class="settings-section">

@@ -16,6 +16,14 @@ logger = logging.getLogger("guidebook")
 
 router = APIRouter(prefix="/api/auth/mtls", tags=["mtls"])
 
+
+def _check_auth_enabled():
+    """Raise 403 if authentication is disabled via --disable-auth."""
+    from guidebook.routes.auth import DISABLE_AUTH, _env_disable_auth
+
+    if DISABLE_AUTH or _env_disable_auth():
+        raise HTTPException(403, "Authentication is disabled. Certificate management is unavailable.")
+
 PENDING_DOWNLOAD_TTL = 600  # 10 minutes
 
 
@@ -134,6 +142,7 @@ async def download_ca_cert(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Download the CA public certificate in PEM format."""
+    _check_auth_enabled()
     ca_cert_pem = await _get_setting(gdb, "ca_cert_pem")
     if not ca_cert_pem:
         raise HTTPException(404, "CA certificate not found.")
@@ -165,6 +174,7 @@ async def generate_cert(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Generate a client certificate. Returns download token and password (shown once)."""
+    _check_auth_enabled()
     from guidebook.routes.auth import TLS_ENABLED, PROXY_MODE
 
     if not TLS_ENABLED:
@@ -305,6 +315,7 @@ async def revoke_cert(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Revoke a client certificate."""
+    _check_auth_enabled()
     result = await gdb.execute(select(ClientCert).where(ClientCert.id == cert_id))
     cert = result.scalar_one_or_none()
     if not cert:
@@ -330,6 +341,7 @@ async def activate_mtls(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Set mTLS mode. Requires server restart to take effect."""
+    _check_auth_enabled()
     from guidebook.routes.auth import TLS_ENABLED, PROXY_MODE
 
     if not TLS_ENABLED:
@@ -352,6 +364,7 @@ async def mtls_logout(
     gdb: AsyncSession = Depends(get_global_session),
 ):
     """Revoke the client certificate and clear the cookie session."""
+    _check_auth_enabled()
     current_serial = _get_peer_cert_serial(request)
     if not current_serial:
         raise HTTPException(400, "No client certificate detected on this connection.")
