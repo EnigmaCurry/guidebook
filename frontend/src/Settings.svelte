@@ -2402,7 +2402,7 @@
     color: #111;
   }
   .auth-badge.cookie {
-    background: var(--text-dim, #888);
+    background: var(--accent, #00ff88);
     color: #111;
   }
   .mtls-cert-list {
