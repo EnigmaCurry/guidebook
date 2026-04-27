@@ -127,8 +127,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan)
 
 
-# Paths that bypass auth checking
-_AUTH_EXEMPT_PREFIXES = ("/api/auth/",)
+# Paths that bypass auth checking (login flow only, not management endpoints)
+_AUTH_EXEMPT_PATHS = {
+    "/api/auth/status",
+    "/api/auth/check-token",
+    "/api/auth/login",
+}
 
 
 _INLINE_STYLE = (
@@ -200,9 +204,7 @@ async def http_middleware(request: Request, call_next):
             return _rate_limit_429(retry_after)
 
     # Auth check for API routes
-    if path.startswith("/api/") and not any(
-        path.startswith(p) for p in _AUTH_EXEMPT_PREFIXES
-    ):
+    if path.startswith("/api/") and path not in _AUTH_EXEMPT_PATHS:
         from guidebook.routes.auth import check_auth, MTLS_MODE
         from guidebook.db import db_manager
 
