@@ -2307,8 +2307,9 @@
     flex-shrink: 0;
   }
   .session-delete:hover {
-    background: var(--btn-secondary-hover, #444);
-    color: var(--text, #eee);
+    background: #ff4444;
+    color: #fff;
+    border-color: #ff4444;
   }
   .token-url-box {
     display: flex;
