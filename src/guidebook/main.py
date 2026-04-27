@@ -127,11 +127,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan)
 
 
-# Paths that bypass auth checking (login flow only, not management endpoints)
+# Paths that bypass auth checking (login flow + session renewal)
 _AUTH_EXEMPT_PATHS = {
     "/api/auth/status",
     "/api/auth/check-token",
     "/api/auth/login",
+    "/api/auth/renew",
 }
 
 
