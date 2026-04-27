@@ -1601,30 +1601,6 @@
         </div>
       {/if}
 
-      {#if mtlsCerts.filter(c => !c.revoked_at).length > 0}
-        <h4 style="margin-top: 1rem; margin-bottom: 0.5rem;">Active Certificates</h4>
-        <div class="session-list mtls-cert-list">
-          {#each mtlsCerts.filter(c => !c.revoked_at) as cert (cert.id)}
-            <div class="session-item" class:session-current={cert.is_current}>
-              <div class="session-info">
-                <span class="session-label">
-                  {cert.label}
-                  {#if cert.is_current} <strong>(current)</strong>{/if}
-                </span>
-                <span class="session-meta">
-                  Fingerprint: {cert.fingerprint_sha256.slice(0, 16)}...
-                  — Issued {formatAuthTime(cert.issued_at)}
-                  — Expires {formatAuthTime(cert.expires_at)}
-                </span>
-              </div>
-              {#if !cert.is_current}
-                <button class="session-delete" on:click={() => revokeClientCert(cert.id)} title="Revoke this certificate">Revoke</button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-
       {#if mtlsCerts.filter(c => c.revoked_at).length > 0}
         <details class="mtls-revoked-accordion" style="margin-top: 0.75rem;">
           <summary>Revoked Certificates ({mtlsCerts.filter(c => c.revoked_at).length})</summary>
@@ -1653,18 +1629,42 @@
 
 
   <section class="settings-section">
-    <h3>Active Sessions</h3>
-    {#if authSessions.length === 0}
-      <p class="hint">No active sessions.</p>
+    <h3>Active Clients</h3>
+    {#if authSessions.length === 0 && mtlsCerts.filter(c => !c.revoked_at).length === 0}
+      <p class="hint">No active clients.</p>
     {:else}
       <div class="session-list">
+        {#each mtlsCerts.filter(c => !c.revoked_at) as cert (cert.serial_number)}
+          <div class="session-item" class:session-current={cert.is_current}>
+            <div class="session-info">
+              <span class="session-label">
+                <span class="auth-badge mtls">mTLS</span>
+                {cert.label}
+                {#if cert.is_current} <strong>(current)</strong>{/if}
+              </span>
+              <span class="session-meta">
+                Fingerprint: {cert.fingerprint_sha256.slice(0, 16)}...
+                — Issued {formatAuthTime(cert.issued_at)}
+                — Expires {formatAuthTime(cert.expires_at)}
+              </span>
+            </div>
+            {#if !cert.is_current}
+              <button class="session-delete" on:click={() => revokeClientCert(cert.id)} title="Revoke this certificate">Revoke</button>
+            {/if}
+          </div>
+        {/each}
         {#each authSessions as session (session.id)}
           <div class="session-item" class:session-current={session.is_current}>
             <div class="session-info">
-              <span class="session-label">{session.label}{#if session.is_current} <strong>(current)</strong>{/if}{#if session.is_transfer} <em>(transfer pending)</em>{/if}</span>
+              <span class="session-label">
+                <span class="auth-badge cookie">cookie</span>
+                {session.label}
+                {#if session.is_current && !mtlsCurrentCert} <strong>(current)</strong>{/if}
+                {#if session.is_transfer} <em>(transfer pending)</em>{/if}
+              </span>
               <span class="session-meta">Created {formatAuthTime(session.created_at)}{#if session.last_seen_at} — last seen {formatAuthTime(session.last_seen_at)}{:else} — never used{/if}{#if session.last_ip} — IP {session.last_ip}{/if}{#if session.expires_at} — expires {formatAuthTime(session.expires_at)}{/if}</span>
             </div>
-            {#if !session.is_current}
+            {#if !session.is_current || mtlsCurrentCert}
               <button class="session-delete" on:click={() => deleteSession(session.id)} title="Revoke this session">Revoke</button>
             {/if}
           </div>
@@ -2372,6 +2372,25 @@
   }
   .session-revoked {
     opacity: 0.5;
+  }
+  .auth-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 0.3rem;
+  }
+  .auth-badge.mtls {
+    background: var(--accent, #00ff88);
+    color: #111;
+  }
+  .auth-badge.cookie {
+    background: var(--text-dim, #888);
+    color: #111;
   }
   .mtls-cert-list {
     max-height: 12rem;
