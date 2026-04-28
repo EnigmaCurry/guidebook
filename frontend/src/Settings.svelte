@@ -2518,9 +2518,6 @@
       {#if natsStatus.cn}
         <p class="hint">Client CN: {natsStatus.cn}</p>
       {/if}
-      <div class="setting-row" style="margin-top: 0.5em;">
-        <button class="btn" on:click={async () => { await fetch("/api/nats/restart", { method: "POST" }); }}>Reconnect</button>
-      </div>
     </section>
 
     <section class="settings-section">
