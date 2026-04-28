@@ -536,6 +536,13 @@ async function handleSyncOffer(records, channel) {
   let skipped = 0;
   for (const rec of records) {
     try {
+      // Add the sender as a recipient so updates flow back
+      if (peerFingerprint) {
+        const recipients = rec.recipients || [];
+        if (!recipients.includes(peerFingerprint)) {
+          rec.recipients = [...recipients, peerFingerprint];
+        }
+      }
       const res = await fetch("/api/records/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
