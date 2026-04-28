@@ -97,6 +97,8 @@ function setupDataChannel(channel) {
         handleSyncRequest(channel);
       } else if (msg.type === "sync-offer") {
         handleSyncOffer(msg.records, channel);
+      } else if (msg.type === "sync-attachment") {
+        handleSyncAttachment(msg);
       } else if (msg.type === "sync-ack") {
         log(`Sync ack: ${msg.accepted} accepted, ${msg.skipped} skipped`);
       }
@@ -327,6 +329,23 @@ export function handleHangup(detail) {
 
 const SYNC_BATCH_SIZE = 50;
 
+async function fetchAttachmentAsBase64(recordId, attId) {
+  const res = await fetch(
+    `/api/records/${recordId}/attachments/${attId}/download`
+  );
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      // Strip the data:...;base64, prefix
+      const b64 = reader.result.split(",")[1];
+      resolve(b64);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
 async function handleSyncRequest(channel) {
   try {
     const res = await fetch("/api/records/?limit=10000");
@@ -335,7 +354,24 @@ async function handleSyncRequest(channel) {
     const forPeer = records.filter(
       (r) => r.recipients && r.recipients.includes(peerFingerprint)
     );
-    // Send in batches to stay within data channel message size limits
+
+    // Fetch attachment metadata for each record
+    for (const rec of forPeer) {
+      try {
+        const attRes = await fetch(`/api/records/${rec.id}/attachments/`);
+        if (attRes.ok) {
+          const atts = await attRes.json();
+          rec.attachments = atts.map((a) => ({
+            id: a.id,
+            filename: a.filename,
+            content_type: a.content_type,
+            size: a.size,
+          }));
+        }
+      } catch {}
+    }
+
+    // Send record metadata in batches
     for (let i = 0; i < forPeer.length; i += SYNC_BATCH_SIZE) {
       const batch = forPeer.slice(i, i + SYNC_BATCH_SIZE);
       channel.send(JSON.stringify({ type: "sync-offer", records: batch }));
@@ -344,6 +380,27 @@ async function handleSyncRequest(channel) {
       channel.send(JSON.stringify({ type: "sync-offer", records: [] }));
     }
     log(`Sync offer sent: ${forPeer.length} records`);
+
+    // Send attachment data for each record
+    let attCount = 0;
+    for (const rec of forPeer) {
+      if (!rec.attachments || rec.attachments.length === 0) continue;
+      for (const att of rec.attachments) {
+        const b64 = await fetchAttachmentAsBase64(rec.id, att.id);
+        if (!b64) continue;
+        channel.send(
+          JSON.stringify({
+            type: "sync-attachment",
+            record_uuid: rec.uuid,
+            filename: att.filename,
+            content_type: att.content_type,
+            data: b64,
+          })
+        );
+        attCount++;
+      }
+    }
+    if (attCount > 0) log(`Sent ${attCount} attachments`);
   } catch (err) {
     log(`Sync request error: ${err.message}`);
   }
@@ -369,4 +426,27 @@ async function handleSyncOffer(records, channel) {
   }
   channel.send(JSON.stringify({ type: "sync-ack", accepted, skipped }));
   log(`Sync complete: ${accepted} accepted, ${skipped} skipped`);
+}
+
+async function handleSyncAttachment(msg) {
+  try {
+    const res = await fetch("/api/records/sync-attachment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        record_uuid: msg.record_uuid,
+        filename: msg.filename,
+        content_type: msg.content_type,
+        data: msg.data,
+      }),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (result.action === "created") {
+        log(`Attachment synced: ${msg.filename}`);
+      }
+    }
+  } catch (err) {
+    log(`Attachment sync error: ${err.message}`);
+  }
 }

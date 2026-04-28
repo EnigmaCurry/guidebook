@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import logging
 from datetime import datetime, timezone
@@ -9,7 +10,7 @@ from pydantic import BaseModel, field_serializer, field_validator
 from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import Attachment, Record, get_session
+from guidebook.db import Attachment, Record, get_session, _ensure_data_dir
 from guidebook.sse import _get_shutdown_event
 
 logger = logging.getLogger("guidebook")
@@ -119,6 +120,7 @@ class RecordSync(BaseModel):
     recipients: list[str] | None = None
     timestamp: datetime
     updated_at: datetime
+    attachments: list[dict] | None = None
 
     @field_validator("timestamp", "updated_at")
     @classmethod
@@ -126,6 +128,13 @@ class RecordSync(BaseModel):
         if v.tzinfo is not None:
             v = v.astimezone(timezone.utc).replace(tzinfo=None)
         return v
+
+
+class AttachmentSync(BaseModel):
+    record_uuid: str
+    filename: str
+    content_type: str = "application/octet-stream"
+    data: str  # base64-encoded file content
 
 
 class RecordResponse(BaseModel):
@@ -221,6 +230,48 @@ async def sync_record(data: RecordSync, session: AsyncSession = Depends(get_sess
         return {"action": "updated", "uuid": data.uuid}
 
     return {"action": "skipped", "uuid": data.uuid}
+
+
+@router.post("/sync-attachment")
+async def sync_attachment(
+    data: AttachmentSync, session: AsyncSession = Depends(get_session)
+):
+    from guidebook.routes.attachments import _attachments_dir
+
+    result = await session.execute(
+        select(Record).where(Record.uuid == data.record_uuid)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return {"action": "skipped", "reason": "record not found"}
+
+    existing_att = (
+        await session.execute(
+            select(Attachment).where(
+                Attachment.record_id == record.id,
+                Attachment.filename == data.filename,
+            )
+        )
+    ).scalar_one_or_none()
+    if existing_att:
+        return {"action": "skipped", "reason": "already exists"}
+
+    file_data = base64.b64decode(data.data)
+    att_dir = _attachments_dir(record.uuid)
+    _ensure_data_dir(att_dir)
+    filepath = att_dir / data.filename
+    filepath.write_bytes(file_data)
+
+    att = Attachment(
+        record_id=record.id,
+        filename=data.filename,
+        content_type=data.content_type,
+        size=len(file_data),
+    )
+    session.add(att)
+    await session.commit()
+    _broadcast_records_changed()
+    return {"action": "created"}
 
 
 @router.post("/", response_model=RecordResponse, status_code=201)
