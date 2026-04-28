@@ -577,12 +577,12 @@ async def start_chat():
     # Check if lobby should be joined
     from sqlalchemy import select
 
-    from guidebook.db import GlobalSetting, global_async_session
+    from guidebook.db import InstanceSetting, instance_async_session
 
-    async with global_async_session() as gdb:
+    async with instance_async_session() as db:
         row = (
-            await gdb.execute(
-                select(GlobalSetting).where(GlobalSetting.key == "nats_lobby_enabled")
+            await db.execute(
+                select(InstanceSetting).where(InstanceSetting.key == "nats_lobby_enabled")
             )
         ).scalar_one_or_none()
         lobby_enabled = row and row.value == "true"

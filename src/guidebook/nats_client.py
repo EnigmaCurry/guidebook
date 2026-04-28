@@ -162,14 +162,14 @@ async def _on_nats_connected():
     """Called when NATS transitions to connected state."""
     from sqlalchemy import select
 
-    from guidebook.db import GlobalSetting, global_async_session
+    from guidebook.db import InstanceSetting, instance_async_session
 
     try:
-        async with global_async_session() as gdb:
+        async with instance_async_session() as db:
             row = (
-                await gdb.execute(
-                    select(GlobalSetting).where(
-                        GlobalSetting.key == "nats_chat_enabled"
+                await db.execute(
+                    select(InstanceSetting).where(
+                        InstanceSetting.key == "nats_chat_enabled"
                     )
                 )
             ).scalar_one_or_none()
