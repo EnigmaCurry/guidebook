@@ -1378,7 +1378,7 @@
           if (s.key === "nats_enabled") natsEnabled = s.value === "true";
           if (s.key === "nats_endpoint") natsEndpoint = s.value || "";
           if (s.key === "turn_server") turnServer = s.value || "";
-          if (s.key === "turn_secret") turnSecret = s.value || "";
+          if (s.key === "turn_secret") turnSecret = s.value === "***" ? "" : (s.value || "");
         }
         globalSettingsLoaded = true;
       }
@@ -1405,7 +1405,10 @@
     iceTestResult = null;
     try {
       await saveGlobalSetting("turn_server", turnServer.trim());
-      await saveGlobalSetting("turn_secret", turnSecret.trim());
+      // Only update the secret if the user entered a new value
+      if (turnSecret.trim()) {
+        await saveGlobalSetting("turn_secret", turnSecret.trim());
+      }
     } finally {
       turnSaving = false;
     }
