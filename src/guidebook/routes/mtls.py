@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import ClientCert, GlobalSetting, get_global_session
+from guidebook.db import ClientCert, InstanceSetting, get_instance_session
 
 logger = logging.getLogger("guidebook")
 
@@ -50,7 +50,7 @@ def _cleanup_expired() -> None:
 
 async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
     row = (
-        await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
+        await gdb.execute(select(InstanceSetting).where(InstanceSetting.key == key))
     ).scalar_one_or_none()
     return row.value if row else None
 
@@ -58,7 +58,7 @@ async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
 async def _set_setting(gdb: AsyncSession, key: str, value: str) -> None:
     from sqlalchemy.dialects.sqlite import insert
 
-    stmt = insert(GlobalSetting).values(key=key, value=value)
+    stmt = insert(InstanceSetting).values(key=key, value=value)
     stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": value})
     await gdb.execute(stmt)
 
@@ -89,7 +89,7 @@ def _get_peer_cert_serial(request: Request) -> str | None:
 @router.get("/status")
 async def mtls_status(
     request: Request,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED, PROXY_MODE
     from guidebook.sse import connected_cert_serials
@@ -139,7 +139,7 @@ async def mtls_status(
 
 @router.get("/ca.pem")
 async def download_ca_cert(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Download the CA public certificate in PEM format."""
     _check_auth_enabled()
@@ -171,7 +171,7 @@ class GenerateCertResponse(BaseModel):
 async def generate_cert(
     request: Request,
     body: GenerateCertRequest,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Generate a client certificate. Returns download token and password (shown once)."""
     _check_auth_enabled()
@@ -188,10 +188,10 @@ async def generate_cert(
         _token_count,
     )
 
-    from guidebook.db import META_DB_PATH
+    from guidebook.db import INSTANCE_DB_PATH
     from guidebook.tls import ensure_ca_cert, generate_client_cert
 
-    ca_cert_pem, ca_key_pem = ensure_ca_cert(str(META_DB_PATH))
+    ca_cert_pem, ca_key_pem = ensure_ca_cert(str(INSTANCE_DB_PATH))
 
     # Count active (non-revoked) certs (exclude pending-upgrade certs from count)
     result = await gdb.execute(
@@ -291,7 +291,7 @@ async def download_cert(download_token: str):
 
 @router.get("/certs")
 async def list_certs(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """List all issued client certificates."""
     result = await gdb.execute(select(ClientCert).order_by(ClientCert.issued_at.desc()))
@@ -312,7 +312,7 @@ async def list_certs(
 @router.delete("/certs/{cert_id}")
 async def revoke_cert(
     cert_id: int,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Revoke a client certificate."""
     _check_auth_enabled()
@@ -338,7 +338,7 @@ class ActivateRequest(BaseModel):
 @router.post("/activate")
 async def activate_mtls(
     body: ActivateRequest,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Set mTLS mode. Requires server restart to take effect."""
     _check_auth_enabled()
@@ -361,7 +361,7 @@ async def activate_mtls(
 async def mtls_logout(
     request: Request,
     response: Response,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Revoke the client certificate and clear the cookie session."""
     _check_auth_enabled()

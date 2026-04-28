@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import AuthToken, ClientCert, get_global_session
+from guidebook.db import AuthToken, ClientCert, get_instance_session
 from guidebook.sse import _get_shutdown_event
 
 logger = logging.getLogger("guidebook")
@@ -151,7 +151,7 @@ async def _sse_generator(queue: asyncio.Queue[str], request: Request):
 @router.get("/stream")
 async def scratchpad_stream(
     request: Request,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     queue: asyncio.Queue[str] = asyncio.Queue(maxsize=64)
     queue_id = id(queue)

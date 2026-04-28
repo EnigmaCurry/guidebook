@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import GlobalSetting, get_global_session
+from guidebook.db import InstanceSetting, get_instance_session
 
 logger = logging.getLogger("guidebook")
 
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/tls", tags=["tls"])
 
 async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
     row = (
-        await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
+        await gdb.execute(select(InstanceSetting).where(InstanceSetting.key == key))
     ).scalar_one_or_none()
     return row.value if row else None
 
@@ -30,14 +30,14 @@ async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
 async def _set_setting(gdb: AsyncSession, key: str, value: str) -> None:
     from sqlalchemy.dialects.sqlite import insert
 
-    stmt = insert(GlobalSetting).values(key=key, value=value)
+    stmt = insert(InstanceSetting).values(key=key, value=value)
     stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": value})
     await gdb.execute(stmt)
 
 
 async def _delete_setting(gdb: AsyncSession, key: str) -> None:
     row = (
-        await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
+        await gdb.execute(select(InstanceSetting).where(InstanceSetting.key == key))
     ).scalar_one_or_none()
     if row:
         await gdb.delete(row)
@@ -72,7 +72,7 @@ class TlsStatusResponse(BaseModel):
 
 @router.get("/status")
 async def tls_status(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ) -> TlsStatusResponse:
     from guidebook.routes.auth import TLS_ENABLED
 
@@ -132,7 +132,7 @@ async def tls_status(
 
 @router.get("/ca.pem")
 async def download_ca_pem(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED
 
@@ -162,7 +162,7 @@ class AcmeConfigureRequest(BaseModel):
 @router.post("/acme/configure")
 async def acme_configure(
     body: AcmeConfigureRequest,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED
 
@@ -197,7 +197,7 @@ async def acme_configure(
 
 @router.post("/acme/register")
 async def acme_register(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED
 
@@ -240,7 +240,7 @@ async def acme_register(
 
 @router.post("/acme/verify-cname")
 async def acme_verify_cname(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED
 
@@ -319,7 +319,7 @@ _provision_lock = asyncio.Lock()
 
 @router.post("/acme/provision")
 async def acme_provision(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED
 
@@ -415,14 +415,14 @@ async def acme_provision(
 
 @router.post("/acme/revert")
 async def acme_revert(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     from guidebook.routes.auth import TLS_ENABLED
 
     if not TLS_ENABLED:
         raise HTTPException(400, "TLS is disabled")
 
-    from guidebook.db import META_DB_PATH
+    from guidebook.db import INSTANCE_DB_PATH
     from guidebook.tls import ensure_tls_cert
 
     # Delete the ACME cert and regenerate self-signed
@@ -432,7 +432,7 @@ async def acme_revert(
     await gdb.commit()
 
     # Regenerate self-signed cert (synchronous, uses sqlite3 directly)
-    cert_pem, _key_pem = ensure_tls_cert(str(META_DB_PATH))
+    cert_pem, _key_pem = ensure_tls_cert(str(INSTANCE_DB_PATH))
 
     from guidebook.sse import broadcast
 
@@ -468,9 +468,9 @@ async def _acme_renewal_loop(initial_delay: float = 300):
 
 async def _check_and_renew():
     """Check if renewal is needed and run the ACME flow if so."""
-    from guidebook.db import global_async_session
+    from guidebook.db import instance_async_session
 
-    async with global_async_session() as gdb:
+    async with instance_async_session() as gdb:
         tls_mode = await _get_setting(gdb, "tls_mode")
         if tls_mode != "acme":
             return

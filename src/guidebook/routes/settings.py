@@ -9,12 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from guidebook.db import (
-    GLOBAL_DEFAULTABLE_KEYS,
-    GlobalSetting,
+    INSTANCE_DEFAULTABLE_KEYS,
+    InstanceSetting,
     Setting,
     _ensure_data_dir,
     db_manager,
-    get_global_session,
+    get_instance_session,
     get_session,
 )
 
@@ -65,7 +65,7 @@ def _redact(setting: Setting, source: str = "database") -> SettingResponse:
 @router.get("/", response_model=list[SettingResponse])
 async def list_settings(
     session: AsyncSession = Depends(get_session),
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     result = await session.execute(select(Setting))
     db_settings = result.scalars().all()
@@ -73,7 +73,7 @@ async def list_settings(
     db_filled = {
         s.key
         for s in db_settings
-        if s.key not in GLOBAL_DEFAULTABLE_KEYS or s.value
+        if s.key not in INSTANCE_DEFAULTABLE_KEYS or s.value
     }
     responses = [
         _redact(s, "database") for s in db_settings if s.key in db_filled
@@ -81,12 +81,12 @@ async def list_settings(
 
     # Fill in global defaults for defaultable keys that are missing or blank
     meta_result = await gdb.execute(
-        select(GlobalSetting).where(GlobalSetting.key.in_(GLOBAL_DEFAULTABLE_KEYS))
+        select(InstanceSetting).where(InstanceSetting.key.in_(INSTANCE_DEFAULTABLE_KEYS))
     )
     for ms in meta_result.scalars().all():
         if ms.key not in db_filled and ms.value:
             responses.append(
-                _redact(Setting(key=ms.key, value=ms.value), source="global")
+                _redact(Setting(key=ms.key, value=ms.value), source="instance")
             )
 
     return responses
@@ -96,22 +96,22 @@ async def list_settings(
 async def get_setting(
     key: str,
     session: AsyncSession = Depends(get_session),
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     result = await session.execute(select(Setting).where(Setting.key == key))
     setting = result.scalar_one_or_none()
     if setting and setting.value:
         return _redact(setting, "database")
     # Fall back to global default if applicable
-    if key in GLOBAL_DEFAULTABLE_KEYS:
+    if key in INSTANCE_DEFAULTABLE_KEYS:
         meta_result = await gdb.execute(
-            select(GlobalSetting).where(GlobalSetting.key == key)
+            select(InstanceSetting).where(InstanceSetting.key == key)
         )
         meta_setting = meta_result.scalar_one_or_none()
         if meta_setting and meta_setting.value:
             return _redact(
                 Setting(key=meta_setting.key, value=meta_setting.value),
-                source="global",
+                source="instance",
             )
     if setting:
         return _redact(setting, "database")
