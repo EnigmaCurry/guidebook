@@ -11,6 +11,7 @@
   let sending = false;
   let chatStatus = { active: false, cn: null, fingerprint: null, lobby_joined: false };
   let messagesEnd;
+  let messageInputEl;
 
   async function loadStatus() {
     try {
@@ -74,6 +75,8 @@
       messageInput = "";
     } catch {}
     sending = false;
+    await tick();
+    if (messageInputEl) messageInputEl.focus();
   }
 
   async function verifyPeer(fingerprint) {
@@ -260,6 +263,7 @@
       <div class="chat-input">
         <input
           type="text"
+          bind:this={messageInputEl}
           bind:value={messageInput}
           on:keydown={handleKeydown}
           placeholder="Send a message..."
