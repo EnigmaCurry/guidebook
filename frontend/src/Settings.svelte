@@ -3223,6 +3223,25 @@
   .nats-status-text {
     vertical-align: middle;
   }
+  textarea {
+    width: 100%;
+    font-family: monospace;
+    font-size: 0.85rem;
+    padding: 0.5rem;
+    border: 1px solid var(--border-input);
+    border-radius: 4px;
+    background: var(--bg-input);
+    color: var(--text);
+    resize: vertical;
+    box-sizing: border-box;
+  }
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  textarea::placeholder {
+    color: var(--text-muted);
+  }
   .cert-fingerprint {
     font-family: monospace;
     font-size: 0.8em;
