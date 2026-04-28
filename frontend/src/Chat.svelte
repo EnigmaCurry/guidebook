@@ -366,6 +366,7 @@
     display: flex;
     align-items: center;
     gap: 0.25em;
+    min-width: 0;
   }
 
   .btn-p2p-connect {
@@ -398,7 +399,8 @@
     display: flex;
     align-items: center;
     gap: 0.5em;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     padding: 0.5em;
     border: none;
     background: transparent;
