@@ -101,6 +101,8 @@ function setupDataChannel(channel) {
         handleSyncAttachment(msg);
       } else if (msg.type === "sync-delete-attachment") {
         handleSyncDeleteAttachment(msg);
+      } else if (msg.type === "sync-delete-record") {
+        handleSyncDeleteRecord(msg);
       } else if (msg.type === "sync-ack") {
         log(`Sync ack: ${msg.accepted} accepted, ${msg.skipped} skipped`);
       }
@@ -276,6 +278,29 @@ export async function pushDeleteAttachment(recordUuid, filename, recipients) {
   // attachment won't exist on our side so it won't be sent either.
   // For an explicit delete we need to queue it and send after connect.
   // For now, auto-connect so future syncs are consistent.
+  await autoConnectForRecipients(recipients);
+}
+
+/**
+ * Notify the connected peer that a record was deleted.
+ * Auto-connects if needed.
+ */
+export async function pushDeleteRecord(recordUuid, recipients) {
+  if (!recipients || recipients.length === 0) return;
+
+  if (dc && dc.readyState === "open" && peerFingerprint) {
+    if (recipients.includes(peerFingerprint)) {
+      dc.send(
+        JSON.stringify({
+          type: "sync-delete-record",
+          record_uuid: recordUuid,
+        })
+      );
+      log(`Pushed record deletion: ${recordUuid}`);
+      return;
+    }
+  }
+
   await autoConnectForRecipients(recipients);
 }
 
@@ -569,5 +594,23 @@ async function handleSyncDeleteAttachment(msg) {
     }
   } catch (err) {
     log(`Attachment delete sync error: ${err.message}`);
+  }
+}
+
+async function handleSyncDeleteRecord(msg) {
+  try {
+    const res = await fetch("/api/records/sync-delete-record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ record_uuid: msg.record_uuid }),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (result.action === "deleted") {
+        log(`Record deleted via sync: ${msg.record_uuid}`);
+      }
+    }
+  } catch (err) {
+    log(`Record delete sync error: ${err.message}`);
   }
 }

@@ -142,6 +142,10 @@ class AttachmentDeleteSync(BaseModel):
     filename: str
 
 
+class RecordDeleteSync(BaseModel):
+    record_uuid: str
+
+
 class RecordResponse(BaseModel):
     id: int
     uuid: str | None
@@ -308,6 +312,30 @@ async def sync_delete_attachment(
         filepath.unlink()
 
     await session.delete(att)
+    await session.commit()
+    _broadcast_records_changed()
+    return {"action": "deleted"}
+
+
+@router.post("/sync-delete-record")
+async def sync_delete_record(
+    data: RecordDeleteSync, session: AsyncSession = Depends(get_session)
+):
+    from guidebook.routes.attachments import (
+        cleanup_record_attachments,
+        delete_attachments_for_record,
+    )
+
+    result = await session.execute(
+        select(Record).where(Record.uuid == data.record_uuid)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return {"action": "skipped", "reason": "not found"}
+
+    cleanup_record_attachments(record)
+    await delete_attachments_for_record(record.id, session)
+    await session.delete(record)
     await session.commit()
     _broadcast_records_changed()
     return {"action": "deleted"}

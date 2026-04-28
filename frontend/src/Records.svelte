@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from "svelte";
   import { storageGet, storageSet } from "./storage.js";
-  import { pushRecord, pushDeleteAttachment } from "./p2p.js";
+  import { pushRecord, pushDeleteAttachment, pushDeleteRecord } from "./p2p.js";
   import Icon from "@iconify/svelte";
   import iconPencil from "@iconify-icons/twemoji/pencil";
 
@@ -530,8 +530,12 @@
 
   async function deleteRecord(id) {
     if (!confirm("Delete this record?")) return;
+    const rec = records.find(r => r.id === id);
     try {
       await fetch(`/api/records/${id}`, { method: "DELETE" });
+      if (rec && rec.uuid && rec.recipients) {
+        pushDeleteRecord(rec.uuid, rec.recipients);
+      }
       if (formId === id) cancelForm();
       await fetchRecords();
     } catch {}
