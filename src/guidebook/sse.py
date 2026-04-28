@@ -108,15 +108,15 @@ async def start_auto_shutdown() -> None:
         return
     # Read delay from global DB
     try:
-        from guidebook.db import GlobalSetting, global_async_session
+        from guidebook.db import InstanceSetting, instance_async_session
 
-        async with global_async_session() as gdb:
+        async with instance_async_session() as gdb:
             from sqlalchemy import select
 
             row = (
                 await gdb.execute(
-                    select(GlobalSetting.value).where(
-                        GlobalSetting.key == "auto_shutdown_delay"
+                    select(InstanceSetting.value).where(
+                        InstanceSetting.key == "auto_shutdown_delay"
                     )
                 )
             ).scalar_one_or_none()

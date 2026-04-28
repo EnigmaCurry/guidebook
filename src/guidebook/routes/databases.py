@@ -5,8 +5,8 @@ import signal
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+import guidebook.db as _db
 from guidebook.db import (
-    DB_DIR,
     DatabaseLockError,
     DatabaseTooNewError,
     _lock_exclusive,
@@ -43,14 +43,17 @@ def _validate_name(name: str) -> None:
 async def get_mode():
     from guidebook.main import NO_SHUTDOWN
 
+    instance_name = _db.get_instance_name()
     has_databases = any(
-        f.stem != "__global" for f in DB_DIR.glob("*.db")
+        f.stem != "__instance" for f in _db.INSTANCE_DIR.glob("*.db")
     )
     return {
         "picker": db_manager.picker_mode,
         "db_override": db_manager._db_override is not None,
         "no_shutdown": NO_SHUTDOWN,
         "has_databases": has_databases,
+        "instance_name": instance_name,
+        "default_app_name": "Guidebook" if instance_name == "default" else instance_name,
     }
 
 
@@ -78,8 +81,8 @@ def _is_locked(db_path) -> bool:
 async def list_databases():
     last_opened = await db_manager.read_last_opened()
     dbs = []
-    for f in DB_DIR.glob("*.db"):
-        if f.stem == "__global":
+    for f in _db.INSTANCE_DIR.glob("*.db"):
+        if f.stem == "__instance":
             continue
         dbs.append(
             {
@@ -107,7 +110,7 @@ async def confirm_create():
         raise HTTPException(status_code=400, detail="No pending database to confirm")
     name = db_manager.pending_name
     db_manager.pending_name = None
-    db_path = DB_DIR / f"{name}.db"
+    db_path = _db.INSTANCE_DIR / f"{name}.db"
     try:
         await db_manager.open(db_path)
     except DatabaseLockError as e:
@@ -157,7 +160,7 @@ async def shutdown_server():
 @router.post("/open")
 async def open_database(body: DatabaseName):
     _validate_name(body.name)
-    db_path = DB_DIR / f"{body.name}.db"
+    db_path = _db.INSTANCE_DIR / f"{body.name}.db"
     if not db_path.exists():
         raise HTTPException(status_code=404, detail="Database not found")
     await stop_auto_backup()
@@ -192,7 +195,7 @@ async def delete_database(body: DatabaseName):
         raise HTTPException(
             status_code=400, detail="Can only delete the currently open database"
         )
-    db_path = DB_DIR / f"{body.name}.db"
+    db_path = _db.INSTANCE_DIR / f"{body.name}.db"
     await stop_auto_backup()
     await db_manager.close()
     if db_path.exists():
@@ -208,7 +211,7 @@ async def delete_database(body: DatabaseName):
 @router.post("/create")
 async def create_database(body: DatabaseName):
     _validate_name(body.name)
-    db_path = DB_DIR / f"{body.name}.db"
+    db_path = _db.INSTANCE_DIR / f"{body.name}.db"
     if db_path.exists():
         raise HTTPException(status_code=409, detail="Database already exists")
     try:

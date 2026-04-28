@@ -12,7 +12,8 @@ from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import META_DB_PATH, Setting, db_manager, get_session
+import guidebook.db as _db
+from guidebook.db import Setting, db_manager, get_session
 
 logger = logging.getLogger("guidebook")
 
@@ -66,8 +67,8 @@ def _execute_query(
     try:
         conn.set_authorizer(_authorizer)
         # Attach global database for cross-DB queries
-        if META_DB_PATH.exists():
-            conn.execute(f"ATTACH DATABASE 'file:{META_DB_PATH}?mode=ro' AS meta")
+        if _db.INSTANCE_DB_PATH.exists():
+            conn.execute(f"ATTACH DATABASE 'file:{_db.INSTANCE_DB_PATH}?mode=ro' AS meta")
         ops = [0]
 
         def progress():
@@ -112,8 +113,8 @@ async def get_schema(session: AsyncSession = Depends(get_session)):
         conn.close()
 
     # Add global database tables
-    if META_DB_PATH.exists():
-        meta_conn = sqlite3.connect(f"file:{META_DB_PATH}?mode=ro", uri=True)
+    if _db.INSTANCE_DB_PATH.exists():
+        meta_conn = sqlite3.connect(f"file:{_db.INSTANCE_DB_PATH}?mode=ro", uri=True)
         try:
             for table in sorted(META_ALLOWED_TABLES):
                 cursor = meta_conn.execute(f"PRAGMA table_info('{table}')")

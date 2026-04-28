@@ -7,6 +7,8 @@
   export let databaseName = "";
   export const pickerMode = false;
   export const needsSetup = false;
+  export let instanceName = "";
+  export let defaultAppName = "Guidebook";
   export let initialTab = null;
   export let highlightSection = null;
   export let clientCount = 0;
@@ -47,6 +49,9 @@
 
   let sql_query_enabled = false;
   let default_page = "log";
+
+  // App name override
+  let appNameInput = "";
 
   // Global settings state
   let globalSettingsLoaded = false;
@@ -462,7 +467,7 @@
     if (natsClientCert) settings.nats_client_cert = natsClientCert;
     if (natsClientKey) settings.nats_client_key = natsClientKey;
     for (const [key, value] of Object.entries(settings)) {
-      await fetch(`/api/global-settings/${key}`, {
+      await fetch(`/api/instance-settings/${key}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value }),
@@ -478,7 +483,7 @@
   }
 
   async function toggleNats() {
-    await fetch("/api/global-settings/nats_enabled", {
+    await fetch("/api/instance-settings/nats_enabled", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: natsEnabled ? "true" : "false" }),
@@ -1111,7 +1116,7 @@
       if (res.ok) {
         const data = await res.json();
         settingSources[key] = data.source || "database";
-        if (data.source === "global" && data.value) {
+        if (data.source === "instance" && data.value) {
           globalPlaceholders[key] = data.value;
         } else {
           delete globalPlaceholders[key];
@@ -1360,7 +1365,7 @@
 
   async function fetchGlobalSettings() {
     try {
-      const res = await fetch("/api/global-settings/");
+      const res = await fetch("/api/instance-settings/");
       if (res.ok) {
         const data = await res.json();
         for (const s of data) {
@@ -1373,8 +1378,23 @@
     } catch {}
   }
 
+  async function loadAppName() {
+    try {
+      const res = await fetch("/api/instance-settings/app_name");
+      if (res.ok) {
+        const data = await res.json();
+        appNameInput = data.value || "";
+      }
+    } catch {}
+  }
+
+  async function saveAppName() {
+    await saveGlobalSetting("app_name", appNameInput);
+    dispatch("app-name-changed");
+  }
+
   async function saveGlobalSetting(key, value) {
-    await fetch(`/api/global-settings/${key}`, {
+    await fetch(`/api/instance-settings/${key}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value }),
@@ -1506,6 +1526,7 @@
   onMount(() => {
     fetchSettings();
     fetchGlobalSettings();
+    loadAppName();
     fetchEntryCount();
     loadDbInfo();
     loadBackupStatus();
@@ -1821,6 +1842,16 @@
 
   {#if activeTab === "data"}
   <div class="tab-scroll"><div class="tab-content" use:masonry>
+
+  <section class="settings-section">
+    <h3>Instance</h3>
+    <p class="hint">Instance: <strong>{instanceName || "default"}</strong></p>
+    <div class="setting-row">
+      <label for="app_name">Instance Display Name</label>
+      <input id="app_name" type="text" bind:value={appNameInput} placeholder={defaultAppName} on:change={saveAppName} />
+    </div>
+    <p class="hint">Displayed in the header. Leave blank to use the default ({defaultAppName}).</p>
+  </section>
 
   <section class="settings-section">
     <h3>Backup</h3>

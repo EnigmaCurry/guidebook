@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import GlobalSetting, get_global_session
+from guidebook.db import InstanceSetting, get_instance_session
 from guidebook.nats_client import (
     compute_fingerprint,
     extract_cn,
@@ -21,15 +21,15 @@ async def nats_status():
 
 
 @router.get("/certs")
-async def nats_certs(gdb: AsyncSession = Depends(get_global_session)):
+async def nats_certs(gdb: AsyncSession = Depends(get_instance_session)):
     ca_pem = (
         await gdb.execute(
-            select(GlobalSetting).where(GlobalSetting.key == "nats_ca_cert")
+            select(InstanceSetting).where(InstanceSetting.key == "nats_ca_cert")
         )
     ).scalar_one_or_none()
     client_pem = (
         await gdb.execute(
-            select(GlobalSetting).where(GlobalSetting.key == "nats_client_cert")
+            select(InstanceSetting).where(InstanceSetting.key == "nats_client_cert")
         )
     ).scalar_one_or_none()
 
@@ -45,7 +45,7 @@ async def nats_certs(gdb: AsyncSession = Depends(get_global_session)):
 
     has_key = (
         await gdb.execute(
-            select(GlobalSetting).where(GlobalSetting.key == "nats_client_key")
+            select(InstanceSetting).where(InstanceSetting.key == "nats_client_key")
         )
     ).scalar_one_or_none()
 

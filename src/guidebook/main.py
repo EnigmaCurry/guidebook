@@ -20,13 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from guidebook.db import (
     DatabaseLockError,
     DatabaseTooNewError,
-    GlobalCache,
+    InstanceCache,
     Setting,
     db_manager,
-    get_global_session,
+    get_instance_session,
     get_session,
     init_db,
-    global_async_session,
+    instance_async_session,
 )
 from guidebook.routes.auth import router as auth_router
 import guidebook.routes.auth as _auth_module
@@ -44,7 +44,7 @@ from guidebook.routes.settings import (
     stop_auto_backup,
 )
 from guidebook.routes.query import router as query_router
-from guidebook.routes.global_settings import router as global_settings_router
+from guidebook.routes.instance_settings import router as instance_settings_router
 from guidebook.routes.update import router as update_router
 from guidebook.routes.scratchpad import router as scratchpad_router
 from guidebook.routes.media import router as media_router
@@ -114,11 +114,11 @@ async def lifespan(app: FastAPI):
         yield
         return
     # Clear update check cache so we always check once on startup
-    async with global_async_session() as gdb:
+    async with instance_async_session() as gdb:
         await gdb.execute(
-            delete(GlobalCache).where(
-                GlobalCache.namespace == UPDATE_CACHE_NS,
-                GlobalCache.key == UPDATE_CACHE_KEY,
+            delete(InstanceCache).where(
+                InstanceCache.namespace == UPDATE_CACHE_NS,
+                InstanceCache.key == UPDATE_CACHE_KEY,
             )
         )
         await gdb.commit()
@@ -135,7 +135,7 @@ async def lifespan(app: FastAPI):
     await stop_sse_auto_shutdown()
     await stop_auto_backup()
     await db_manager.close()
-    await db_manager.close_global()
+    await db_manager.close_instance()
 
 
 app = FastAPI(title="Guidebook", version=version("guidebook"), lifespan=lifespan)
@@ -249,8 +249,8 @@ async def http_middleware(request: Request, call_next):
         from guidebook.routes.auth import check_auth, MTLS_MODE, _is_auth_enabled
         from guidebook.db import db_manager
 
-        if db_manager._global_session_factory:
-            async with db_manager._global_session_factory() as gdb:
+        if db_manager._instance_session_factory:
+            async with db_manager._instance_session_factory() as gdb:
                 auth_enabled = await _is_auth_enabled(gdb)
                 if not auth_enabled:
                     ok = True
@@ -275,7 +275,7 @@ async def http_middleware(request: Request, call_next):
         from guidebook.db import db_manager
 
         auth_token = request.query_params.get("auth_token")
-        if auth_token and db_manager._global_session_factory:
+        if auth_token and db_manager._instance_session_factory:
             from guidebook.routes.auth import (
                 server_side_check_token,
                 server_side_login,
@@ -283,7 +283,7 @@ async def http_middleware(request: Request, call_next):
             from fastapi.responses import HTMLResponse, RedirectResponse
             from urllib.parse import urlencode
 
-            async with db_manager._global_session_factory() as gdb:
+            async with db_manager._instance_session_factory() as gdb:
                 err = await server_side_check_token(gdb, auth_token)
             if err:
                 return HTMLResponse(
@@ -291,7 +291,7 @@ async def http_middleware(request: Request, call_next):
                     content=_inline_page(f"<p>{err}</p>"),
                 )
             if request.method == "POST":
-                async with db_manager._global_session_factory() as gdb:
+                async with db_manager._instance_session_factory() as gdb:
                     redirect = RedirectResponse(url="/", status_code=303)
                     login_err = await server_side_login(
                         gdb, request, redirect, auth_token
@@ -314,10 +314,10 @@ async def http_middleware(request: Request, call_next):
             )
 
         # Auth check for non-API routes (HTML pages and static assets)
-        if db_manager._global_session_factory:
+        if db_manager._instance_session_factory:
             from guidebook.routes.auth import check_auth, MTLS_MODE, _is_auth_enabled
 
-            async with db_manager._global_session_factory() as gdb:
+            async with db_manager._instance_session_factory() as gdb:
                 auth_enabled = await _is_auth_enabled(gdb)
                 if not auth_enabled:
                     ok = True
@@ -418,7 +418,7 @@ UPDATE_CACHE_TTL = 3600  # 1 hour
 
 @app.get("/api/update-check")
 async def check_for_update(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
     session: AsyncSession = Depends(get_session),
     bust: bool = False,
 ):
@@ -441,9 +441,9 @@ async def check_for_update(
     # Bust cache if requested
     if bust:
         await gdb.execute(
-            delete(GlobalCache).where(
-                GlobalCache.namespace == UPDATE_CACHE_NS,
-                GlobalCache.key == UPDATE_CACHE_KEY,
+            delete(InstanceCache).where(
+                InstanceCache.namespace == UPDATE_CACHE_NS,
+                InstanceCache.key == UPDATE_CACHE_KEY,
             )
         )
         await gdb.commit()
@@ -451,10 +451,10 @@ async def check_for_update(
     # Check cache
     cached = (
         await gdb.execute(
-            select(GlobalCache).where(
-                GlobalCache.namespace == UPDATE_CACHE_NS,
-                GlobalCache.key == UPDATE_CACHE_KEY,
-                GlobalCache.expires_at > time.time(),
+            select(InstanceCache).where(
+                InstanceCache.namespace == UPDATE_CACHE_NS,
+                InstanceCache.key == UPDATE_CACHE_KEY,
+                InstanceCache.expires_at > time.time(),
             )
         )
     ).scalar_one_or_none()
@@ -493,13 +493,13 @@ async def check_for_update(
 
         # Store in cache
         await gdb.execute(
-            delete(GlobalCache).where(
-                GlobalCache.namespace == UPDATE_CACHE_NS,
-                GlobalCache.key == UPDATE_CACHE_KEY,
+            delete(InstanceCache).where(
+                InstanceCache.namespace == UPDATE_CACHE_NS,
+                InstanceCache.key == UPDATE_CACHE_KEY,
             )
         )
         gdb.add(
-            GlobalCache(
+            InstanceCache(
                 namespace=UPDATE_CACHE_NS,
                 key=UPDATE_CACHE_KEY,
                 value=json.dumps(
@@ -552,15 +552,15 @@ async def check_for_update(
 
 @app.post("/api/update-check/skip")
 async def skip_update(
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
     session: AsyncSession = Depends(get_session),
 ):
     """Skip the currently available update version."""
     cached = (
         await gdb.execute(
-            select(GlobalCache).where(
-                GlobalCache.namespace == UPDATE_CACHE_NS,
-                GlobalCache.key == UPDATE_CACHE_KEY,
+            select(InstanceCache).where(
+                InstanceCache.namespace == UPDATE_CACHE_NS,
+                InstanceCache.key == UPDATE_CACHE_KEY,
             )
         )
     ).scalar_one_or_none()
@@ -590,7 +590,7 @@ app.include_router(databases_router)
 app.include_router(records_router)
 app.include_router(attachments_router)
 app.include_router(settings_router)
-app.include_router(global_settings_router)
+app.include_router(instance_settings_router)
 app.include_router(notifications_router)
 app.include_router(query_router)
 app.include_router(update_router)
@@ -765,6 +765,7 @@ def run() -> None:
 
     env_help = """
 environment variables (overridden by command line options):
+  GUIDEBOOK_INSTANCE              Instance name (default: default)
   GUIDEBOOK_DB                    Database name to open (default: guidebook)
   GUIDEBOOK_PICKER                Enable database picker mode (default: false)
   GUIDEBOOK_NO_BROWSER            Skip opening browser (default: false)
@@ -798,6 +799,11 @@ environment variables (overridden by command line options):
         nargs="?",
         default=None,
         help="Database name to open (e.g. my-project, default: guidebook)",
+    )
+    parser.add_argument(
+        "--instance",
+        default=None,
+        help="Instance name (default: 'default', env: GUIDEBOOK_INSTANCE)",
     )
     parser.add_argument(
         "--pick",
@@ -942,6 +948,11 @@ environment variables (overridden by command line options):
     proxy_mode = bool(trusted_proxy_networks)
     _auth_module.PROXY_MODE = proxy_mode
     _auth_module.TLS_ENABLED = not no_tls
+    # Apply --instance / GUIDEBOOK_INSTANCE
+    if args.instance:
+        from guidebook.db import set_instance
+
+        set_instance(args.instance)
     if args.name and args.name.startswith("__"):
         print(
             "Error: database name must not start with '__' (reserved for system databases)"
@@ -956,10 +967,10 @@ environment variables (overridden by command line options):
         import secrets
         import sqlite3
 
-        from guidebook.db import META_DB_PATH, _ensure_data_dir
+        from guidebook.db import INSTANCE_DB_PATH, _ensure_data_dir
 
-        _ensure_data_dir(META_DB_PATH.parent)
-        conn = sqlite3.connect(str(META_DB_PATH))
+        _ensure_data_dir(INSTANCE_DB_PATH.parent)
+        conn = sqlite3.connect(str(INSTANCE_DB_PATH))
         conn.execute(
             "CREATE TABLE IF NOT EXISTS auth_tokens "
             "(id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, label TEXT NOT NULL DEFAULT '', "
@@ -1195,11 +1206,11 @@ environment variables (overridden by command line options):
     if not no_tls:
         import ssl as _ssl
 
-        from guidebook.db import META_DB_PATH
+        from guidebook.db import INSTANCE_DB_PATH
         from guidebook.tls import ensure_ca_cert, ensure_tls_cert, write_tls_temp_files
 
-        ensure_ca_cert(str(META_DB_PATH))
-        cert_pem, key_pem = ensure_tls_cert(str(META_DB_PATH))
+        ensure_ca_cert(str(INSTANCE_DB_PATH))
+        cert_pem, key_pem = ensure_tls_cert(str(INSTANCE_DB_PATH))
         certfile, keyfile = write_tls_temp_files(cert_pem, key_pem)
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
         logger.info("TLS enabled (CA-signed certificate)")
@@ -1207,7 +1218,7 @@ environment variables (overridden by command line options):
         # mTLS configuration
         import sqlite3 as _sq
 
-        _mconn = _sq.connect(str(META_DB_PATH))
+        _mconn = _sq.connect(str(INSTANCE_DB_PATH))
         _mrow = _mconn.execute(
             "SELECT value FROM settings WHERE key = 'mtls_mode'"
         ).fetchone()
@@ -1224,7 +1235,7 @@ environment variables (overridden by command line options):
                 write_ca_temp_file,
             )
 
-            ca_cert_pem, ca_key_pem = ensure_ca_cert(str(META_DB_PATH))
+            ca_cert_pem, ca_key_pem = ensure_ca_cert(str(INSTANCE_DB_PATH))
             ca_certfile = write_ca_temp_file(ca_cert_pem)
             ssl_kwargs["ssl_ca_certs"] = ca_certfile
             ssl_kwargs["ssl_cert_reqs"] = (
@@ -1232,7 +1243,7 @@ environment variables (overridden by command line options):
             )
 
             # Build CRL from revoked certs
-            _cconn = _sq.connect(str(META_DB_PATH))
+            _cconn = _sq.connect(str(INSTANCE_DB_PATH))
             _revoked = _cconn.execute(
                 "SELECT serial_number, revoked_at FROM client_certs WHERE revoked_at IS NOT NULL"
             ).fetchall()

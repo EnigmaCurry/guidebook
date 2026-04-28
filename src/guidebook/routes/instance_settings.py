@@ -6,17 +6,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from guidebook.db import (
-    GLOBAL_DEFAULTABLE_KEYS,
-    GLOBAL_ONLY_KEYS,
-    GlobalSetting,
-    get_global_session,
+    INSTANCE_DEFAULTABLE_KEYS,
+    INSTANCE_ONLY_KEYS,
+    InstanceSetting,
+    get_instance_session,
 )
 
 logger = logging.getLogger("guidebook")
 
-router = APIRouter(prefix="/api/global-settings", tags=["global-settings"])
+router = APIRouter(prefix="/api/instance-settings", tags=["instance-settings"])
 
-ALLOWED_KEYS = GLOBAL_DEFAULTABLE_KEYS | GLOBAL_ONLY_KEYS
+ALLOWED_KEYS = INSTANCE_DEFAULTABLE_KEYS | INSTANCE_ONLY_KEYS
 HIDDEN_KEYS: set[str] = {"nats_ca_cert", "nats_client_cert", "nats_client_key"}
 
 
@@ -31,21 +31,21 @@ class SettingResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-def _redact(setting: GlobalSetting) -> SettingResponse:
+def _redact(setting: InstanceSetting) -> SettingResponse:
     if setting.key in HIDDEN_KEYS:
         return SettingResponse(key=setting.key, value="***" if setting.value else None)
     return SettingResponse.model_validate(setting)
 
 
 @router.get("/", response_model=list[SettingResponse])
-async def list_global_settings(gdb: AsyncSession = Depends(get_global_session)):
-    result = await gdb.execute(select(GlobalSetting))
+async def list_instance_settings(gdb: AsyncSession = Depends(get_instance_session)):
+    result = await gdb.execute(select(InstanceSetting))
     return [_redact(s) for s in result.scalars().all() if s is not None]
 
 
 @router.get("/{key}", response_model=SettingResponse)
-async def get_global_setting(key: str, gdb: AsyncSession = Depends(get_global_session)):
-    result = await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
+async def get_instance_setting(key: str, gdb: AsyncSession = Depends(get_instance_session)):
+    result = await gdb.execute(select(InstanceSetting).where(InstanceSetting.key == key))
     setting = result.scalar_one_or_none()
     if not setting:
         return SettingResponse(key=key, value=None)
@@ -53,10 +53,10 @@ async def get_global_setting(key: str, gdb: AsyncSession = Depends(get_global_se
 
 
 @router.put("/{key}", response_model=SettingResponse)
-async def upsert_global_setting(
+async def upsert_instance_setting(
     key: str,
     data: SettingValue,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     if key not in ALLOWED_KEYS:
         raise HTTPException(
@@ -65,7 +65,7 @@ async def upsert_global_setting(
         )
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-    stmt = sqlite_insert(GlobalSetting).values(key=key, value=data.value)
+    stmt = sqlite_insert(InstanceSetting).values(key=key, value=data.value)
     stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": data.value})
     await gdb.execute(stmt)
     await gdb.commit()

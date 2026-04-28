@@ -78,7 +78,7 @@ def extract_cn(cert_pem: str) -> str | None:
 async def _read_nats_settings() -> dict:
     from sqlalchemy import select
 
-    from guidebook.db import GlobalSetting, global_async_session
+    from guidebook.db import InstanceSetting, instance_async_session
 
     keys = [
         "nats_enabled",
@@ -88,10 +88,12 @@ async def _read_nats_settings() -> dict:
         "nats_client_key",
     ]
     result = {}
-    async with global_async_session() as gdb:
+    async with instance_async_session() as gdb:
         for key in keys:
             row = (
-                await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
+                await gdb.execute(
+                    select(InstanceSetting).where(InstanceSetting.key == key)
+                )
             ).scalar_one_or_none()
             result[key] = row.value if row else None
     return result
