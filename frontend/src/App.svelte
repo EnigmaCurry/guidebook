@@ -201,6 +201,14 @@
   }
 
   async function tryRenewSession() {
+    // Skip cookie renewal when mTLS-only auth is active (no cookie to renew)
+    try {
+      const statusRes = await fetch("/api/auth/status");
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        if (status.mtls_mode === "required") return;
+      }
+    } catch {}
     try {
       await fetch("/api/auth/renew", { method: "POST" });
     } catch {}

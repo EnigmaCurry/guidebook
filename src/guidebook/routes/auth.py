@@ -253,7 +253,10 @@ async def generate_token(
 ):
     """Generate a login token for a new session. Auth enforced by middleware."""
     if MTLS_MODE == "required":
-        raise HTTPException(400, "Login links are disabled in mTLS enforced mode. Use client certificates instead.")
+        raise HTTPException(
+            400,
+            "Login links are disabled in mTLS enforced mode. Use client certificates instead.",
+        )
     enabled = await _is_auth_enabled(gdb)
     if not enabled:
         raise HTTPException(400, "Authentication is not enabled")
@@ -512,6 +515,8 @@ async def renew_session(
     """Renew the current session cookie if eligible."""
     if not await _is_auth_enabled(gdb):
         return {"status": "ok", "reason": "auth disabled"}
+    if MTLS_MODE == "required":
+        return {"status": "ok", "reason": "mTLS enforced, no cookie to renew"}
     claims = _get_jwt_claims(request)
     if not claims or "sid" not in claims:
         raise HTTPException(401, "Not authenticated")
@@ -578,9 +583,7 @@ async def logout(
     """Log out the current session. Auth enforced by middleware."""
     session_id = _get_current_session_id(request)
     if session_id:
-        result = await gdb.execute(
-            select(AuthToken).where(AuthToken.id == session_id)
-        )
+        result = await gdb.execute(select(AuthToken).where(AuthToken.id == session_id))
         tok = result.scalar_one_or_none()
         if tok:
             await gdb.delete(tok)
