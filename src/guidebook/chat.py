@@ -243,6 +243,7 @@ async def _on_verify_message(msg):
                 {"cn": from_cn, "fingerprint": from_fp, "room_id": room_id},
             )
             _broadcast_chat_event("chat-rooms", {"rooms": get_rooms()})
+            await _publish_presence()
             return
 
         # Store as pending incoming request for UI
@@ -315,6 +316,7 @@ async def _on_verify_message(msg):
             {"cn": from_cn, "fingerprint": from_fp, "room_id": room_id},
         )
         _broadcast_chat_event("chat-rooms", {"rooms": get_rooms()})
+        await _publish_presence()
 
 
 def _verify_signature(cert_pem: str, nonce: str, signature_b64: str) -> bool:
@@ -559,24 +561,27 @@ async def _subscribe_dm(room_id: str):
     logger.info("Subscribed to DM room %s", room_id[:16])
 
 
-async def _presence_loop():
-    """Periodically publish presence and prune stale peers."""
+async def _publish_presence():
+    """Publish presence to the lobby."""
     from guidebook.nats_client import get_client
 
+    nc = get_client()
+    if nc and nc.is_connected and _lobby_enabled and _own_fingerprint:
+        presence = {
+            "type": "presence",
+            "cn": _own_cn,
+            "fingerprint": _own_fingerprint,
+            "cert_pem": _own_cert_pem,
+            "timestamp": time.time(),
+        }
+        await nc.publish("guidebook.chat.lobby", json.dumps(presence).encode())
+
+
+async def _presence_loop():
+    """Periodically publish presence and prune stale peers."""
     while True:
         try:
-            nc = get_client()
-            if nc and nc.is_connected and _lobby_enabled and _own_fingerprint:
-                presence = {
-                    "type": "presence",
-                    "cn": _own_cn,
-                    "fingerprint": _own_fingerprint,
-                    "cert_pem": _own_cert_pem,
-                    "timestamp": time.time(),
-                }
-                await nc.publish(
-                    "guidebook.chat.lobby", json.dumps(presence).encode()
-                )
+            await _publish_presence()
 
             # Prune stale peers
             now = time.time()
