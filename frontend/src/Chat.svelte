@@ -5,6 +5,7 @@
   import iconPlug from "@iconify-icons/twemoji/electric-plug";
   import iconCross from "@iconify-icons/twemoji/cross-mark";
   import P2P from "./P2P.svelte";
+  import * as p2p from "./p2p.js";
 
   let rooms = [];
   let peers = [];
@@ -19,7 +20,7 @@
   let messageInputEl;
   let p2pRoom = null;
   let p2pPeer = null;
-  let pendingOffer = null;
+  let p2pState = p2p.getState();
 
   async function loadStatus() {
     try {
@@ -191,17 +192,7 @@
     loadRooms();
   }
 
-  function onWebrtcOffer(e) {
-    const detail = e.detail;
-    // If P2P panel is already open for this room, the P2P component handles it
-    if (p2pRoom === detail.room_id) return;
-    // Auto-open P2P panel for the incoming offer's room
-    const room = rooms.find(r => r.id === detail.room_id);
-    if (!room) return;
-    pendingOffer = detail;
-    p2pRoom = room.id;
-    p2pPeer = room;
-  }
+  let unsubP2P;
 
   onMount(() => {
     loadStatus();
@@ -217,7 +208,16 @@
     window.addEventListener("chat-verify-complete", onChatVerifyComplete);
     window.addEventListener("chat-rooms", onChatRooms);
     window.addEventListener("chat-defriended", onChatDefriended);
-    window.addEventListener("webrtc-offer", onWebrtcOffer);
+    unsubP2P = p2p.onChange(s => {
+      p2pState = s;
+      // Auto-open P2P panel when connection is established from any page
+      if (s.roomId && !p2pRoom) {
+        const room = rooms.find(r => r.id === s.roomId);
+        if (room) { p2pRoom = room.id; p2pPeer = room; }
+      }
+      // Clear panel when connection closes
+      if (!s.roomId && p2pRoom) { p2pRoom = null; p2pPeer = null; }
+    });
   });
 
   onDestroy(() => {
@@ -227,7 +227,7 @@
     window.removeEventListener("chat-verify-complete", onChatVerifyComplete);
     window.removeEventListener("chat-rooms", onChatRooms);
     window.removeEventListener("chat-defriended", onChatDefriended);
-    window.removeEventListener("webrtc-offer", onWebrtcOffer);
+    if (unsubP2P) unsubP2P();
   });
 </script>
 
@@ -246,18 +246,18 @@
         </button>
         <button
           class="btn-small btn-p2p-connect"
-          class:btn-p2p-active={p2pRoom === room.id}
-          disabled={p2pRoom && p2pRoom !== room.id}
+          class:btn-p2p-active={p2pState.roomId === room.id}
+          disabled={p2pState.roomId && p2pState.roomId !== room.id}
           on:click|stopPropagation={() => {
-            if (p2pRoom === room.id) {
-              p2pRoom = null;
-              p2pPeer = null;
+            if (p2pState.roomId === room.id) {
+              p2p.hangup();
             } else {
               p2pRoom = room.id;
               p2pPeer = room;
+              p2p.connect(room.id, room.name, chatStatus.fingerprint, room.fingerprint);
             }
           }}
-          title={p2pRoom === room.id ? "Close P2P" : "P2P Connect"}
+          title={p2pState.roomId === room.id ? "Disconnect P2P" : "P2P Connect"}
         ><Icon icon={iconPlug} width={14} /></button>
       </div>
     {/each}
@@ -306,8 +306,6 @@
         peerName={p2pPeer.name}
         ownFingerprint={chatStatus.fingerprint}
         peerFingerprint={p2pPeer.fingerprint}
-        {pendingOffer}
-        on:offer-consumed={() => { pendingOffer = null; }}
       />
     {/if}
     {#if !chatStatus.active}

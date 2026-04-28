@@ -17,6 +17,7 @@
   import iconCamera from "@iconify-icons/twemoji/camera";
   import { setDatabase, storageGet, storageSet, migrateStorage } from "./storage.js";
   import { applyThemeVars, applyCustomThemeVars, resolveDefaultTheme } from "./themes.js";
+  import * as p2p from "./p2p.js";
 
   const DUAL_RIGHT_PAGES = new Set(["notifications", "media"]);
 
@@ -609,7 +610,20 @@
     });
     for (const evt of ["chat-message", "chat-peers", "chat-verify-request", "chat-verify-complete", "chat-rooms", "chat-defriended", "webrtc-offer", "webrtc-answer", "webrtc-ice", "webrtc-hangup"]) {
       eventSource.addEventListener(evt, (e) => {
-        window.dispatchEvent(new CustomEvent(evt, { detail: JSON.parse(e.data) }));
+        const detail = JSON.parse(e.data);
+        window.dispatchEvent(new CustomEvent(evt, { detail }));
+        if (evt === "webrtc-offer") {
+          (async () => {
+            try {
+              const [roomsRes, statusRes] = await Promise.all([fetch("/api/chat/rooms"), fetch("/api/chat/status")]);
+              if (roomsRes.ok && statusRes.ok) {
+                p2p.handleOffer(detail, await roomsRes.json(), await statusRes.json());
+              }
+            } catch {}
+          })();
+        } else if (evt === "webrtc-answer") { p2p.handleAnswer(detail); }
+        else if (evt === "webrtc-ice") { p2p.handleIce(detail); }
+        else if (evt === "webrtc-hangup") { p2p.handleHangup(detail); }
       });
     }
     eventSource.addEventListener("database-changed", () => {

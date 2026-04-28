@@ -1,253 +1,30 @@
 <script>
-  import { onMount, onDestroy, createEventDispatcher } from "svelte";
-
-  const dispatch = createEventDispatcher();
+  import { onMount, onDestroy } from "svelte";
+  import * as p2p from "./p2p.js";
 
   export let roomId;
   export let peerName;
   export let ownFingerprint;
   export let peerFingerprint;
-  export let pendingOffer = null;
 
-  let pc = null;
-  let dc = null;
-  let connectionState = "idle";
-  let iceState = "";
-  let signalingState = "";
-  let makingOffer = false;
-  let debugLog = [];
+  let s = p2p.getState();
   let debugOpen = false;
-  let pingResults = [];
-  let localCandidates = [];
-  let remoteCandidates = [];
-  let localSdp = "";
-  let remoteSdp = "";
+  let unsubscribe;
 
+  $: active = s.roomId === roomId;
   $: polite = ownFingerprint < peerFingerprint;
-  $: dcOpen = dc && dc.readyState === "open";
-
-  function log(msg) {
-    const ts = new Date().toLocaleTimeString("en-US", { hour12: false, fractionalSecondDigits: 3 });
-    debugLog = [...debugLog, `[${ts}] ${msg}`];
-  }
-
-  async function sendSignal(type, fields = {}) {
-    try {
-      await fetch(`/api/chat/rooms/${roomId}/signal`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, ...fields, ts: Date.now() / 1000 }),
-      });
-    } catch (err) {
-      log(`Signal send error: ${err.message}`);
-    }
-  }
-
-  function connect() {
-    if (pc) return;
-    log("Creating RTCPeerConnection");
-    connectionState = "connecting";
-
-    pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-    });
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        localCandidates = [...localCandidates, `${candidate.protocol || ""} ${candidate.address || ""}:${candidate.port || ""} ${candidate.type || ""}`];
-        sendSignal("webrtc-ice", {
-          candidate: candidate.candidate,
-          sdpMid: candidate.sdpMid,
-          sdpMLineIndex: candidate.sdpMLineIndex,
-        });
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      iceState = pc.iceConnectionState;
-      log(`ICE: ${iceState}`);
-    };
-
-    pc.onconnectionstatechange = () => {
-      connectionState = pc.connectionState;
-      log(`Connection: ${connectionState}`);
-      if (connectionState === "failed" || connectionState === "closed") {
-        cleanup(false);
-      }
-    };
-
-    pc.onsignalingstatechange = () => {
-      signalingState = pc.signalingState;
-    };
-
-    pc.onnegotiationneeded = async () => {
-      try {
-        makingOffer = true;
-        await pc.setLocalDescription();
-        localSdp = pc.localDescription.sdp;
-        log("Sending offer");
-        await sendSignal("webrtc-offer", { sdp: pc.localDescription.sdp });
-      } catch (err) {
-        log(`Offer error: ${err.message}`);
-      } finally {
-        makingOffer = false;
-      }
-    };
-
-    pc.ondatachannel = (e) => {
-      log(`Remote data channel: ${e.channel.label}`);
-      setupDataChannel(e.channel);
-    };
-
-    // Create data channel (only the impolite peer creates it to avoid duplicates,
-    // but with perfect negotiation either side can — the offerer creates it)
-    dc = pc.createDataChannel("p2p-test");
-    setupDataChannel(dc);
-    log("Created data channel");
-  }
-
-  function setupDataChannel(channel) {
-    dc = channel;
-    channel.onopen = () => {
-      connectionState = "connected";
-      dc = channel;
-      log("Data channel open");
-    };
-    channel.onclose = () => {
-      log("Data channel closed");
-      dc = null;
-    };
-    channel.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === "ping") {
-          channel.send(JSON.stringify({ type: "pong", ts: msg.ts }));
-        } else if (msg.type === "pong") {
-          const rtt = Date.now() - msg.ts;
-          pingResults = [...pingResults, rtt];
-          log(`Pong: ${rtt}ms RTT`);
-        }
-      } catch {}
-    };
-  }
-
-  function sendPing() {
-    if (dc && dc.readyState === "open") {
-      dc.send(JSON.stringify({ type: "ping", ts: Date.now() }));
-      log("Ping sent");
-    }
-  }
-
-  async function handleOffer(detail) {
-    if (detail.room_id !== roomId) return;
-    log("Received offer");
-
-    if (!pc) connect();
-
-    const offerCollision = makingOffer || pc.signalingState !== "stable";
-    const ignoreOffer = !polite && offerCollision;
-    if (ignoreOffer) {
-      log("Ignoring colliding offer (impolite)");
-      return;
-    }
-
-    try {
-      await pc.setRemoteDescription({ type: "offer", sdp: detail.sdp });
-      remoteSdp = detail.sdp;
-      await pc.setLocalDescription();
-      localSdp = pc.localDescription.sdp;
-      log("Sending answer");
-      await sendSignal("webrtc-answer", { sdp: pc.localDescription.sdp });
-    } catch (err) {
-      log(`Handle offer error: ${err.message}`);
-    }
-  }
-
-  async function handleAnswer(detail) {
-    if (detail.room_id !== roomId) return;
-    log("Received answer");
-    try {
-      await pc.setRemoteDescription({ type: "answer", sdp: detail.sdp });
-      remoteSdp = detail.sdp;
-    } catch (err) {
-      log(`Handle answer error: ${err.message}`);
-    }
-  }
-
-  async function handleIce(detail) {
-    if (detail.room_id !== roomId) return;
-    try {
-      const candidate = new RTCIceCandidate({
-        candidate: detail.candidate,
-        sdpMid: detail.sdpMid,
-        sdpMLineIndex: detail.sdpMLineIndex,
-      });
-      remoteCandidates = [...remoteCandidates, `${candidate.protocol || ""} ${candidate.address || ""}:${candidate.port || ""} ${candidate.type || ""}`];
-      await pc.addIceCandidate(candidate);
-    } catch (err) {
-      if (!polite || pc.signalingState !== "stable") return;
-      log(`ICE candidate error: ${err.message}`);
-    }
-  }
-
-  function handleHangup(detail) {
-    if (detail.room_id !== roomId) return;
-    log("Remote peer hung up");
-    cleanup(false);
-  }
-
-  function hangup() {
-    sendSignal("webrtc-hangup");
-    cleanup(false);
-  }
-
-  function cleanup(silent = false) {
-    if (dc) {
-      try { dc.close(); } catch {}
-      dc = null;
-    }
-    if (pc) {
-      try { pc.close(); } catch {}
-      pc = null;
-    }
-    connectionState = "idle";
-    iceState = "";
-    signalingState = "";
-    makingOffer = false;
-    localCandidates = [];
-    remoteCandidates = [];
-    localSdp = "";
-    remoteSdp = "";
-    if (!silent) log("Connection closed");
-  }
-
-  function onOffer(e) { handleOffer(e.detail); }
-  function onAnswer(e) { handleAnswer(e.detail); }
-  function onIce(e) { handleIce(e.detail); }
-  function onHangup(e) { handleHangup(e.detail); }
 
   onMount(() => {
-    window.addEventListener("webrtc-offer", onOffer);
-    window.addEventListener("webrtc-answer", onAnswer);
-    window.addEventListener("webrtc-ice", onIce);
-    window.addEventListener("webrtc-hangup", onHangup);
-    // If opened due to an incoming offer, auto-connect and handle it
-    if (pendingOffer) {
-      handleOffer(pendingOffer);
-      dispatch("offer-consumed");
-    }
+    unsubscribe = p2p.onChange(next => { s = next; });
   });
 
   onDestroy(() => {
-    window.removeEventListener("webrtc-offer", onOffer);
-    window.removeEventListener("webrtc-answer", onAnswer);
-    window.removeEventListener("webrtc-ice", onIce);
-    window.removeEventListener("webrtc-hangup", onHangup);
-    if (pc) {
-      sendSignal("webrtc-hangup");
-      cleanup(true);
-    }
+    if (unsubscribe) unsubscribe();
   });
+
+  function connect() {
+    p2p.connect(roomId, peerName, ownFingerprint, peerFingerprint);
+  }
 
   function stateColor(state) {
     if (state === "connected") return "var(--success, #4caf50)";
@@ -259,78 +36,79 @@
 
 <div class="p2p-panel">
   <div class="p2p-header">
-    <span class="p2p-status-dot" style="background: {stateColor(connectionState)}"></span>
+    <span class="p2p-status-dot" style="background: {stateColor(active ? s.connectionState : 'idle')}"></span>
     <span class="p2p-title">P2P: {peerName}</span>
-    <span class="p2p-state">{connectionState}</span>
+    <span class="p2p-state">{active ? s.connectionState : "idle"}</span>
     <div class="p2p-actions">
-      {#if connectionState === "idle"}
-        <button class="btn-p2p" on:click={connect}>Connect</button>
+      {#if !active || s.connectionState === "idle"}
+        <button class="btn-p2p" on:click={connect} disabled={s.roomId && !active}>Connect</button>
       {:else}
-        <button class="btn-p2p btn-hangup" on:click={hangup}>Hangup</button>
+        <button class="btn-p2p btn-hangup" on:click={p2p.hangup}>Hangup</button>
       {/if}
-      {#if dcOpen}
-        <button class="btn-p2p" on:click={sendPing}>Ping</button>
+      {#if active && s.dcOpen}
+        <button class="btn-p2p" on:click={p2p.sendPing}>Ping</button>
       {/if}
-      <button class="btn-p2p btn-close" on:click={() => { if (pc) hangup(); }}>Close</button>
     </div>
   </div>
 
-  {#if pingResults.length > 0}
+  {#if active && s.pingResults.length > 0}
     <div class="ping-results">
       <span class="ping-label">RTT:</span>
-      {#each pingResults.slice(-10) as rtt}
+      {#each s.pingResults.slice(-10) as rtt}
         <span class="ping-value">{rtt}ms</span>
       {/each}
     </div>
   {/if}
 
-  <button class="debug-toggle" on:click={() => debugOpen = !debugOpen}>
-    {debugOpen ? "Hide" : "Show"} Debug {debugLog.length > 0 ? `(${debugLog.length})` : ""}
-  </button>
+  {#if active}
+    <button class="debug-toggle" on:click={() => debugOpen = !debugOpen}>
+      {debugOpen ? "Hide" : "Show"} Debug {s.debugLog.length > 0 ? `(${s.debugLog.length})` : ""}
+    </button>
 
-  {#if debugOpen}
-    <div class="debug-panel">
-      <div class="debug-section">
-        <div class="debug-row"><strong>Role:</strong> {polite ? "polite" : "impolite"}</div>
-        <div class="debug-row"><strong>Connection:</strong> {connectionState}</div>
-        <div class="debug-row"><strong>ICE:</strong> {iceState || "n/a"}</div>
-        <div class="debug-row"><strong>Signaling:</strong> {signalingState || "n/a"}</div>
-      </div>
-
-      {#if localCandidates.length > 0}
+    {#if debugOpen}
+      <div class="debug-panel">
         <div class="debug-section">
-          <strong>Local candidates ({localCandidates.length}):</strong>
-          <div class="candidate-list">{#each localCandidates as c}<div class="candidate">{c}</div>{/each}</div>
+          <div class="debug-row"><strong>Role:</strong> {polite ? "polite" : "impolite"}</div>
+          <div class="debug-row"><strong>Connection:</strong> {s.connectionState}</div>
+          <div class="debug-row"><strong>ICE:</strong> {s.iceState || "n/a"}</div>
+          <div class="debug-row"><strong>Signaling:</strong> {s.signalingState || "n/a"}</div>
         </div>
-      {/if}
 
-      {#if remoteCandidates.length > 0}
-        <div class="debug-section">
-          <strong>Remote candidates ({remoteCandidates.length}):</strong>
-          <div class="candidate-list">{#each remoteCandidates as c}<div class="candidate">{c}</div>{/each}</div>
+        {#if s.localCandidates.length > 0}
+          <div class="debug-section">
+            <strong>Local candidates ({s.localCandidates.length}):</strong>
+            <div class="candidate-list">{#each s.localCandidates as c}<div class="candidate">{c}</div>{/each}</div>
+          </div>
+        {/if}
+
+        {#if s.remoteCandidates.length > 0}
+          <div class="debug-section">
+            <strong>Remote candidates ({s.remoteCandidates.length}):</strong>
+            <div class="candidate-list">{#each s.remoteCandidates as c}<div class="candidate">{c}</div>{/each}</div>
+          </div>
+        {/if}
+
+        {#if s.localSdp}
+          <details class="debug-section">
+            <summary>Local SDP</summary>
+            <pre class="sdp">{s.localSdp}</pre>
+          </details>
+        {/if}
+
+        {#if s.remoteSdp}
+          <details class="debug-section">
+            <summary>Remote SDP</summary>
+            <pre class="sdp">{s.remoteSdp}</pre>
+          </details>
+        {/if}
+
+        <div class="debug-log">
+          {#each s.debugLog as entry}
+            <div class="log-entry">{entry}</div>
+          {/each}
         </div>
-      {/if}
-
-      {#if localSdp}
-        <details class="debug-section">
-          <summary>Local SDP</summary>
-          <pre class="sdp">{localSdp}</pre>
-        </details>
-      {/if}
-
-      {#if remoteSdp}
-        <details class="debug-section">
-          <summary>Remote SDP</summary>
-          <pre class="sdp">{remoteSdp}</pre>
-        </details>
-      {/if}
-
-      <div class="debug-log">
-        {#each debugLog as entry}
-          <div class="log-entry">{entry}</div>
-        {/each}
       </div>
-    </div>
+    {/if}
   {/if}
 </div>
 
@@ -389,14 +167,14 @@
     background: var(--bg-hover, #2a2a2a);
   }
 
+  .btn-p2p:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
   .btn-hangup {
     border-color: var(--error, #f44336);
     color: var(--error, #f44336);
-  }
-
-  .btn-close {
-    border-color: var(--text-muted, #666);
-    color: var(--text-muted, #888);
   }
 
   .ping-results {
