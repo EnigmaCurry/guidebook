@@ -74,6 +74,7 @@ class RecordCreate(BaseModel):
     content: str | None = None
     tags: str | None = None
     timestamp: datetime | None = None
+    recipients: list[str] | None = None
 
     @field_validator("title")
     @classmethod
@@ -98,12 +99,30 @@ class RecordUpdate(BaseModel):
     content: str | None = None
     tags: str | None = None
     timestamp: datetime | None = None
+    recipients: list[str] | None = None
 
     @field_validator("timestamp")
     @classmethod
     def normalize_timestamp(cls, v: datetime | None) -> datetime | None:
         if v is None:
             return v
+        if v.tzinfo is not None:
+            v = v.astimezone(timezone.utc).replace(tzinfo=None)
+        return v
+
+
+class RecordSync(BaseModel):
+    uuid: str
+    title: str
+    content: str | None = None
+    tags: str | None = None
+    recipients: list[str] | None = None
+    timestamp: datetime
+    updated_at: datetime
+
+    @field_validator("timestamp", "updated_at")
+    @classmethod
+    def normalize_timestamp(cls, v: datetime) -> datetime:
         if v.tzinfo is not None:
             v = v.astimezone(timezone.utc).replace(tzinfo=None)
         return v
@@ -117,6 +136,14 @@ class RecordResponse(BaseModel):
     tags: str | None
     timestamp: datetime
     updated_at: datetime | None = None
+    recipients: list[str] | None = None
+
+    @field_validator("recipients", mode="before")
+    @classmethod
+    def parse_recipients(cls, v: str | list | None) -> list[str] | None:
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
 
     @field_serializer("timestamp")
     def serialize_timestamp(self, v: datetime) -> str:
@@ -160,12 +187,50 @@ async def list_records(
     return result.scalars().all()
 
 
+@router.post("/sync")
+async def sync_record(data: RecordSync, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(Record).where(Record.uuid == data.uuid))
+    existing = result.scalar_one_or_none()
+
+    recipients_json = json.dumps(data.recipients) if data.recipients else None
+
+    if existing is None:
+        record = Record(
+            uuid=data.uuid,
+            title=data.title,
+            content=data.content,
+            tags=data.tags,
+            recipients=recipients_json,
+            timestamp=data.timestamp,
+            updated_at=data.updated_at,
+        )
+        session.add(record)
+        await session.commit()
+        _broadcast_records_changed()
+        return {"action": "created", "uuid": data.uuid}
+
+    local_ts = existing.updated_at or existing.timestamp
+    if data.updated_at > local_ts:
+        existing.title = data.title
+        existing.content = data.content
+        existing.tags = data.tags
+        existing.recipients = recipients_json
+        existing.updated_at = data.updated_at
+        await session.commit()
+        _broadcast_records_changed()
+        return {"action": "updated", "uuid": data.uuid}
+
+    return {"action": "skipped", "uuid": data.uuid}
+
+
 @router.post("/", response_model=RecordResponse, status_code=201)
 async def create_record(
     data: RecordCreate, session: AsyncSession = Depends(get_session)
 ):
     fields = data.model_dump(exclude_unset=True)
     fields["updated_at"] = fields.get("timestamp") or datetime.now(timezone.utc)
+    if "recipients" in fields and fields["recipients"] is not None:
+        fields["recipients"] = json.dumps(fields["recipients"])
     record = Record(**fields)
     session.add(record)
     await session.commit()
@@ -192,6 +257,8 @@ async def update_record(
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
     for key, value in data.model_dump(exclude_unset=True).items():
+        if key == "recipients" and value is not None:
+            value = json.dumps(value)
         setattr(record, key, value)
     record.updated_at = datetime.now(timezone.utc)
     await session.commit()

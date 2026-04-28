@@ -163,6 +163,7 @@ class Record(Base):
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    recipients: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class Attachment(Base):
@@ -416,7 +417,9 @@ INSTANCE_MIGRATIONS.append(_global_migration_1_client_certs)
 def _global_migration_2_client_certs_pending_session(conn):
     """Add pending_session_id column to client_certs for upgrade state tracking."""
     try:
-        conn.execute(text("ALTER TABLE client_certs ADD COLUMN pending_session_id INTEGER"))
+        conn.execute(
+            text("ALTER TABLE client_certs ADD COLUMN pending_session_id INTEGER")
+        )
     except Exception:
         pass  # column may already exist
 
@@ -674,9 +677,7 @@ class DatabaseManager:
         await self._migrate_last_opened()
         async with self.instance_engine.connect() as conn:
             gsv = await conn.run_sync(lambda c: _get_schema_version(c, "settings"))
-        logger.info(
-            "Opened instance database: %s (schema v%d)", INSTANCE_DB_PATH, gsv
-        )
+        logger.info("Opened instance database: %s (schema v%d)", INSTANCE_DB_PATH, gsv)
 
     async def close_instance(self) -> None:
         """Dispose of the instance database engine."""
@@ -697,7 +698,9 @@ class DatabaseManager:
             for name, ts in data.items():
                 existing = (
                     await session.execute(
-                        select(InstanceLastOpened).where(InstanceLastOpened.name == name)
+                        select(InstanceLastOpened).where(
+                            InstanceLastOpened.name == name
+                        )
                     )
                 ).scalar_one_or_none()
                 if existing:

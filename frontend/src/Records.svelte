@@ -37,6 +37,9 @@
   let attDragCounter = 0;
   let previewIndex = -1;
   let selectedTags = new Set();
+  let formRecipients = [];
+  let origRecipients = [];
+  let trustedPeers = [];
 
   $: previewableAttachments = attachments.filter(a =>
     a.content_type.startsWith("image/") ||
@@ -300,7 +303,7 @@
   $: if (showForm && !formId && (formTitle || formContent || formTags)) {
     formDirty = true;
   }
-  $: if (showForm && formId && (formTitle !== origTitle || formContent !== origContent || formTags !== origTags)) {
+  $: if (showForm && formId && (formTitle !== origTitle || formContent !== origContent || formTags !== origTags || JSON.stringify(formRecipients) !== JSON.stringify(origRecipients))) {
     formDirty = true;
   }
 
@@ -376,6 +379,7 @@
   onMount(() => {
     fetchRecords();
     connectRecordsSSE();
+    fetchTrustedPeers();
     document.addEventListener("drop", onDocDrop);
     document.addEventListener("dragend", onDocDragEnd);
   });
@@ -402,6 +406,24 @@
     loading = false;
   }
 
+  async function fetchTrustedPeers() {
+    try {
+      const res = await fetch("/api/chat/trusted");
+      if (res.ok) {
+        const peers = await res.json();
+        trustedPeers = peers.filter(p => p.mutual);
+      }
+    } catch {}
+  }
+
+  function toggleRecipient(fp, checked) {
+    if (checked) {
+      formRecipients = [...formRecipients, fp];
+    } else {
+      formRecipients = formRecipients.filter(f => f !== fp);
+    }
+  }
+
   function onSearchInput() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(fetchRecords, 300);
@@ -413,6 +435,8 @@
     formTitle = "";
     formContent = "";
     formTags = "";
+    formRecipients = [];
+    origRecipients = [];
     error = "";
     attachments = [];
     attachmentError = "";
@@ -431,6 +455,8 @@
         formTitle = origTitle = r.title || "";
         formContent = origContent = r.content || "";
         formTags = origTags = r.tags || "";
+        formRecipients = r.recipients || [];
+        origRecipients = [...formRecipients];
         showForm = true;
         formDirty = false;
         fetchAttachments(r.id);
@@ -443,6 +469,8 @@
     formTitle = origTitle = r.title || "";
     formContent = origContent = r.content || "";
     formTags = origTags = r.tags || "";
+    formRecipients = r.recipients || [];
+    origRecipients = [...formRecipients];
     error = "";
     attachmentError = "";
     showForm = true;
@@ -462,6 +490,7 @@
       title: formTitle.trim(),
       content: formContent.trim() || null,
       tags: formTags.trim() || null,
+      recipients: formRecipients.length > 0 ? formRecipients : null,
     };
     try {
       let res;
@@ -518,6 +547,8 @@
     formTitle = "";
     formContent = "";
     formTags = "";
+    formRecipients = [];
+    origRecipients = [];
     error = "";
     attachments = [];
     attachmentError = "";
@@ -717,6 +748,22 @@
         <label for="rec-tags">Tags</label>
         <input id="rec-tags" type="text" bind:value={formTags} placeholder="Tags (optional, comma-separated)" />
       </div>
+      {#if trustedPeers.length > 0}
+        <div class="form-field">
+          <!-- svelte-ignore a11y-label-has-associated-control -->
+          <label>Recipients</label>
+          <div class="recipients-list">
+            {#each trustedPeers as peer (peer.fingerprint)}
+              <label class="recipient-checkbox">
+                <input type="checkbox"
+                  checked={formRecipients.includes(peer.fingerprint)}
+                  on:change={e => toggleRecipient(peer.fingerprint, e.target.checked)} />
+                {peer.cn}
+              </label>
+            {/each}
+          </div>
+        </div>
+      {/if}
       {#if formId}
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div class="attachments-section" class:drag-active={dragOver}
@@ -977,6 +1024,25 @@
     font-size: 0.9rem;
     font-family: inherit;
     resize: vertical;
+  }
+
+  .recipients-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+  }
+
+  .recipient-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    color: var(--text, #eaeaea);
+    cursor: pointer;
+  }
+
+  .recipient-checkbox input[type="checkbox"] {
+    margin: 0;
   }
 
   .error {

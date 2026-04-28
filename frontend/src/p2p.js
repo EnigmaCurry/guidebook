@@ -75,6 +75,8 @@ function setupDataChannel(channel) {
     state.dcOpen = true;
     dc = channel;
     log("Data channel open");
+    channel.send(JSON.stringify({ type: "sync-request" }));
+    log("Sync request sent");
   };
   channel.onclose = () => {
     log("Data channel closed");
@@ -91,6 +93,12 @@ function setupDataChannel(channel) {
         const rtt = Date.now() - msg.ts;
         state.pingResults = [...state.pingResults, rtt];
         log(`Pong: ${rtt}ms RTT`);
+      } else if (msg.type === "sync-request") {
+        handleSyncRequest(channel);
+      } else if (msg.type === "sync-offer") {
+        handleSyncOffer(msg.records, channel);
+      } else if (msg.type === "sync-ack") {
+        log(`Sync ack: ${msg.accepted} accepted, ${msg.skipped} skipped`);
       }
     } catch {}
   };
@@ -313,4 +321,52 @@ export function handleHangup(detail) {
   if (detail.room_id !== roomId) return;
   log("Remote peer hung up");
   cleanup(false);
+}
+
+// --- P2P Record Sync ---
+
+const SYNC_BATCH_SIZE = 50;
+
+async function handleSyncRequest(channel) {
+  try {
+    const res = await fetch("/api/records/?limit=10000");
+    if (!res.ok) return;
+    const records = await res.json();
+    const forPeer = records.filter(
+      (r) => r.recipients && r.recipients.includes(peerFingerprint)
+    );
+    // Send in batches to stay within data channel message size limits
+    for (let i = 0; i < forPeer.length; i += SYNC_BATCH_SIZE) {
+      const batch = forPeer.slice(i, i + SYNC_BATCH_SIZE);
+      channel.send(JSON.stringify({ type: "sync-offer", records: batch }));
+    }
+    if (forPeer.length === 0) {
+      channel.send(JSON.stringify({ type: "sync-offer", records: [] }));
+    }
+    log(`Sync offer sent: ${forPeer.length} records`);
+  } catch (err) {
+    log(`Sync request error: ${err.message}`);
+  }
+}
+
+async function handleSyncOffer(records, channel) {
+  let accepted = 0;
+  let skipped = 0;
+  for (const rec of records) {
+    try {
+      const res = await fetch("/api/records/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rec),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        if (result.action === "created" || result.action === "updated")
+          accepted++;
+        else skipped++;
+      }
+    } catch {}
+  }
+  channel.send(JSON.stringify({ type: "sync-ack", accepted, skipped }));
+  log(`Sync complete: ${accepted} accepted, ${skipped} skipped`);
 }
