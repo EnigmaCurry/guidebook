@@ -13,7 +13,6 @@ from guidebook.chat import (
     initiate_verification,
     reject_verification,
     send_dm_message,
-    send_lobby_message,
 )
 
 logger = logging.getLogger("guidebook.chat")
@@ -59,9 +58,8 @@ async def send_message(room_id: str, data: SendMessage):
     if not data.text.strip():
         raise HTTPException(status_code=400, detail="Empty message")
     if room_id == "lobby":
-        await send_lobby_message(data.text)
-    else:
-        await send_dm_message(room_id, data.text)
+        raise HTTPException(status_code=403, detail="Lobby is for peer discovery only")
+    await send_dm_message(room_id, data.text)
     return {"ok": True}
 
 

@@ -93,15 +93,6 @@ def get_pending_incoming() -> list[dict]:
 
 def get_rooms() -> list[dict]:
     rooms = []
-    if _lobby_enabled:
-        rooms.append(
-            {
-                "id": "lobby",
-                "type": "lobby",
-                "name": "Public Lobby",
-                "subject": "guidebook.chat.lobby",
-            }
-        )
     for fp, t in _trusted.items():
         if t["mutual"]:
             room_id = _derive_room_id(_own_fingerprint, fp)

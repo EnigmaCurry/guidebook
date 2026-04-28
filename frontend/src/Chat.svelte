@@ -5,11 +5,10 @@
   let peers = [];
   let trusted = [];
   let pendingVerifications = [];
-  let activeRoom = "lobby";
+  let activeRoom = null;
   let messages = [];
   let messageInput = "";
   let sending = false;
-  let showPeers = false;
   let chatStatus = { active: false, cn: null, fingerprint: null, lobby_joined: false };
   let messagesEnd;
 
@@ -23,7 +22,13 @@
   async function loadRooms() {
     try {
       const res = await fetch("/api/chat/rooms");
-      if (res.ok) rooms = await res.json();
+      if (res.ok) {
+        rooms = await res.json();
+        if (!activeRoom && rooms.length > 0) {
+          activeRoom = rooms[0].id;
+          loadMessages();
+        }
+      }
     } catch {}
   }
 
@@ -149,6 +154,10 @@
 
   function onChatRooms(e) {
     rooms = e.detail.rooms || [];
+    if (!activeRoom && rooms.length > 0) {
+      activeRoom = rooms[0].id;
+      loadMessages();
+    }
   }
 
   onMount(() => {
@@ -184,23 +193,16 @@
         class:active={activeRoom === room.id}
         on:click={() => selectRoom(room.id)}
       >
-        <span class="room-icon">{room.type === "lobby" ? "🌐" : "🔒"}</span>
+        <span class="room-icon">🔒</span>
         <span class="room-name">{room.name}</span>
       </button>
     {/each}
     {#if rooms.length === 0}
-      <p class="sidebar-hint">No rooms available. Enable lobby or verify a peer.</p>
+      <p class="sidebar-hint">No rooms yet. Verify a peer to start chatting.</p>
     {/if}
 
-    <div class="sidebar-header" style="margin-top: 1em;">
-      Peers
-      {#if chatStatus.lobby_joined}
-        <button class="btn-icon" on:click={() => { showPeers = !showPeers; if (showPeers) loadPeers(); }} title="Toggle peer list">
-          {showPeers ? "▲" : "▼"}
-        </button>
-      {/if}
-    </div>
-    {#if showPeers && chatStatus.lobby_joined}
+    {#if chatStatus.lobby_joined}
+      <div class="sidebar-header" style="margin-top: 1em;">Peers</div>
       {#each peers as peer}
         <div class="peer-item">
           <div class="peer-cn">{peer.cn}</div>
@@ -237,6 +239,10 @@
       <div class="chat-empty">
         <p>Chat is not active. Enable NATS Chat in Settings.</p>
       </div>
+    {:else if !activeRoom}
+      <div class="chat-empty">
+        <p>Verify a peer to start a private conversation.</p>
+      </div>
     {:else}
       <div class="chat-messages">
         {#each messages as msg}
@@ -256,7 +262,7 @@
           type="text"
           bind:value={messageInput}
           on:keydown={handleKeydown}
-          placeholder={activeRoom === "lobby" ? "Message the lobby..." : "Send a message..."}
+          placeholder="Send a message..."
           disabled={sending}
         />
         <button class="btn-send" on:click={sendMessage} disabled={sending || !messageInput.trim()}>Send</button>
@@ -390,15 +396,6 @@
   .btn-reject {
     border-color: #a44;
     color: #f88;
-  }
-
-  .btn-icon {
-    background: none;
-    border: none;
-    color: var(--text-muted, #888);
-    cursor: pointer;
-    font-size: 0.7rem;
-    padding: 0 4px;
   }
 
   .chat-main {
