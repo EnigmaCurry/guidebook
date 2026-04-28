@@ -1062,7 +1062,7 @@
   on:drop={onGlobalDrop}
 />
 
-<main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:settings-mode={page === "settings"}>
+<main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:chat-mode={page === "chat"} class:settings-mode={page === "settings"}>
   {#if globalDragOver && databaseOpen}
     <div class="global-drop-overlay">
       <div class="global-drop-message">Drop files to attach</div>
@@ -1400,6 +1400,23 @@
   }
 
   :global(main.scratchpad-mode) .page-content {
+    max-width: 100%;
+    margin: 0;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  :global(main.chat-mode) {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  :global(main.chat-mode) .page-content {
     max-width: 100%;
     margin: 0;
     flex: 1;

@@ -270,7 +270,8 @@
 <style>
   .chat-container {
     display: flex;
-    height: calc(100dvh - 5rem);
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
   }
 
