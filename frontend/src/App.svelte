@@ -607,7 +607,7 @@
       const data = JSON.parse(e.data);
       natsChatEnabled = data.enabled;
     });
-    for (const evt of ["chat-message", "chat-peers", "chat-verify-request", "chat-verify-complete", "chat-rooms", "chat-defriended"]) {
+    for (const evt of ["chat-message", "chat-peers", "chat-verify-request", "chat-verify-complete", "chat-rooms", "chat-defriended", "webrtc-offer", "webrtc-answer", "webrtc-ice", "webrtc-hangup"]) {
       eventSource.addEventListener(evt, (e) => {
         window.dispatchEvent(new CustomEvent(evt, { detail: JSON.parse(e.data) }));
       });

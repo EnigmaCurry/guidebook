@@ -2,6 +2,7 @@
   import { onMount, onDestroy, tick } from "svelte";
   import Icon from "@iconify/svelte";
   import iconLocked from "@iconify-icons/twemoji/locked";
+  import P2P from "./P2P.svelte";
 
   let rooms = [];
   let peers = [];
@@ -14,6 +15,8 @@
   let chatStatus = { active: false, cn: null, fingerprint: null, lobby_joined: false };
   let messagesEnd;
   let messageInputEl;
+  let p2pRoom = null;
+  let p2pPeer = null;
 
   async function loadStatus() {
     try {
@@ -215,14 +218,31 @@
   <div class="chat-sidebar">
     <div class="sidebar-header">Rooms</div>
     {#each rooms as room}
-      <button
-        class="room-item"
-        class:active={activeRoom === room.id}
-        on:click={() => selectRoom(room.id)}
-      >
-        <span class="room-icon"><Icon icon={iconLocked} width={16} /></span>
-        <span class="room-name">{room.name}</span>
-      </button>
+      <div class="room-row">
+        <button
+          class="room-item"
+          class:active={activeRoom === room.id}
+          on:click={() => selectRoom(room.id)}
+        >
+          <span class="room-icon"><Icon icon={iconLocked} width={16} /></span>
+          <span class="room-name">{room.name}</span>
+        </button>
+        <button
+          class="btn-small btn-p2p-connect"
+          class:btn-p2p-active={p2pRoom === room.id}
+          disabled={p2pRoom && p2pRoom !== room.id}
+          on:click|stopPropagation={() => {
+            if (p2pRoom === room.id) {
+              p2pRoom = null;
+              p2pPeer = null;
+            } else {
+              p2pRoom = room.id;
+              p2pPeer = room;
+            }
+          }}
+          title={p2pRoom === room.id ? "Close P2P" : "P2P Connect"}
+        >{p2pRoom === room.id ? "P2P ✕" : "P2P"}</button>
+      </div>
     {/each}
     {#if rooms.length === 0}
       <p class="sidebar-hint">No rooms yet. Verify a peer to start chatting.</p>
@@ -263,6 +283,14 @@
   </div>
 
   <div class="chat-main">
+    {#if p2pRoom && p2pPeer}
+      <P2P
+        roomId={p2pRoom}
+        peerName={p2pPeer.name}
+        ownFingerprint={chatStatus.fingerprint}
+        peerFingerprint={p2pPeer.fingerprint}
+      />
+    {/if}
     {#if !chatStatus.active}
       <div class="chat-empty">
         <p>Chat is not active. Enable NATS Chat in Settings.</p>
@@ -332,6 +360,38 @@
     color: var(--text-muted, #888);
     padding: 0.25em 0.5em;
     margin: 0;
+  }
+
+  .room-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25em;
+  }
+
+  .btn-p2p-connect {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    padding: 0.15em 0.4em;
+    border: 1px solid var(--border, #444);
+    border-radius: 3px;
+    background: var(--bg, #222);
+    color: var(--text-muted, #888);
+    cursor: pointer;
+  }
+
+  .btn-p2p-connect:hover:not(:disabled) {
+    background: var(--bg-hover, #2a2a2a);
+    color: var(--text, #ccc);
+  }
+
+  .btn-p2p-connect:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn-p2p-active {
+    border-color: var(--accent, #e6a700);
+    color: var(--accent, #e6a700);
   }
 
   .room-item {
