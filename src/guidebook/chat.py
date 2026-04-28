@@ -56,6 +56,73 @@ def _append_message(room_id: str, msg: dict):
         _buffer_sizes[room_id] -= len(json.dumps(old).encode())
 
 
+async def _save_trusted_peer(fingerprint: str, info: dict):
+    """Persist a trusted peer to the instance database."""
+    from sqlalchemy import select
+
+    from guidebook.db import TrustedPeer, instance_async_session
+
+    async with instance_async_session() as db:
+        row = (
+            await db.execute(
+                select(TrustedPeer).where(TrustedPeer.fingerprint == fingerprint)
+            )
+        ).scalar_one_or_none()
+        if row:
+            row.cn = info["cn"]
+            row.cert_pem = info.get("cert_pem")
+            row.verified_at = info["verified_at"]
+            row.mutual = 1 if info["mutual"] else 0
+        else:
+            db.add(
+                TrustedPeer(
+                    fingerprint=fingerprint,
+                    cn=info["cn"],
+                    cert_pem=info.get("cert_pem"),
+                    verified_at=info["verified_at"],
+                    mutual=1 if info["mutual"] else 0,
+                )
+            )
+        await db.commit()
+
+
+async def _delete_trusted_peer(fingerprint: str):
+    """Remove a trusted peer from the instance database."""
+    from sqlalchemy import delete
+
+    from guidebook.db import TrustedPeer, instance_async_session
+
+    async with instance_async_session() as db:
+        await db.execute(
+            delete(TrustedPeer).where(TrustedPeer.fingerprint == fingerprint)
+        )
+        await db.commit()
+
+
+async def _load_trusted_peers():
+    """Load trusted peers from the database into memory and subscribe to DM rooms."""
+    from sqlalchemy import select
+
+    from guidebook.db import TrustedPeer, instance_async_session
+
+    async with instance_async_session() as db:
+        rows = (await db.execute(select(TrustedPeer))).scalars().all()
+
+    for row in rows:
+        _trusted[row.fingerprint] = {
+            "cn": row.cn,
+            "cert_pem": row.cert_pem,
+            "verified_at": row.verified_at,
+            "mutual": bool(row.mutual),
+        }
+        if row.mutual:
+            room_id = _derive_room_id(_own_fingerprint, row.fingerprint)
+            await _subscribe_dm(room_id)
+
+    if rows:
+        logger.info("Loaded %d trusted peers from database", len(rows))
+
+
 def _derive_room_id(fp_a: str, fp_b: str) -> str:
     """Derive a deterministic private room subject from two fingerprints."""
     parts = sorted([fp_a, fp_b])
@@ -168,6 +235,7 @@ async def _on_verify_message(msg):
             await _sign_and_respond(from_fp, nonce)
             # Subscribe to private room (the initiator already did on their side)
             _trusted[from_fp]["mutual"] = True
+            await _save_trusted_peer(from_fp, _trusted[from_fp])
             room_id = _derive_room_id(_own_fingerprint, from_fp)
             await _subscribe_dm(room_id)
             _broadcast_chat_event(
@@ -231,6 +299,7 @@ async def _on_verify_message(msg):
             "verified_at": time.time(),
             "mutual": True,
         }
+        await _save_trusted_peer(from_fp, _trusted[from_fp])
         logger.info("Verified peer %s (%s)", from_cn, from_fp[:16])
 
         if not already_trusted:
@@ -378,6 +447,7 @@ async def accept_verification(peer_fingerprint: str):
         "verified_at": time.time(),
         "mutual": False,
     }
+    await _save_trusted_peer(peer_fingerprint, _trusted[peer_fingerprint])
     logger.info(
         "Accepted verification from %s (%s)",
         incoming["from_cn"],
@@ -439,6 +509,7 @@ async def remove_trusted(peer_fingerprint: str):
     if peer_fingerprint not in _trusted:
         return
     del _trusted[peer_fingerprint]
+    await _delete_trusted_peer(peer_fingerprint)
     room_id = _derive_room_id(_own_fingerprint, peer_fingerprint)
     sub = _dm_subs.pop(room_id, None)
     if sub:
@@ -591,6 +662,9 @@ async def start_chat():
         f"guidebook.chat.verify.{subject_fp}", cb=_on_verify_message
     )
     logger.info("Chat started (CN=%s)", _own_cn)
+
+    # Load persisted trusted peers and subscribe to their DM rooms
+    await _load_trusted_peers()
 
     # Check if lobby should be joined
     from sqlalchemy import select
