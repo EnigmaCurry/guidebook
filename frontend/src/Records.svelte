@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from "svelte";
   import { storageGet, storageSet } from "./storage.js";
+  import { pushRecord } from "./p2p.js";
   import Icon from "@iconify/svelte";
   import iconPencil from "@iconify-icons/twemoji/pencil";
 
@@ -508,6 +509,8 @@
         });
       }
       if (res.ok) {
+        const saved = await res.json();
+        pushRecord(saved);
         formAutoCreated = false;
         cancelForm();
         await fetchRecords();

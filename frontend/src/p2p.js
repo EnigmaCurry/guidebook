@@ -203,6 +203,42 @@ export function connect(rid, name, ownFp, peerFp) {
   createPC();
 }
 
+/**
+ * Push a single record (and its attachments) to the connected peer
+ * if the peer is a recipient. Called after record save.
+ */
+export async function pushRecord(record) {
+  if (!dc || dc.readyState !== "open" || !peerFingerprint) return;
+  if (!record.recipients || !record.recipients.includes(peerFingerprint))
+    return;
+
+  // Send the record
+  dc.send(JSON.stringify({ type: "sync-offer", records: [record] }));
+  log(`Pushed record to peer: ${record.title}`);
+
+  // Send attachments
+  if (!record.id) return;
+  try {
+    const attRes = await fetch(`/api/records/${record.id}/attachments/`);
+    if (!attRes.ok) return;
+    const atts = await attRes.json();
+    for (const att of atts) {
+      const b64 = await fetchAttachmentAsBase64(record.id, att.id);
+      if (!b64) continue;
+      dc.send(
+        JSON.stringify({
+          type: "sync-attachment",
+          record_uuid: record.uuid,
+          filename: att.filename,
+          content_type: att.content_type,
+          data: b64,
+        })
+      );
+    }
+    if (atts.length > 0) log(`Pushed ${atts.length} attachments`);
+  } catch {}
+}
+
 export function sendPing() {
   if (dc && dc.readyState === "open") {
     dc.send(JSON.stringify({ type: "ping", ts: Date.now() }));
