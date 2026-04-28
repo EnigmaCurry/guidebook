@@ -48,7 +48,9 @@ TURN_TTL_SECONDS = 14400  # 4 hours
 @router.get("/ice-servers")
 async def get_ice_servers():
     """Return ICE servers with ephemeral TURN credentials computed from shared secret."""
-    async with db_manager.instance_session() as session:
+    if db_manager._instance_session_factory is None:
+        return []
+    async with db_manager._instance_session_factory() as session:
         rows = (
             (
                 await session.execute(
