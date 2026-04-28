@@ -99,6 +99,8 @@ function setupDataChannel(channel) {
         handleSyncOffer(msg.records, channel);
       } else if (msg.type === "sync-attachment") {
         handleSyncAttachment(msg);
+      } else if (msg.type === "sync-delete-attachment") {
+        handleSyncDeleteAttachment(msg);
       } else if (msg.type === "sync-ack") {
         log(`Sync ack: ${msg.accepted} accepted, ${msg.skipped} skipped`);
       }
@@ -247,6 +249,34 @@ async function pushAttachments(record) {
     }
     if (atts.length > 0) log(`Pushed ${atts.length} attachments`);
   } catch {}
+}
+
+/**
+ * Notify the connected peer that an attachment was deleted.
+ * Auto-connects if needed.
+ */
+export async function pushDeleteAttachment(recordUuid, filename, recipients) {
+  if (!recipients || recipients.length === 0) return;
+
+  if (dc && dc.readyState === "open" && peerFingerprint) {
+    if (recipients.includes(peerFingerprint)) {
+      dc.send(
+        JSON.stringify({
+          type: "sync-delete-attachment",
+          record_uuid: recordUuid,
+          filename: filename,
+        })
+      );
+      log(`Pushed attachment deletion: ${filename}`);
+      return;
+    }
+  }
+
+  // Not connected — auto-connect; on-open sync won't delete, but the
+  // attachment won't exist on our side so it won't be sent either.
+  // For an explicit delete we need to queue it and send after connect.
+  // For now, auto-connect so future syncs are consistent.
+  await autoConnectForRecipients(recipients);
 }
 
 async function autoConnectForRecipients(recipients) {
@@ -518,5 +548,26 @@ async function handleSyncAttachment(msg) {
     }
   } catch (err) {
     log(`Attachment sync error: ${err.message}`);
+  }
+}
+
+async function handleSyncDeleteAttachment(msg) {
+  try {
+    const res = await fetch("/api/records/sync-delete-attachment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        record_uuid: msg.record_uuid,
+        filename: msg.filename,
+      }),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (result.action === "deleted") {
+        log(`Attachment deleted via sync: ${msg.filename}`);
+      }
+    }
+  } catch (err) {
+    log(`Attachment delete sync error: ${err.message}`);
   }
 }

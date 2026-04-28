@@ -137,6 +137,11 @@ class AttachmentSync(BaseModel):
     data: str  # base64-encoded file content
 
 
+class AttachmentDeleteSync(BaseModel):
+    record_uuid: str
+    filename: str
+
+
 class RecordResponse(BaseModel):
     id: int
     uuid: str | None
@@ -272,6 +277,40 @@ async def sync_attachment(
     await session.commit()
     _broadcast_records_changed()
     return {"action": "created"}
+
+
+@router.post("/sync-delete-attachment")
+async def sync_delete_attachment(
+    data: AttachmentDeleteSync, session: AsyncSession = Depends(get_session)
+):
+    from guidebook.routes.attachments import _attachments_dir
+
+    result = await session.execute(
+        select(Record).where(Record.uuid == data.record_uuid)
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return {"action": "skipped", "reason": "record not found"}
+
+    att = (
+        await session.execute(
+            select(Attachment).where(
+                Attachment.record_id == record.id,
+                Attachment.filename == data.filename,
+            )
+        )
+    ).scalar_one_or_none()
+    if not att:
+        return {"action": "skipped", "reason": "not found"}
+
+    filepath = _attachments_dir(record.uuid) / att.filename
+    if filepath.is_file():
+        filepath.unlink()
+
+    await session.delete(att)
+    await session.commit()
+    _broadcast_records_changed()
+    return {"action": "deleted"}
 
 
 @router.post("/", response_model=RecordResponse, status_code=201)

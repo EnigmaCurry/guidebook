@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from "svelte";
   import { storageGet, storageSet } from "./storage.js";
-  import { pushRecord } from "./p2p.js";
+  import { pushRecord, pushDeleteAttachment } from "./p2p.js";
   import Icon from "@iconify/svelte";
   import iconPencil from "@iconify-icons/twemoji/pencil";
 
@@ -22,6 +22,7 @@
   let formContent = "";
   let formTags = "";
   let formId = null;
+  let formUuid = null;
   let formAutoCreated = false;
   let saving = false;
   let error = "";
@@ -433,6 +434,7 @@
 
   async function startNew() {
     formId = null;
+    formUuid = null;
     formTitle = "";
     formContent = "";
     formTags = "";
@@ -453,6 +455,7 @@
       if (res.ok) {
         const r = await res.json();
         formId = r.id;
+        formUuid = r.uuid;
         formTitle = origTitle = r.title || "";
         formContent = origContent = r.content || "";
         formTags = origTags = r.tags || "";
@@ -467,6 +470,7 @@
 
   function editRecord(r) {
     formId = r.id;
+    formUuid = r.uuid;
     formTitle = origTitle = r.title || "";
     formContent = origContent = r.content || "";
     formTags = origTags = r.tags || "";
@@ -543,6 +547,7 @@
     editId = null;
     showForm = false;
     formId = null;
+    formUuid = null;
     formAutoCreated = false;
     selectedIndex = -1;
     dispatch("editchange", null);
@@ -620,8 +625,12 @@
 
   async function deleteAttachment(attId) {
     if (!confirm("Delete this attachment? This cannot be undone.")) return;
+    const att = attachments.find(a => a.id === attId);
     try {
       await fetch(`/api/records/${formId}/attachments/${attId}`, { method: "DELETE" });
+      if (att && formUuid) {
+        pushDeleteAttachment(formUuid, att.filename, formRecipients);
+      }
       await fetchAttachments(formId);
     } catch {}
   }
