@@ -145,7 +145,8 @@
 
   function peerStatus(room, _p2p, _online) {
     if (_p2p.roomId === room.id && _p2p.connectionState === "connected") {
-      return _p2p.routeType === "relay" ? "p2p-relay" : "p2p";
+      if (_p2p.routeType === "relay") return "p2p-relay";
+      return "p2p";
     }
     if (_online.has(room.fingerprint)) return "online";
     return "offline";
@@ -153,9 +154,12 @@
 
   function peerStatusTooltip(room, _p2p, _online) {
     const status = peerStatus(room, _p2p, _online);
-    if (status === "p2p") return "Connected via direct P2P (WebRTC)";
-    if (status === "p2p-relay") return "Connected via TURN relay (WebRTC)";
-    if (status === "online") return "Online via NATS (no P2P connection)";
+    if (status === "p2p") {
+      if (_p2p.routeType === "srflx") return "Direct P2P via NAT traversal (STUN)";
+      return "Direct P2P via LAN";
+    }
+    if (status === "p2p-relay") return "P2P via TURN relay";
+    if (status === "online") return "Online via NATS (no P2P)";
     return "Offline";
   }
 

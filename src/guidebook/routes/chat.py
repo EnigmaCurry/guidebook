@@ -75,11 +75,12 @@ async def get_ice_servers():
     ).decode()
 
     return [
+        {"urls": f"stun:{server}"},
         {
             "urls": f"turn:{server}",
             "username": username,
             "credential": password,
-        }
+        },
     ]
 
 

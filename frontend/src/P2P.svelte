@@ -38,7 +38,7 @@
   <div class="p2p-header">
     <span class="p2p-status-dot" style="background: {stateColor(active ? s.connectionState : 'idle', s.routeType)}"></span>
     <span class="p2p-title">P2P: {peerName}</span>
-    <span class="p2p-state">{active ? (s.connectionState === "connected" && s.routeType ? `${s.connectionState} (${s.routeType})` : s.connectionState) : "idle"}</span>
+    <span class="p2p-state">{active ? (s.connectionState === "connected" && s.routeType ? `${s.connectionState} (${s.routeType === "host" ? "LAN" : s.routeType === "srflx" ? "STUN" : "TURN"})` : s.connectionState) : "idle"}</span>
     <div class="p2p-actions">
       {#if !active || s.connectionState === "idle"}
         <button class="btn-p2p" on:click={connect} disabled={s.roomId && !active}>Connect</button>

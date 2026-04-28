@@ -62,14 +62,17 @@ async function detectRouteType() {
     const stats = await pc.getStats();
     for (const report of stats.values()) {
       if (report.type === "candidate-pair" && report.state === "succeeded") {
-        const localId = report.localCandidateId;
-        const local = stats.get(localId);
-        if (local && local.candidateType === "relay") {
+        const local = stats.get(report.localCandidateId);
+        const typ = local ? local.candidateType : "unknown";
+        if (typ === "relay") {
           state.routeType = "relay";
           log("Route: relay (TURN)");
+        } else if (typ === "srflx") {
+          state.routeType = "srflx";
+          log("Route: direct via NAT traversal (STUN)");
         } else {
-          state.routeType = "direct";
-          log("Route: direct");
+          state.routeType = "host";
+          log("Route: direct LAN");
         }
         notify();
         return;
