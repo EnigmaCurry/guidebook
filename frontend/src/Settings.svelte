@@ -2624,20 +2624,17 @@
     <section class="settings-section">
       <h3>TURN Server (WebRTC)</h3>
       <p class="hint">Configure a TURN relay server for P2P connections across the internet. Leave empty for LAN-only connections.</p>
-      <div class="form-field">
-        <!-- svelte-ignore a11y-label-has-associated-control -->
-        <label>Server:Port</label>
-        <input type="text" bind:value={iceTurnServer} placeholder="turn.example.com:3478" />
+      <div class="setting-row">
+        <label for="ice-turn-server">Server:Port</label>
+        <input id="ice-turn-server" type="text" bind:value={iceTurnServer} placeholder="turn.example.com:3478" />
       </div>
-      <div class="form-field">
-        <!-- svelte-ignore a11y-label-has-associated-control -->
-        <label>Username</label>
-        <input type="text" bind:value={iceTurnUsername} placeholder="username" />
+      <div class="setting-row">
+        <label for="ice-turn-user">Username</label>
+        <input id="ice-turn-user" type="text" bind:value={iceTurnUsername} placeholder="username" />
       </div>
-      <div class="form-field">
-        <!-- svelte-ignore a11y-label-has-associated-control -->
-        <label>Credential</label>
-        <input type="password" bind:value={iceTurnCredential} placeholder="credential" />
+      <div class="setting-row">
+        <label for="ice-turn-cred">Credential</label>
+        <input id="ice-turn-cred" type="password" bind:value={iceTurnCredential} placeholder="credential" />
       </div>
       <div class="button-row">
         <button class="save-btn" on:click={saveAndTestIceServers} disabled={iceServersSaving || iceTestRunning}>
