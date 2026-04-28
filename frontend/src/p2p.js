@@ -13,6 +13,7 @@ let roomId = null;
 let peerName = null;
 let ownFingerprint = null;
 let peerFingerprint = null;
+let iceDisconnectTimer = null;
 
 let state = {
   connectionState: "idle",
@@ -120,12 +121,21 @@ function createPC() {
   pc.oniceconnectionstatechange = () => {
     state.iceState = pc.iceConnectionState;
     log(`ICE: ${state.iceState}`);
+    if (iceDisconnectTimer) { clearTimeout(iceDisconnectTimer); iceDisconnectTimer = null; }
+    if (state.iceState === "disconnected") {
+      iceDisconnectTimer = setTimeout(() => {
+        if (pc && pc.iceConnectionState === "disconnected") {
+          log("ICE disconnected timeout — closing");
+          cleanup(false);
+        }
+      }, 5000);
+    }
   };
 
   pc.onconnectionstatechange = () => {
     state.connectionState = pc.connectionState;
     log(`Connection: ${state.connectionState}`);
-    if (state.connectionState === "failed" || state.connectionState === "closed") {
+    if (state.connectionState === "failed" || state.connectionState === "closed" || state.connectionState === "disconnected") {
       cleanup(false);
     }
   };
@@ -159,8 +169,17 @@ function createPC() {
   log("Created data channel");
 }
 
+function isStale() {
+  if (!pc) return false;
+  const cs = pc.connectionState;
+  const ice = pc.iceConnectionState;
+  return cs === "failed" || cs === "closed" || cs === "disconnected"
+    || ice === "failed" || ice === "closed" || ice === "disconnected";
+}
+
 /** Start a P2P connection to a peer (called from UI). */
 export function connect(rid, name, ownFp, peerFp) {
+  if (pc && isStale()) { log("Clearing stale connection"); cleanup(true); }
   if (pc) return;
   roomId = rid;
   peerName = name;
@@ -187,6 +206,7 @@ export function hangup() {
 }
 
 function cleanup(silent) {
+  if (iceDisconnectTimer) { clearTimeout(iceDisconnectTimer); iceDisconnectTimer = null; }
   if (dc) { try { dc.close(); } catch {} dc = null; }
   if (pc) { try { pc.close(); } catch {} pc = null; }
   roomId = null;
@@ -215,11 +235,18 @@ function cleanup(silent) {
 
 export function handleOffer(detail, rooms, chatStatus) {
   if (detail.room_id === roomId && pc) {
-    // Already connected to this room — handle normally
-    _handleOfferInternal(detail);
-    return;
+    if (isStale()) {
+      // Stale connection to same room — tear down and reconnect
+      log("Tearing down stale connection for re-offer");
+      cleanup(true);
+    } else {
+      // Active connection to this room — handle as renegotiation
+      _handleOfferInternal(detail);
+      return;
+    }
   }
-  if (pc) return; // busy with another connection
+  if (pc && isStale()) { log("Clearing stale connection"); cleanup(true); }
+  if (pc) return; // busy with a healthy connection to another peer
 
   // Auto-connect: find the room to get peer info
   const room = rooms.find(r => r.id === detail.room_id);
