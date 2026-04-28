@@ -2359,7 +2359,7 @@
       <h3>Server</h3>
       <div class="setting-row">
         <label for="nats-endpoint">NATS Endpoint</label>
-        <input id="nats-endpoint" type="text" bind:value={natsEndpoint} placeholder="nats://host:4222" />
+        <input id="nats-endpoint" type="text" bind:value={natsEndpoint} placeholder="tls://host:4222" />
       </div>
     </section>
 
