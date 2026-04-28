@@ -444,8 +444,12 @@
   let natsReplacing = { ca: false, cert: false, key: false };
   let natsChatEnabled = false;
   let natsLobbyEnabled = false;
-  let iceServersText = "";
+  let iceTurnServer = "";
+  let iceTurnUsername = "";
+  let iceTurnCredential = "";
   let iceServersSaving = false;
+  let iceTestResult = null;
+  let iceTestRunning = false;
 
   async function loadNatsStatus() {
     try {
@@ -1374,7 +1378,18 @@
           if (s.key === "update_check_enabled") update_check_enabled = s.value !== "false";
           if (s.key === "nats_enabled") natsEnabled = s.value === "true";
           if (s.key === "nats_endpoint") natsEndpoint = s.value || "";
-          if (s.key === "ice_servers") iceServersText = s.value || "";
+          if (s.key === "ice_servers" && s.value) {
+            try {
+              const arr = JSON.parse(s.value);
+              if (arr.length > 0) {
+                const srv = arr[0];
+                const urls = (typeof srv.urls === "string" ? srv.urls : (srv.urls || [])[0]) || "";
+                iceTurnServer = urls.replace(/^turn:/, "");
+                iceTurnUsername = srv.username || "";
+                iceTurnCredential = srv.credential || "";
+              }
+            } catch {}
+          }
         }
         globalSettingsLoaded = true;
       }
@@ -1396,12 +1411,89 @@
     dispatch("app-name-changed");
   }
 
+  function buildIceServers() {
+    const server = iceTurnServer.trim();
+    if (!server) return [];
+    const entry = { urls: `turn:${server}` };
+    if (iceTurnUsername.trim()) entry.username = iceTurnUsername.trim();
+    if (iceTurnCredential.trim()) entry.credential = iceTurnCredential.trim();
+    return [entry];
+  }
+
   async function saveIceServers() {
     iceServersSaving = true;
+    iceTestResult = null;
     try {
-      await saveGlobalSetting("ice_servers", iceServersText.trim());
+      const servers = buildIceServers();
+      await saveGlobalSetting("ice_servers", servers.length > 0 ? JSON.stringify(servers) : "");
     } finally {
       iceServersSaving = false;
+    }
+  }
+
+  async function saveAndTestIceServers() {
+    await saveIceServers();
+    await testIceServers();
+  }
+
+  async function testIceServers() {
+    const iceServers = buildIceServers();
+
+    iceTestRunning = true;
+    iceTestResult = null;
+
+    const result = { host: 0, srflx: 0, relay: 0, candidates: [] };
+    let testPc;
+    try {
+      testPc = new RTCPeerConnection({ iceServers });
+      testPc.createDataChannel("ice-test");
+
+      const gatherDone = new Promise((resolve) => {
+        const timeout = setTimeout(resolve, 5000);
+        testPc.onicecandidate = ({ candidate }) => {
+          if (!candidate) { clearTimeout(timeout); resolve(); return; }
+          const typ = candidate.type;
+          if (typ === "host") result.host++;
+          else if (typ === "srflx") result.srflx++;
+          else if (typ === "relay") result.relay++;
+          result.candidates.push(
+            `${typ} ${candidate.protocol || ""} ${candidate.address || "?"}:${candidate.port || "?"}`
+          );
+        };
+      });
+
+      const offer = await testPc.createOffer();
+      await testPc.setLocalDescription(offer);
+      await gatherDone;
+
+      if (iceServers.length === 0) {
+        iceTestResult = { status: "ok", ...result, detail: "No ICE servers configured (LAN-only)" };
+      } else {
+        const hasTurn = iceServers.some(s => (s.urls || "").toString().startsWith("turn:"));
+        const hasStun = iceServers.some(s => (s.urls || "").toString().startsWith("stun:"));
+        let status = "ok";
+        let detail = "";
+        const parts = [];
+        if (result.host > 0) parts.push(`${result.host} host`);
+        if (result.srflx > 0) parts.push(`${result.srflx} srflx`);
+        if (result.relay > 0) parts.push(`${result.relay} relay`);
+        detail = `Candidates: ${parts.join(", ") || "none"}`;
+
+        if (hasStun && result.srflx === 0) {
+          status = "warning";
+          detail += " — STUN server did not return srflx candidates";
+        }
+        if (hasTurn && result.relay === 0) {
+          status = "error";
+          detail += " — TURN server did not return relay candidates (check credentials)";
+        }
+        iceTestResult = { status, ...result, detail };
+      }
+    } catch (err) {
+      iceTestResult = { status: "error", error: err.message, ...result };
+    } finally {
+      if (testPc) { try { testPc.close(); } catch {} }
+      iceTestRunning = false;
     }
   }
 
@@ -2530,17 +2622,54 @@
     {/if}
 
     <section class="settings-section">
-      <h3>ICE Servers (WebRTC)</h3>
-      <p class="hint">JSON array of ICE server objects for WebRTC peer connections. Leave empty for LAN-only (no external STUN/TURN). Example:</p>
-      <pre class="hint" style="margin: 0.3rem 0; font-size: 0.75rem;">[{'{"urls":"turn:example.com:3478","username":"user","credential":"pass"}'}]</pre>
+      <h3>TURN Server (WebRTC)</h3>
+      <p class="hint">Configure a TURN relay server for P2P connections across the internet. Leave empty for LAN-only connections.</p>
       <div class="form-field">
-        <textarea bind:value={iceServersText} rows="3" placeholder={'[{"urls":"turn:your-server:3478","username":"user","credential":"pass"}]'}></textarea>
+        <!-- svelte-ignore a11y-label-has-associated-control -->
+        <label>Server:Port</label>
+        <input type="text" bind:value={iceTurnServer} placeholder="turn.example.com:3478" />
+      </div>
+      <div class="form-field">
+        <!-- svelte-ignore a11y-label-has-associated-control -->
+        <label>Username</label>
+        <input type="text" bind:value={iceTurnUsername} placeholder="username" />
+      </div>
+      <div class="form-field">
+        <!-- svelte-ignore a11y-label-has-associated-control -->
+        <label>Credential</label>
+        <input type="password" bind:value={iceTurnCredential} placeholder="credential" />
       </div>
       <div class="button-row">
-        <button class="save-btn" on:click={saveIceServers} disabled={iceServersSaving}>
-          {iceServersSaving ? "Saving..." : "Save"}
+        <button class="save-btn" on:click={saveAndTestIceServers} disabled={iceServersSaving || iceTestRunning}>
+          {iceServersSaving ? "Saving..." : iceTestRunning ? "Testing..." : "Save & Test"}
+        </button>
+        <button class="cancel-btn" on:click={testIceServers} disabled={iceTestRunning}>
+          {iceTestRunning ? "Testing..." : "Test Only"}
         </button>
       </div>
+      {#if iceTestRunning}
+        <p class="hint">Gathering ICE candidates (up to 5s)...</p>
+      {/if}
+      {#if iceTestResult}
+        <div class="ice-test-result ice-test-{iceTestResult.status}">
+          {#if iceTestResult.error}
+            <p>Error: {iceTestResult.error}</p>
+          {/if}
+          {#if iceTestResult.detail}
+            <p>{iceTestResult.detail}</p>
+          {/if}
+          {#if iceTestResult.candidates && iceTestResult.candidates.length > 0}
+            <details>
+              <summary>{iceTestResult.candidates.length} candidate{iceTestResult.candidates.length === 1 ? "" : "s"} found</summary>
+              <ul class="ice-candidates">
+                {#each iceTestResult.candidates as c}
+                  <li>{c}</li>
+                {/each}
+              </ul>
+            </details>
+          {/if}
+        </div>
+      {/if}
     </section>
 
     {/if}
@@ -2937,6 +3066,21 @@
     font-size: 0.7rem;
     color: var(--text-dim);
   }
+
+  .ice-test-result {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+  }
+  .ice-test-ok { background: rgba(0, 180, 0, 0.15); color: #4caf50; }
+  .ice-test-warning { background: rgba(255, 165, 0, 0.15); color: #ffa726; }
+  .ice-test-error { background: rgba(255, 50, 50, 0.15); color: #ff4444; }
+  .ice-test-result p { margin: 0 0 0.25rem; }
+  .ice-test-result details { margin-top: 0.25rem; }
+  .ice-test-result summary { cursor: pointer; font-size: 0.75rem; }
+  .ice-candidates { margin: 0.25rem 0 0; padding-left: 1.2rem; font-size: 0.7rem; font-family: monospace; }
+  .ice-candidates li { margin: 0.1rem 0; }
 
   .toggle-row {
     flex-direction: row;
