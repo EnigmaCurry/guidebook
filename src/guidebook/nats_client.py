@@ -24,6 +24,35 @@ def get_status() -> dict:
     return dict(_nats_status)
 
 
+def get_client():
+    """Return the active NATS client, or None if not connected."""
+    return _nats_client
+
+
+async def get_own_cert_pem() -> str | None:
+    """Return the stored client certificate PEM."""
+    settings = await _read_nats_settings()
+    return settings.get("nats_client_cert") or None
+
+
+async def get_own_key_pem() -> str | None:
+    """Return the stored client private key PEM."""
+    settings = await _read_nats_settings()
+    return settings.get("nats_client_key") or None
+
+
+async def get_own_cn() -> str | None:
+    """Return the CN from the stored client certificate."""
+    cert_pem = await get_own_cert_pem()
+    return extract_cn(cert_pem) if cert_pem else None
+
+
+async def get_own_fingerprint() -> str | None:
+    """Return the SHA-256 fingerprint of the stored client certificate."""
+    cert_pem = await get_own_cert_pem()
+    return compute_fingerprint(cert_pem) if cert_pem else None
+
+
 def compute_fingerprint(cert_pem: str) -> str | None:
     """Return the SHA-256 fingerprint of a PEM certificate."""
     try:

@@ -91,5 +91,21 @@ async def upsert_global_setting(
         else:
             await stop_auto_shutdown()
 
+    if key == "nats_chat_enabled":
+        from guidebook.chat import start_chat, stop_chat
+
+        if data.value == "true":
+            await start_chat()
+        else:
+            await stop_chat()
+
+    if key == "nats_lobby_enabled":
+        from guidebook.chat import join_lobby, leave_lobby
+
+        if data.value == "true":
+            await join_lobby()
+        else:
+            await leave_lobby()
+
     redacted_value = "***" if key in HIDDEN_KEYS and data.value else data.value
     return SettingResponse(key=key, value=redacted_value)
