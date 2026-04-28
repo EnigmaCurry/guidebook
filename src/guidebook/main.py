@@ -128,20 +128,8 @@ async def lifespan(app: FastAPI):
     from guidebook.nats_client import start_nats, stop_nats
 
     await start_nats()
-    # Start chat if NATS chat is enabled (checked inside start_chat)
-    from guidebook.chat import start_chat, stop_chat
-    from guidebook.db import GlobalSetting
-
-    async with global_async_session() as _gdb:
-        _chat_row = (
-            await _gdb.execute(
-                select(GlobalSetting).where(GlobalSetting.key == "nats_chat_enabled")
-            )
-        ).scalar_one_or_none()
-        if _chat_row and _chat_row.value == "true":
-            await start_chat()
     yield
-    await stop_chat()
+    # stop_nats triggers _on_nats_disconnected which stops chat
     await stop_nats()
     await stop_acme_renewal()
     await stop_sse_auto_shutdown()

@@ -143,10 +143,50 @@ def _cleanup_temp_files(paths: list[str]):
 
 def _set_status(state: str, detail: str | None = None, cn: str | None = None):
     global _nats_status
+    prev_state = _nats_status.get("state")
     _nats_status = {"state": state, "detail": detail, "cn": cn}
     from guidebook.sse import broadcast
 
     broadcast("nats-status", _nats_status)
+
+    # Start/stop chat on NATS connection state changes
+    if state == "connected" and prev_state != "connected":
+        asyncio.ensure_future(_on_nats_connected())
+    elif state != "connected" and prev_state == "connected":
+        asyncio.ensure_future(_on_nats_disconnected())
+
+
+async def _on_nats_connected():
+    """Called when NATS transitions to connected state."""
+    from sqlalchemy import select
+
+    from guidebook.db import GlobalSetting, global_async_session
+
+    try:
+        async with global_async_session() as gdb:
+            row = (
+                await gdb.execute(
+                    select(GlobalSetting).where(
+                        GlobalSetting.key == "nats_chat_enabled"
+                    )
+                )
+            ).scalar_one_or_none()
+            if row and row.value == "true":
+                from guidebook.chat import start_chat
+
+                await start_chat()
+    except Exception as e:
+        logger.warning("Failed to start chat on NATS connect: %s", e)
+
+
+async def _on_nats_disconnected():
+    """Called when NATS transitions away from connected state."""
+    try:
+        from guidebook.chat import stop_chat
+
+        await stop_chat()
+    except Exception as e:
+        logger.warning("Failed to stop chat on NATS disconnect: %s", e)
 
 
 async def _nats_connection_loop():
