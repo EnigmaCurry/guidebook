@@ -400,8 +400,20 @@
               <span class="message-time">{formatTime(msg.ts)}</span>
             </div>
             {#if msg.file}
+              {@const url = msg.file._url || (msg.file._url = b64ToObjectUrl(msg.file.data, msg.file.content_type))}
               <div class="message-file">
-                <a class="file-download" href={b64ToObjectUrl(msg.file.data, msg.file.content_type)} download={msg.file.filename}>
+                {#if msg.file.content_type.startsWith("image/")}
+                  <img class="file-preview-img" src={url} alt={msg.file.filename} />
+                {:else if msg.file.content_type.startsWith("video/")}
+                  <video class="file-preview-video" controls preload="metadata">
+                    <source src={url} type={msg.file.content_type} />
+                  </video>
+                {:else if msg.file.content_type.startsWith("audio/")}
+                  <audio class="file-preview-audio" controls preload="metadata">
+                    <source src={url} type={msg.file.content_type} />
+                  </audio>
+                {/if}
+                <a class="file-download" href={url} download={msg.file.filename}>
                   <span class="file-icon">📎</span>
                   <span class="file-name">{msg.file.filename}</span>
                   <span class="file-size">({formatFileSize(msg.file.size)})</span>
@@ -729,6 +741,29 @@
 
   .message.own .file-download:hover {
     background: rgba(0,0,0,0.2);
+  }
+
+  .file-preview-img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 4px;
+    display: block;
+    margin-bottom: 0.3em;
+  }
+
+  .file-preview-video {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 4px;
+    display: block;
+    margin-bottom: 0.3em;
+  }
+
+  .file-preview-audio {
+    width: 100%;
+    max-width: 300px;
+    display: block;
+    margin-bottom: 0.3em;
   }
 
   .file-icon {
