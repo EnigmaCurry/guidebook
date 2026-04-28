@@ -318,6 +318,26 @@ async def _on_verify_message(msg):
         _broadcast_chat_event("chat-rooms", {"rooms": get_rooms()})
         await _publish_presence()
 
+    elif msg_type == "defriend":
+        if from_fp in _trusted:
+            logger.info("Received defriend from %s (%s)", from_cn, from_fp[:16])
+            del _trusted[from_fp]
+            await _delete_trusted_peer(from_fp)
+            room_id = _derive_room_id(_own_fingerprint, from_fp)
+            sub = _dm_subs.pop(room_id, None)
+            if sub:
+                try:
+                    await sub.unsubscribe()
+                except Exception:
+                    pass
+            _chat_buffers.pop(room_id, None)
+            _buffer_sizes.pop(room_id, None)
+            _broadcast_chat_event("chat-rooms", {"rooms": get_rooms()})
+            _broadcast_chat_event(
+                "chat-defriended",
+                {"cn": from_cn, "fingerprint": from_fp},
+            )
+
 
 def _verify_signature(cert_pem: str, nonce: str, signature_b64: str) -> bool:
     try:
@@ -507,9 +527,25 @@ async def send_dm_message(room_id: str, text: str):
 
 
 async def remove_trusted(peer_fingerprint: str):
-    """Remove a trusted peer and unsubscribe from their DM room."""
+    """Remove a trusted peer, notify them, and unsubscribe from their DM room."""
     if peer_fingerprint not in _trusted:
         return
+
+    # Send defriend notice to the peer
+    from guidebook.nats_client import get_client
+
+    nc = get_client()
+    if nc and nc.is_connected:
+        subject_fp = peer_fingerprint.replace(":", "")
+        msg = {
+            "type": "defriend",
+            "from_fingerprint": _own_fingerprint,
+            "from_cn": _own_cn,
+        }
+        await nc.publish(
+            f"guidebook.chat.verify.{subject_fp}", json.dumps(msg).encode()
+        )
+
     del _trusted[peer_fingerprint]
     await _delete_trusted_peer(peer_fingerprint)
     room_id = _derive_room_id(_own_fingerprint, peer_fingerprint)

@@ -174,6 +174,15 @@
       activeRoom = rooms[0].id;
       loadMessages();
     }
+    if (activeRoom && !rooms.find(r => r.id === activeRoom)) {
+      activeRoom = rooms.length > 0 ? rooms[0].id : null;
+      if (activeRoom) loadMessages();
+    }
+  }
+
+  function onChatDefriended(e) {
+    loadTrusted();
+    loadRooms();
   }
 
   onMount(() => {
@@ -189,6 +198,7 @@
     window.addEventListener("chat-verify-request", onChatVerifyRequest);
     window.addEventListener("chat-verify-complete", onChatVerifyComplete);
     window.addEventListener("chat-rooms", onChatRooms);
+    window.addEventListener("chat-defriended", onChatDefriended);
   });
 
   onDestroy(() => {
@@ -197,6 +207,7 @@
     window.removeEventListener("chat-verify-request", onChatVerifyRequest);
     window.removeEventListener("chat-verify-complete", onChatVerifyComplete);
     window.removeEventListener("chat-rooms", onChatRooms);
+    window.removeEventListener("chat-defriended", onChatDefriended);
   });
 </script>
 
