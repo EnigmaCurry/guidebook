@@ -1811,7 +1811,7 @@
     <h3>Instance</h3>
     <p class="hint">Instance: <strong>{instanceName || "default"}</strong></p>
     <div class="setting-row">
-      <label for="app_name">App Name</label>
+      <label for="app_name">Instance Display Name</label>
       <input id="app_name" type="text" bind:value={appNameInput} placeholder={defaultAppName} on:change={saveAppName} />
     </div>
     <p class="hint">Displayed in the header. Leave blank to use the default ({defaultAppName}).</p>
