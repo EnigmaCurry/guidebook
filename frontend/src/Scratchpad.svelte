@@ -104,7 +104,7 @@
       {:else}
         {observerCount} other observer{observerCount === 1 ? '' : 's'}
         <span class="observer-labels" title={observers.map(o => `${o.label} (${o.auth_type})`).join(', ')}>
-          — {observers.map(o => o.label).join(', ')}
+          — {observers.slice(0, 3).map(o => o.label).join(', ')}{#if observers.length > 3} + {observers.length - 3} more{/if}
         </span>
       {/if}
     </span>
