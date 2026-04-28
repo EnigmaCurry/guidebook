@@ -24,6 +24,35 @@ def get_status() -> dict:
     return dict(_nats_status)
 
 
+def get_client():
+    """Return the active NATS client, or None if not connected."""
+    return _nats_client
+
+
+async def get_own_cert_pem() -> str | None:
+    """Return the stored client certificate PEM."""
+    settings = await _read_nats_settings()
+    return settings.get("nats_client_cert") or None
+
+
+async def get_own_key_pem() -> str | None:
+    """Return the stored client private key PEM."""
+    settings = await _read_nats_settings()
+    return settings.get("nats_client_key") or None
+
+
+async def get_own_cn() -> str | None:
+    """Return the CN from the stored client certificate."""
+    cert_pem = await get_own_cert_pem()
+    return extract_cn(cert_pem) if cert_pem else None
+
+
+async def get_own_fingerprint() -> str | None:
+    """Return the SHA-256 fingerprint of the stored client certificate."""
+    cert_pem = await get_own_cert_pem()
+    return compute_fingerprint(cert_pem) if cert_pem else None
+
+
 def compute_fingerprint(cert_pem: str) -> str | None:
     """Return the SHA-256 fingerprint of a PEM certificate."""
     try:
@@ -116,10 +145,50 @@ def _cleanup_temp_files(paths: list[str]):
 
 def _set_status(state: str, detail: str | None = None, cn: str | None = None):
     global _nats_status
+    prev_state = _nats_status.get("state")
     _nats_status = {"state": state, "detail": detail, "cn": cn}
     from guidebook.sse import broadcast
 
     broadcast("nats-status", _nats_status)
+
+    # Start/stop chat on NATS connection state changes
+    if state == "connected" and prev_state != "connected":
+        asyncio.ensure_future(_on_nats_connected())
+    elif state != "connected" and prev_state == "connected":
+        asyncio.ensure_future(_on_nats_disconnected())
+
+
+async def _on_nats_connected():
+    """Called when NATS transitions to connected state."""
+    from sqlalchemy import select
+
+    from guidebook.db import InstanceSetting, instance_async_session
+
+    try:
+        async with instance_async_session() as db:
+            row = (
+                await db.execute(
+                    select(InstanceSetting).where(
+                        InstanceSetting.key == "nats_chat_enabled"
+                    )
+                )
+            ).scalar_one_or_none()
+            if row and row.value == "true":
+                from guidebook.chat import start_chat
+
+                await start_chat()
+    except Exception as e:
+        logger.warning("Failed to start chat on NATS connect: %s", e)
+
+
+async def _on_nats_disconnected():
+    """Called when NATS transitions away from connected state."""
+    try:
+        from guidebook.chat import stop_chat
+
+        await stop_chat()
+    except Exception as e:
+        logger.warning("Failed to stop chat on NATS disconnect: %s", e)
 
 
 async def _nats_connection_loop():

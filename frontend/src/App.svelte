@@ -9,6 +9,7 @@
   import Query from "./Query.svelte";
   import Scratchpad from "./Scratchpad.svelte";
   import Media from "./Media.svelte";
+  import Chat from "./Chat.svelte";
   import Icon from "@iconify/svelte";
   import iconBook from "@iconify-icons/twemoji/open-book";
   import iconBell from "@iconify-icons/twemoji/bell";
@@ -33,6 +34,7 @@
       return { page: "query", editId: null, dualRight: null, querySql: sp?.get("sql") || "" };
     }
     if (hash === "/scratchpad") return { page: "scratchpad", editId: null, dualRight: null };
+    if (hash === "/chat") return { page: "chat", editId: null, dualRight: null };
     if (hash === "/media") return { page: isWide() ? "dual" : "media", editId: null, dualRight: "media" };
     if (hash === "/notifications") return { page: isWide() ? "dual" : "notifications", editId: null, dualRight: "notifications" };
     if (hash === "/database" || hash === "/records") return { page: isWide() ? "dual" : "records", editId: null, dualRight: null };
@@ -163,6 +165,8 @@
   let updateSupported = false;
   let appFrozen = true;
   let sqlQueryEnabled = false;
+  let natsChatEnabled = false;
+  let natsConnected = false;
   let noShutdown = false;
   let unreadCount = 0;
   let prevUnreadCount = -1;
@@ -290,6 +294,7 @@
     fetchPopupNotifEnabled();
     await fetchDatabaseRight();
     await fetchSqlQueryEnabled();
+    fetchNatsChatEnabled();
     fetchUnreadCount();
     connectSSE();
   }
@@ -594,8 +599,19 @@
       applyThemeFromState(_themeState);
     });
     eventSource.addEventListener("nats-status", (e) => {
-      window.dispatchEvent(new CustomEvent("nats-status", { detail: JSON.parse(e.data) }));
+      const data = JSON.parse(e.data);
+      natsConnected = data.state === "connected";
+      window.dispatchEvent(new CustomEvent("nats-status", { detail: data }));
     });
+    eventSource.addEventListener("chat-enabled", (e) => {
+      const data = JSON.parse(e.data);
+      natsChatEnabled = data.enabled;
+    });
+    for (const evt of ["chat-message", "chat-peers", "chat-verify-request", "chat-verify-complete", "chat-rooms", "chat-defriended"]) {
+      eventSource.addEventListener(evt, (e) => {
+        window.dispatchEvent(new CustomEvent(evt, { detail: JSON.parse(e.data) }));
+      });
+    }
     eventSource.addEventListener("database-changed", () => {
       if (switchingDatabase || !welcomeAcknowledged) return;
       // Navigate home before reloading — the new database may not support the current page
@@ -768,6 +784,23 @@
     } catch {}
   }
 
+  async function fetchNatsChatEnabled() {
+    try {
+      const [chatRes, statusRes] = await Promise.all([
+        fetch("/api/instance-settings/nats_chat_enabled"),
+        fetch("/api/nats/status"),
+      ]);
+      if (chatRes.ok) {
+        const data = await chatRes.json();
+        natsChatEnabled = data.value === "true";
+      }
+      if (statusRes.ok) {
+        const data = await statusRes.json();
+        natsConnected = data.state === "connected";
+      }
+    } catch {}
+  }
+
 
   function isWide() {
     return typeof window !== "undefined" && window.innerWidth >= wideBreakpoint;
@@ -819,6 +852,7 @@
     }
     // Redirect disabled pages to home
     if (p === "query" && !sqlQueryEnabled) p = "records";
+    if (p === "chat" && !(natsChatEnabled && natsConnected)) p = "records";
 
     if (isWide() && (p === "add" || p === "records" || DUAL_RIGHT_PAGES.has(p))) {
       if (DUAL_RIGHT_PAGES.has(p)) dualRightPage = p;
@@ -837,7 +871,7 @@
     if (p === "dual") {
       window.location.hash = `/dual/${dualRightPage}`;
     } else {
-      const paths = { records: "/records", add: "/add", query: "/query", notifications: "/notifications", media: "/media", scratchpad: "/scratchpad", settings: settingsTab ? `/settings/${settingsTab}` : "/settings", about: "/about", picker: "/picker" };
+      const paths = { records: "/records", add: "/add", query: "/query", notifications: "/notifications", media: "/media", scratchpad: "/scratchpad", chat: "/chat", settings: settingsTab ? `/settings/${settingsTab}` : "/settings", about: "/about", picker: "/picker" };
       window.location.hash = paths[p] || "/";
     }
     setTimeout(() => { navigating = false; }, 0);
@@ -1049,7 +1083,7 @@
   on:drop={onGlobalDrop}
 />
 
-<main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:settings-mode={page === "settings"}>
+<main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:chat-mode={page === "chat"} class:settings-mode={page === "settings"}>
   {#if globalDragOver && databaseOpen}
     <div class="global-drop-overlay">
       <div class="global-drop-message">Drop files to attach</div>
@@ -1121,10 +1155,12 @@
         <button class="add-btn dual-btn" class:active-nav={dualRightPage === "media"} on:click={() => { dualRightPage = "media"; navigate("media"); }} title="Records & Media">{#if dualRightPage === "media" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}<Icon icon={iconCamera} width={18} />{#if dualRightPage === "media" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
         <button class="add-btn dual-btn" class:active-nav={dualRightPage === "notifications"} on:click={handleNotificationClick} title="Records & Notifications">{#if dualRightPage === "notifications" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}{#if unreadCount > 0}<span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>{:else}<Icon icon={iconBell} width={18} />{/if}{#if dualRightPage === "notifications" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
         <button class="add-btn" class:active-nav={page === "scratchpad"} on:click={() => navigate("scratchpad")} title="Scratchpad">💭</button>
+        {#if natsChatEnabled && natsConnected}<button class="add-btn" class:active-nav={page === "chat"} on:click={() => navigate("chat")} title="Chat">💬</button>{/if}
       {:else}
         <button class="add-btn" on:click={() => navigate("records")} title="Records"><Icon icon={iconBook} width={18} /></button>
         <button class="add-btn" class:active-nav={page === "media"} on:click={() => navigate("media")} title="Media"><Icon icon={iconCamera} width={18} /></button>
         <button class="add-btn" class:active-nav={page === "scratchpad"} on:click={() => navigate("scratchpad")} title="Scratchpad">💭</button>
+        {#if natsChatEnabled && natsConnected}<button class="add-btn" class:active-nav={page === "chat"} on:click={() => navigate("chat")} title="Chat">💬</button>{/if}
         <button class="add-btn notification-btn" class:has-unread={unreadCount > 0} on:click={handleNotificationClick} title="Notifications">
           {#if unreadCount > 0}
             <span class="notif-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>
@@ -1150,6 +1186,7 @@
           <button class="menu-item" class:active={page === "notifications" || (page === "dual" && dualRightPage === "notifications")} on:click={() => navigate("notifications")}>Notifications{#if unreadCount > 0} ({unreadCount}){/if}</button>
           {#if sqlQueryEnabled}<button class="menu-item" class:active={page === "query"} on:click={() => navigate("query")}>SQL Query</button>{/if}
           <button class="menu-item" class:active={page === "scratchpad"} on:click={() => navigate("scratchpad")}>Scratchpad</button>
+          {#if natsChatEnabled && natsConnected}<button class="menu-item" class:active={page === "chat"} on:click={() => navigate("chat")}>Chat</button>{/if}
           <button class="menu-item" class:active={page === "settings"} on:click={() => navigate("settings")}>Settings</button>
           <button class="menu-item" class:active={page === "about"} on:click={() => navigate("about")}>About</button>
           {#if pickerMode}
@@ -1189,9 +1226,11 @@
     {:else if page === "notifications"}
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}
-      <Settings databaseName={currentDatabase} pickerMode={pickerMode} {instanceName} {defaultAppName} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} {authRefreshTrigger} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); databaseOpen = false; currentDatabase = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchDatabaseRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchDatabaseRight(); await fetchSqlQueryEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} on:app-name-changed={fetchAppName} />
+      <Settings databaseName={currentDatabase} pickerMode={pickerMode} {instanceName} {defaultAppName} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} {authRefreshTrigger} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); databaseOpen = false; currentDatabase = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchDatabaseRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchDatabaseRight(); await fetchSqlQueryEnabled(); fetchNatsChatEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} on:app-name-changed={fetchAppName} />
     {:else if page === "scratchpad"}
       <Scratchpad />
+    {:else if page === "chat"}
+      <Chat />
     {:else if page === "about"}
       <About />
     {/if}
@@ -1382,6 +1421,23 @@
   }
 
   :global(main.scratchpad-mode) .page-content {
+    max-width: 100%;
+    margin: 0;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  :global(main.chat-mode) {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    box-sizing: border-box;
+  }
+
+  :global(main.chat-mode) .page-content {
     max-width: 100%;
     margin: 0;
     flex: 1;

@@ -442,6 +442,8 @@
   let natsCertInfo = { ca_fingerprint: null, client_fingerprint: null, cn: null, has_key: false };
   let natsSaving = false;
   let natsReplacing = { ca: false, cert: false, key: false };
+  let natsChatEnabled = false;
+  let natsLobbyEnabled = false;
 
   async function loadNatsStatus() {
     try {
@@ -499,6 +501,39 @@
       else if (field === "key") natsClientKey = e.target.result;
     };
     reader.readAsText(file);
+  }
+
+  async function toggleNatsChat() {
+    await fetch("/api/instance-settings/nats_chat_enabled", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: natsChatEnabled ? "true" : "false" }),
+    });
+  }
+
+  async function toggleNatsLobby() {
+    await fetch("/api/instance-settings/nats_lobby_enabled", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: natsLobbyEnabled ? "true" : "false" }),
+    });
+  }
+
+  async function loadNatsChatSettings() {
+    try {
+      const [chatRes, lobbyRes] = await Promise.all([
+        fetch("/api/instance-settings/nats_chat_enabled"),
+        fetch("/api/instance-settings/nats_lobby_enabled"),
+      ]);
+      if (chatRes.ok) {
+        const d = await chatRes.json();
+        natsChatEnabled = d.value === "true";
+      }
+      if (lobbyRes.ok) {
+        const d = await lobbyRes.json();
+        natsLobbyEnabled = d.value === "true";
+      }
+    } catch {}
   }
 
   async function loadTlsStatus() {
@@ -1502,6 +1537,7 @@
     loadTlsStatus();
     loadNatsStatus();
     loadNatsCerts();
+    loadNatsChatSettings();
     function onNatsStatus(e) { natsStatus = e.detail; }
     window.addEventListener("nats-status", onNatsStatus);
     natsCleanup = () => window.removeEventListener("nats-status", onNatsStatus);
@@ -2458,6 +2494,29 @@
         </button>
       </div>
     </section>
+
+    {#if natsStatus.state === "connected"}
+    <section class="settings-section">
+      <h3>NATS Chat</h3>
+      <div class="setting-row">
+        <label class="toggle-label">
+          <input type="checkbox" bind:checked={natsChatEnabled} on:change={toggleNatsChat} />
+          Enable NATS Chat
+        </label>
+      </div>
+      <p class="hint">Enable peer-to-peer chat via NATS with identity verification.</p>
+      {#if natsChatEnabled}
+      <div class="setting-row" style="margin-left: 1.5em;">
+        <label class="toggle-label">
+          <input type="checkbox" bind:checked={natsLobbyEnabled} on:change={toggleNatsLobby} />
+          Join Public Lobby
+        </label>
+      </div>
+      <p class="hint" style="margin-left: 1.5em;">Discover peers and chat publicly. Disable to use only private rooms.</p>
+      {/if}
+    </section>
+    {/if}
+
     {/if}
   </div></div>
   {/if}

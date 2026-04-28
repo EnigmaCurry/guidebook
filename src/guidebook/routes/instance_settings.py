@@ -91,5 +91,23 @@ async def upsert_instance_setting(
         else:
             await stop_auto_shutdown()
 
+    if key == "nats_chat_enabled":
+        from guidebook.chat import start_chat, stop_chat
+        from guidebook.sse import broadcast
+
+        if data.value == "true":
+            await start_chat()
+        else:
+            await stop_chat()
+        broadcast("chat-enabled", {"enabled": data.value == "true"})
+
+    if key == "nats_lobby_enabled":
+        from guidebook.chat import join_lobby, leave_lobby
+
+        if data.value == "true":
+            await join_lobby()
+        else:
+            await leave_lobby()
+
     redacted_value = "***" if key in HIDDEN_KEYS and data.value else data.value
     return SettingResponse(key=key, value=redacted_value)

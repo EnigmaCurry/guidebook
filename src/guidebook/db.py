@@ -96,6 +96,8 @@ INSTANCE_ONLY_KEYS = {
     "nats_ca_cert",
     "nats_client_cert",
     "nats_client_key",
+    "nats_chat_enabled",
+    "nats_lobby_enabled",
     "app_name",
 }
 
@@ -259,6 +261,17 @@ class ClientCert(InstanceBase):
     revoked_at: Mapped[float | None] = mapped_column(Float, nullable=True)
     fingerprint_sha256: Mapped[str] = mapped_column(String, nullable=False)
     pending_session_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class TrustedPeer(InstanceBase):
+    __tablename__ = "trusted_peers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    cn: Mapped[str] = mapped_column(String, nullable=False)
+    cert_pem: Mapped[str | None] = mapped_column(String, nullable=True)
+    verified_at: Mapped[float] = mapped_column(Float, nullable=False)
+    mutual: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class DatabaseLockError(Exception):
