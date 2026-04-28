@@ -99,8 +99,10 @@
     <button class="btn" on:click={copyContent}>{copyLabel}</button>
     <button class="btn" on:click={clearContent}>Clear</button>
     <span class="observer-info">
-      {observerCount} observer{observerCount === 1 ? '' : 's'}
-      {#if observers.length > 0}
+      {#if observerCount === 0}
+        No other observers
+      {:else}
+        {observerCount} other observer{observerCount === 1 ? '' : 's'}
         <span class="observer-labels" title={observers.map(o => `${o.label} (${o.auth_type})`).join(', ')}>
           — {observers.map(o => o.label).join(', ')}
         </span>

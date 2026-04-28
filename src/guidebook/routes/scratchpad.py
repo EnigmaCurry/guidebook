@@ -43,10 +43,11 @@ def _broadcast(content: str) -> None:
 
 
 def _broadcast_observers() -> None:
-    """Send current observer list to all subscribers."""
-    observers = list(_observer_info.values())
-    msg = f"event: observers\ndata: {json.dumps({'count': len(observers), 'observers': observers})}\n\n"
+    """Send each subscriber a personalised observer list excluding themselves."""
     for q in list(_subscribers):
+        qid = id(q)
+        others = [v for k, v in _observer_info.items() if k != qid]
+        msg = f"event: observers\ndata: {json.dumps({'count': len(others), 'observers': others})}\n\n"
         try:
             q.put_nowait(msg)
         except asyncio.QueueFull:
