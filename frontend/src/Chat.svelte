@@ -3,6 +3,7 @@
   import Icon from "@iconify/svelte";
   import iconLocked from "@iconify-icons/twemoji/locked";
   import iconPlug from "@iconify-icons/twemoji/electric-plug";
+  import iconCross from "@iconify-icons/twemoji/cross-mark";
   import P2P from "./P2P.svelte";
 
   let rooms = [];
@@ -272,7 +273,7 @@
           <div class="peer-fp">{shortFingerprint(peer.fingerprint)}</div>
           {#if trustedSet.has(peer.fingerprint)}
             <span class="peer-badge trusted">Friends</span>
-            <button class="btn-small btn-defriend" on:click={() => defriend(peer)} title="Remove friend">✕</button>
+            <button class="btn-small btn-defriend" on:click={() => defriend(peer)} title="Remove friend"><Icon icon={iconCross} width={12} /></button>
           {:else}
             <button class="btn-small" on:click={() => verifyPeer(peer.fingerprint)}>Verify</button>
           {/if}
