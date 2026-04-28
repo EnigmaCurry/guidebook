@@ -179,7 +179,8 @@
   function formatFileSize(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
   }
 
   function b64ToObjectUrl(b64, contentType) {
@@ -194,22 +195,40 @@
 
   function sendFileNow(file) {
     p2p.sendChatFile(file).then((msg) => {
-      messages = [...messages, {
-        cn: chatStatus.cn || "You",
-        fingerprint: chatStatus.fingerprint,
-        ts: Date.now() / 1000,
-        text: null,
-        fileId: msg.fileId,
-        file: { filename: msg.filename, content_type: msg.content_type, size: msg.size, data: msg.data },
-        room: activeRoom,
-      }];
-      tick().then(scrollToBottom);
-    }).catch(() => {});
+      // Small file — msg.data is present; large file — no data, already tracked via transfer messages
+      if (msg.data) {
+        messages = [...messages, {
+          cn: chatStatus.cn || "You",
+          fingerprint: chatStatus.fingerprint,
+          ts: Date.now() / 1000,
+          text: null,
+          fileId: msg.fileId,
+          file: { filename: msg.filename, content_type: msg.content_type, size: msg.size, data: msg.data },
+          room: activeRoom,
+        }];
+        tick().then(scrollToBottom);
+      } else {
+        // Large file complete — update the transfer message
+        const idx = messages.findIndex(m => m.fileId === msg.fileId);
+        if (idx !== -1) {
+          messages[idx] = { ...messages[idx], transfer: { ...messages[idx].transfer, status: "sent" } };
+          messages = messages;
+        }
+      }
+    }).catch((err) => {
+      // Update transfer message on failure
+      const idx = messages.findIndex(m => m.fileId === err?.fileId);
+      if (idx !== -1) {
+        messages[idx] = { ...messages[idx], transfer: { ...messages[idx].transfer, status: "failed" } };
+        messages = messages;
+      }
+    });
   }
 
   function deleteChatFile(msg) {
     if (msg.fileId) p2p.sendChatFileDelete(msg.fileId);
     if (msg.file?._url) URL.revokeObjectURL(msg.file._url);
+    if (msg.transfer?.blobUrl) URL.revokeObjectURL(msg.transfer.blobUrl);
     messages = messages.filter(m => m !== msg);
   }
 
@@ -238,7 +257,47 @@
     return !!activeRoom && !!activeRoomObj;
   }
 
+  // --- Small file received (inline base64) ---
   function onChatFileReceived(e) {
+    const detail = e.detail;
+    // Inline small file has detail.data; large file complete has detail.blobUrl
+    if (detail.data) {
+      if (detail.roomId !== activeRoom) return;
+      messages = [...messages, {
+        cn: detail.peerName || "Peer",
+        fingerprint: detail.peerFingerprint,
+        ts: Date.now() / 1000,
+        text: null,
+        fileId: detail.fileId,
+        file: { filename: detail.filename, content_type: detail.content_type, size: detail.size, data: detail.data },
+        room: detail.roomId,
+      }];
+    } else if (detail.blobUrl) {
+      // Large file transfer complete — update the existing transfer message
+      if (detail.roomId !== activeRoom) return;
+      const idx = messages.findIndex(m => m.fileId === detail.fileId);
+      if (idx !== -1) {
+        messages[idx] = { ...messages[idx],
+          transfer: { ...messages[idx].transfer, status: "complete", blobUrl: detail.blobUrl },
+        };
+        messages = messages;
+      } else {
+        messages = [...messages, {
+          cn: detail.peerName || "Peer",
+          fingerprint: detail.peerFingerprint,
+          ts: Date.now() / 1000,
+          text: null,
+          fileId: detail.fileId,
+          transfer: { filename: detail.filename, content_type: detail.content_type, size: detail.size, status: "complete", blobUrl: detail.blobUrl },
+          room: detail.roomId,
+        }];
+      }
+    }
+    tick().then(scrollToBottom);
+  }
+
+  // --- Large file offer from peer ---
+  function onChatFileOfferIncoming(e) {
     const detail = e.detail;
     if (detail.roomId !== activeRoom) return;
     messages = [...messages, {
@@ -247,16 +306,83 @@
       ts: Date.now() / 1000,
       text: null,
       fileId: detail.fileId,
-      file: { filename: detail.filename, content_type: detail.content_type, size: detail.size, data: detail.data },
+      transfer: {
+        filename: detail.filename,
+        content_type: detail.content_type,
+        size: detail.size,
+        status: "offered", // offered → receiving → complete | rejected
+        progress: 0,
+        direction: "incoming",
+      },
       room: detail.roomId,
     }];
     tick().then(scrollToBottom);
+  }
+
+  // --- Sender's own large file offer sent ---
+  function onChatFileOfferSent(e) {
+    const detail = e.detail;
+    messages = [...messages, {
+      cn: chatStatus.cn || "You",
+      fingerprint: chatStatus.fingerprint,
+      ts: Date.now() / 1000,
+      text: null,
+      fileId: detail.fileId,
+      transfer: {
+        filename: detail.filename,
+        content_type: detail.content_type,
+        size: detail.size,
+        status: "waiting", // waiting → sending → sent | failed
+        progress: 0,
+        direction: "outgoing",
+      },
+      room: activeRoom,
+    }];
+    tick().then(scrollToBottom);
+  }
+
+  function acceptTransfer(msg) {
+    p2p.acceptFileTransfer(msg.fileId);
+    const idx = messages.indexOf(msg);
+    if (idx !== -1) {
+      messages[idx] = { ...messages[idx], transfer: { ...messages[idx].transfer, status: "receiving" } };
+      messages = messages;
+    }
+  }
+
+  function rejectTransfer(msg) {
+    p2p.rejectFileTransfer(msg.fileId);
+    messages = messages.filter(m => m !== msg);
+  }
+
+  // --- Progress events ---
+  function onChatFileSendProgress(e) {
+    const { fileId, sentBytes, totalBytes } = e.detail;
+    const idx = messages.findIndex(m => m.fileId === fileId);
+    if (idx !== -1 && messages[idx].transfer) {
+      messages[idx] = { ...messages[idx],
+        transfer: { ...messages[idx].transfer, status: "sending", progress: sentBytes / totalBytes },
+      };
+      messages = messages;
+    }
+  }
+
+  function onChatFileRecvProgress(e) {
+    const { fileId, receivedBytes, totalBytes } = e.detail;
+    const idx = messages.findIndex(m => m.fileId === fileId);
+    if (idx !== -1 && messages[idx].transfer) {
+      messages[idx] = { ...messages[idx],
+        transfer: { ...messages[idx].transfer, progress: receivedBytes / totalBytes },
+      };
+      messages = messages;
+    }
   }
 
   function onChatFileDeleted(e) {
     const { fileId } = e.detail;
     const msg = messages.find(m => m.fileId === fileId);
     if (msg?.file?._url) URL.revokeObjectURL(msg.file._url);
+    if (msg?.transfer?.blobUrl) URL.revokeObjectURL(msg.transfer.blobUrl);
     messages = messages.filter(m => m.fileId !== fileId);
   }
 
@@ -316,6 +442,10 @@
     window.addEventListener("chat-defriended", onChatDefriended);
     window.addEventListener("chat-file-received", onChatFileReceived);
     window.addEventListener("chat-file-deleted", onChatFileDeleted);
+    window.addEventListener("chat-file-offer-incoming", onChatFileOfferIncoming);
+    window.addEventListener("chat-file-offer-sent", onChatFileOfferSent);
+    window.addEventListener("chat-file-send-progress", onChatFileSendProgress);
+    window.addEventListener("chat-file-recv-progress", onChatFileRecvProgress);
     unsubP2P = p2p.onChange(s => {
       const wasOpen = p2pState.dcOpen;
       p2pState = s;
@@ -341,6 +471,10 @@
     window.removeEventListener("chat-rooms", onChatRooms);
     window.removeEventListener("chat-file-received", onChatFileReceived);
     window.removeEventListener("chat-file-deleted", onChatFileDeleted);
+    window.removeEventListener("chat-file-offer-incoming", onChatFileOfferIncoming);
+    window.removeEventListener("chat-file-offer-sent", onChatFileOfferSent);
+    window.removeEventListener("chat-file-send-progress", onChatFileSendProgress);
+    window.removeEventListener("chat-file-recv-progress", onChatFileRecvProgress);
     window.removeEventListener("chat-defriended", onChatDefriended);
     if (unsubP2P) unsubP2P();
   });
@@ -461,6 +595,72 @@
                   </a>
                   <button class="file-delete-btn" on:click={() => deleteChatFile(msg)} title="Delete file">✕</button>
                 </div>
+              </div>
+            {:else if msg.transfer}
+              <div class="message-file">
+                {#if msg.transfer.status === "offered"}
+                  <div class="transfer-offer">
+                    <span class="file-icon">📎</span>
+                    <span class="file-name">{msg.transfer.filename}</span>
+                    <span class="file-size">({formatFileSize(msg.transfer.size)})</span>
+                    <div class="transfer-actions">
+                      <button class="btn-small btn-accept" on:click={() => acceptTransfer(msg)}>Accept</button>
+                      <button class="btn-small btn-reject" on:click={() => rejectTransfer(msg)}>Reject</button>
+                    </div>
+                  </div>
+                {:else if msg.transfer.status === "waiting"}
+                  <div class="transfer-progress">
+                    <span class="file-icon">📎</span>
+                    <span class="file-name">{msg.transfer.filename}</span>
+                    <span class="file-size">({formatFileSize(msg.transfer.size)})</span>
+                    <div class="transfer-status">Waiting for acceptance...</div>
+                  </div>
+                {:else if msg.transfer.status === "sending" || msg.transfer.status === "receiving"}
+                  <div class="transfer-progress">
+                    <span class="file-icon">📎</span>
+                    <span class="file-name">{msg.transfer.filename}</span>
+                    <span class="file-size">({formatFileSize(msg.transfer.size)})</span>
+                    <div class="progress-bar-container">
+                      <div class="progress-bar-fill" style="width: {(msg.transfer.progress * 100).toFixed(1)}%"></div>
+                    </div>
+                    <div class="transfer-status">{msg.transfer.status === "sending" ? "Sending" : "Receiving"} {(msg.transfer.progress * 100).toFixed(0)}%</div>
+                  </div>
+                {:else if msg.transfer.status === "complete" || msg.transfer.status === "sent"}
+                  {@const tUrl = msg.transfer.blobUrl}
+                  {#if tUrl && msg.transfer.content_type.startsWith("image/")}
+                    <img class="file-preview-img" src={tUrl} alt={msg.transfer.filename} />
+                  {:else if tUrl && msg.transfer.content_type.startsWith("video/")}
+                    <video class="file-preview-video" controls preload="metadata">
+                      <source src={tUrl} type={msg.transfer.content_type} />
+                    </video>
+                  {:else if tUrl && msg.transfer.content_type.startsWith("audio/")}
+                    <audio class="file-preview-audio" controls preload="metadata">
+                      <source src={tUrl} type={msg.transfer.content_type} />
+                    </audio>
+                  {/if}
+                  <div class="file-actions">
+                    {#if tUrl}
+                      <a class="file-download" href={tUrl} download={msg.transfer.filename}>
+                        <span class="file-icon">📎</span>
+                        <span class="file-name">{msg.transfer.filename}</span>
+                        <span class="file-size">({formatFileSize(msg.transfer.size)})</span>
+                      </a>
+                    {:else}
+                      <span class="file-download">
+                        <span class="file-icon">📎</span>
+                        <span class="file-name">{msg.transfer.filename}</span>
+                        <span class="file-size">({formatFileSize(msg.transfer.size)}) — sent</span>
+                      </span>
+                    {/if}
+                    <button class="file-delete-btn" on:click={() => deleteChatFile(msg)} title="Delete file">✕</button>
+                  </div>
+                {:else if msg.transfer.status === "failed"}
+                  <div class="transfer-progress">
+                    <span class="file-icon">📎</span>
+                    <span class="file-name">{msg.transfer.filename}</span>
+                    <span class="transfer-status transfer-failed">Transfer failed</span>
+                  </div>
+                {/if}
               </div>
             {:else}
               <div class="message-text">{msg.text}</div>
@@ -821,6 +1021,55 @@
   .file-size {
     font-size: 0.8em;
     opacity: 0.7;
+  }
+
+  .transfer-offer, .transfer-progress {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3em;
+    font-size: 0.9rem;
+  }
+
+  .transfer-actions {
+    display: flex;
+    gap: 0.3em;
+    margin-left: 0.3em;
+  }
+
+  .transfer-status {
+    width: 100%;
+    font-size: 0.75rem;
+    color: var(--text-muted, #888);
+    margin-top: 0.15em;
+  }
+
+  .message.own .transfer-status {
+    color: var(--bg, #555);
+  }
+
+  .transfer-failed {
+    color: var(--error, #f44336) !important;
+  }
+
+  .progress-bar-container {
+    width: 100%;
+    height: 6px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 3px;
+    margin-top: 0.3em;
+    overflow: hidden;
+  }
+
+  .message.own .progress-bar-container {
+    background: rgba(0,0,0,0.15);
+  }
+
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent, #e6a700);
+    border-radius: 3px;
+    transition: width 0.2s;
   }
 
   .file-actions {

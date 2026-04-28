@@ -96,6 +96,7 @@ async function sendSignal(type, fields = {}) {
 
 function setupDataChannel(channel) {
   dc = channel;
+  channel.binaryType = "arraybuffer";
   channel.onopen = () => {
     state.connectionState = "connected";
     state.dcOpen = true;
@@ -112,6 +113,11 @@ function setupDataChannel(channel) {
     notify();
   };
   channel.onmessage = (e) => {
+    // Binary messages are file chunks
+    if (e.data instanceof ArrayBuffer) {
+      handleFileChunk(e.data);
+      return;
+    }
     try {
       const msg = JSON.parse(e.data);
       if (msg.type === "ping") {
@@ -133,6 +139,7 @@ function setupDataChannel(channel) {
       } else if (msg.type === "sync-ack") {
         log(`Sync ack: ${msg.accepted} accepted, ${msg.skipped} skipped`);
       } else if (msg.type === "chat-file") {
+        // Small inline file (< 10 MB)
         log(`Received file: ${msg.filename} (${msg.size} bytes)`);
         window.dispatchEvent(new CustomEvent("chat-file-received", { detail: {
           fileId: msg.fileId,
@@ -144,6 +151,33 @@ function setupDataChannel(channel) {
           peerFingerprint: peerFingerprint,
           roomId: roomId,
         }}));
+      } else if (msg.type === "chat-file-offer") {
+        // Large file offer — receiver must accept
+        log(`Received file offer: ${msg.filename} (${msg.size} bytes)`);
+        incomingTransfers[msg.fileId] = {
+          filename: msg.filename,
+          content_type: msg.content_type,
+          totalBytes: msg.size,
+          chunks: [],
+          receivedBytes: 0,
+        };
+        window.dispatchEvent(new CustomEvent("chat-file-offer-incoming", { detail: {
+          fileId: msg.fileId,
+          filename: msg.filename,
+          content_type: msg.content_type,
+          size: msg.size,
+          peerName: peerName,
+          peerFingerprint: peerFingerprint,
+          roomId: roomId,
+        }}));
+      } else if (msg.type === "chat-file-accept") {
+        const cb = pendingOfferCallbacks[msg.fileId];
+        if (cb) { delete pendingOfferCallbacks[msg.fileId]; cb.resolve(); }
+      } else if (msg.type === "chat-file-reject") {
+        const cb = pendingOfferCallbacks[msg.fileId];
+        if (cb) { delete pendingOfferCallbacks[msg.fileId]; cb.reject(); }
+      } else if (msg.type === "chat-file-complete") {
+        handleFileComplete(msg.fileId);
       } else if (msg.type === "chat-file-delete") {
         log(`Received file delete: ${msg.fileId}`);
         window.dispatchEvent(new CustomEvent("chat-file-deleted", { detail: {
@@ -386,23 +420,37 @@ export function sendPing() {
   }
 }
 
-/**
- * Send a file to the connected peer as a chat file transfer.
- * The file is read as base64 and sent over the data channel.
- * Returns a promise that resolves with the message payload on success.
- */
-let fileIdCounter = 0;
+// --- Chat file transfer ---
 
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10 MB
+const CHUNK_SIZE = 65536; // 64 KB
+const MAX_BUFFERED = 1048576; // 1 MB
+
+let fileIdCounter = 0;
+const pendingOfferCallbacks = {};
+const incomingTransfers = {};
+
+/**
+ * Send a file to the connected peer.
+ * Small files (< 10 MB) are sent inline as base64.
+ * Large files use chunked binary transfer with offer/accept.
+ */
 export function sendChatFile(file) {
+  if (!dc || dc.readyState !== "open") {
+    return Promise.reject(new Error("No open P2P connection"));
+  }
+  const fileId = `${Date.now()}-${++fileIdCounter}`;
+  if (file.size < LARGE_FILE_THRESHOLD) {
+    return sendSmallFile(file, fileId);
+  }
+  return sendLargeFile(file, fileId);
+}
+
+function sendSmallFile(file, fileId) {
   return new Promise((resolve, reject) => {
-    if (!dc || dc.readyState !== "open") {
-      reject(new Error("No open P2P connection"));
-      return;
-    }
     const reader = new FileReader();
     reader.onloadend = () => {
       const b64 = reader.result.split(",")[1];
-      const fileId = `${Date.now()}-${++fileIdCounter}`;
       const msg = {
         type: "chat-file",
         fileId,
@@ -420,6 +468,132 @@ export function sendChatFile(file) {
   });
 }
 
+function sendLargeFile(file, fileId) {
+  dc.send(JSON.stringify({
+    type: "chat-file-offer",
+    fileId,
+    filename: file.name,
+    content_type: file.type || "application/octet-stream",
+    size: file.size,
+  }));
+  log(`Sent file offer: ${file.name} (${file.size} bytes)`);
+
+  window.dispatchEvent(new CustomEvent("chat-file-offer-sent", { detail: {
+    fileId,
+    filename: file.name,
+    content_type: file.type || "application/octet-stream",
+    size: file.size,
+  }}));
+
+  return new Promise((resolve, reject) => {
+    pendingOfferCallbacks[fileId] = {
+      resolve: async () => {
+        try {
+          await sendFileChunks(fileId, file);
+          dc.send(JSON.stringify({ type: "chat-file-complete", fileId }));
+          log(`File transfer complete: ${file.name}`);
+          resolve({ fileId, filename: file.name, content_type: file.type || "application/octet-stream", size: file.size });
+        } catch (err) {
+          reject(err);
+        }
+      },
+      reject: () => {
+        log(`File transfer rejected: ${file.name}`);
+        reject(new Error("File transfer rejected"));
+      },
+    };
+  });
+}
+
+async function sendFileChunks(fileId, file) {
+  const encoder = new TextEncoder();
+  const idBytes = encoder.encode(fileId);
+  let offset = 0;
+
+  while (offset < file.size) {
+    if (!dc || dc.readyState !== "open") throw new Error("Connection lost");
+
+    // Flow control: wait if send buffer is full
+    while (dc.bufferedAmount > MAX_BUFFERED) {
+      await new Promise((resolve) => {
+        const onLow = () => { resolve(); };
+        dc.addEventListener("bufferedamountlow", onLow, { once: true });
+        dc.bufferedAmountLowThreshold = MAX_BUFFERED / 2;
+      });
+      if (!dc || dc.readyState !== "open") throw new Error("Connection lost");
+    }
+
+    const end = Math.min(offset + CHUNK_SIZE, file.size);
+    const chunkData = await file.slice(offset, end).arrayBuffer();
+
+    // Binary message: [idLen:2][id:N][data:...]
+    const header = new Uint8Array(2 + idBytes.length);
+    header[0] = (idBytes.length >> 8) & 0xff;
+    header[1] = idBytes.length & 0xff;
+    header.set(idBytes, 2);
+    const msg = new Uint8Array(header.length + chunkData.byteLength);
+    msg.set(header);
+    msg.set(new Uint8Array(chunkData), header.length);
+    dc.send(msg.buffer);
+
+    offset = end;
+    window.dispatchEvent(new CustomEvent("chat-file-send-progress", {
+      detail: { fileId, sentBytes: offset, totalBytes: file.size },
+    }));
+  }
+}
+
+function handleFileChunk(buffer) {
+  const view = new Uint8Array(buffer);
+  const idLen = (view[0] << 8) | view[1];
+  const decoder = new TextDecoder();
+  const fileId = decoder.decode(view.slice(2, 2 + idLen));
+  const chunkData = view.slice(2 + idLen);
+
+  const transfer = incomingTransfers[fileId];
+  if (!transfer) return;
+  transfer.chunks.push(chunkData);
+  transfer.receivedBytes += chunkData.byteLength;
+
+  window.dispatchEvent(new CustomEvent("chat-file-recv-progress", {
+    detail: { fileId, receivedBytes: transfer.receivedBytes, totalBytes: transfer.totalBytes },
+  }));
+}
+
+function handleFileComplete(fileId) {
+  const transfer = incomingTransfers[fileId];
+  if (!transfer) return;
+  delete incomingTransfers[fileId];
+
+  const blob = new Blob(transfer.chunks, { type: transfer.content_type });
+  const url = URL.createObjectURL(blob);
+  log(`File received: ${transfer.filename} (${transfer.totalBytes} bytes)`);
+
+  window.dispatchEvent(new CustomEvent("chat-file-received", { detail: {
+    fileId,
+    filename: transfer.filename,
+    content_type: transfer.content_type,
+    size: transfer.totalBytes,
+    blobUrl: url,
+    peerName: peerName,
+    peerFingerprint: peerFingerprint,
+    roomId: roomId,
+  }}));
+}
+
+export function acceptFileTransfer(fileId) {
+  if (!dc || dc.readyState !== "open") return;
+  dc.send(JSON.stringify({ type: "chat-file-accept", fileId }));
+  log(`Accepted file transfer: ${fileId}`);
+}
+
+export function rejectFileTransfer(fileId) {
+  if (!dc || dc.readyState !== "open") return;
+  dc.send(JSON.stringify({ type: "chat-file-reject", fileId }));
+  delete incomingTransfers[fileId];
+  log(`Rejected file transfer: ${fileId}`);
+}
+
 export function sendChatFileDelete(fileId) {
   if (!dc || dc.readyState !== "open") return;
   dc.send(JSON.stringify({ type: "chat-file-delete", fileId }));
@@ -433,6 +607,14 @@ export function hangup() {
 
 function cleanup(silent) {
   if (iceDisconnectTimer) { clearTimeout(iceDisconnectTimer); iceDisconnectTimer = null; }
+  // Abort pending file transfers
+  for (const fileId of Object.keys(pendingOfferCallbacks)) {
+    pendingOfferCallbacks[fileId].reject();
+    delete pendingOfferCallbacks[fileId];
+  }
+  for (const fileId of Object.keys(incomingTransfers)) {
+    delete incomingTransfers[fileId];
+  }
   if (dc) { try { dc.close(); } catch {} dc = null; }
   if (pc) { try { pc.close(); } catch {} pc = null; }
   roomId = null;
