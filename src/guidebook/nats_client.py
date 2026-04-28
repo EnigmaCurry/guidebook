@@ -139,6 +139,7 @@ async def _nats_connection_loop():
             client_key = settings.get("nats_client_key") or ""
 
             if not endpoint:
+                logger.warning("NATS enabled but no endpoint configured")
                 _set_status("error", detail="No endpoint configured")
                 await asyncio.sleep(10)
                 continue
@@ -158,6 +159,7 @@ async def _nats_connection_loop():
                     continue
 
             _set_status("connecting", cn=cn)
+            logger.info("Connecting to NATS %s (CN=%s)", endpoint, cn or "none")
 
             try:
                 nc = await nats_lib.connect(
@@ -171,6 +173,7 @@ async def _nats_connection_loop():
                 )
                 _nats_client = nc
                 _set_status("connected", cn=cn)
+                logger.info("Connected to NATS %s", endpoint)
 
                 while nc.is_connected or nc.is_reconnecting:
                     await asyncio.sleep(5)
@@ -186,6 +189,7 @@ async def _nats_connection_loop():
                 _nats_client = None
 
             except Exception as e:
+                logger.warning("NATS connection failed (%s): %s", endpoint, e)
                 _set_status("error", detail=str(e), cn=cn)
                 _nats_client = None
                 await asyncio.sleep(10)
