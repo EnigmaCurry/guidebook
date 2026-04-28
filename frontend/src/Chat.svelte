@@ -2,6 +2,10 @@
   import { onMount, onDestroy, tick } from "svelte";
   import Icon from "@iconify/svelte";
   import iconLocked from "@iconify-icons/twemoji/locked";
+  import iconPlug from "@iconify-icons/twemoji/electric-plug";
+  import iconCross from "@iconify-icons/twemoji/cross-mark";
+  import P2P from "./P2P.svelte";
+  import * as p2p from "./p2p.js";
 
   let rooms = [];
   let peers = [];
@@ -14,6 +18,9 @@
   let chatStatus = { active: false, cn: null, fingerprint: null, lobby_joined: false };
   let messagesEnd;
   let messageInputEl;
+  let p2pRoom = null;
+  let p2pPeer = null;
+  let p2pState = p2p.getState();
 
   async function loadStatus() {
     try {
@@ -134,6 +141,13 @@
   }
 
   $: trustedSet = new Set(trusted.map(t => t.fingerprint));
+  $: onlinePeerSet = new Set(peers.map(p => p.fingerprint));
+
+  function peerStatus(room, _p2p, _online) {
+    if (_p2p.roomId === room.id && _p2p.connectionState === "connected") return "p2p";
+    if (_online.has(room.fingerprint)) return "online";
+    return "offline";
+  }
 
   function isPendingOutgoing(fingerprint) {
     // We don't track this client-side yet, just return false
@@ -185,6 +199,8 @@
     loadRooms();
   }
 
+  let unsubP2P;
+
   onMount(() => {
     loadStatus();
     loadRooms();
@@ -199,6 +215,16 @@
     window.addEventListener("chat-verify-complete", onChatVerifyComplete);
     window.addEventListener("chat-rooms", onChatRooms);
     window.addEventListener("chat-defriended", onChatDefriended);
+    unsubP2P = p2p.onChange(s => {
+      p2pState = s;
+      // Auto-open P2P panel when connection is established from any page
+      if (s.roomId && !p2pRoom) {
+        const room = rooms.find(r => r.id === s.roomId);
+        if (room) { p2pRoom = room.id; p2pPeer = room; }
+      }
+      // Clear panel when connection closes
+      if (!s.roomId && p2pRoom) { p2pRoom = null; p2pPeer = null; }
+    });
   });
 
   onDestroy(() => {
@@ -208,6 +234,7 @@
     window.removeEventListener("chat-verify-complete", onChatVerifyComplete);
     window.removeEventListener("chat-rooms", onChatRooms);
     window.removeEventListener("chat-defriended", onChatDefriended);
+    if (unsubP2P) unsubP2P();
   });
 </script>
 
@@ -215,14 +242,31 @@
   <div class="chat-sidebar">
     <div class="sidebar-header">Rooms</div>
     {#each rooms as room}
-      <button
-        class="room-item"
-        class:active={activeRoom === room.id}
-        on:click={() => selectRoom(room.id)}
-      >
-        <span class="room-icon"><Icon icon={iconLocked} width={16} /></span>
-        <span class="room-name">{room.name}</span>
-      </button>
+      <div class="room-row">
+        <button
+          class="room-item"
+          class:active={activeRoom === room.id}
+          on:click={() => selectRoom(room.id)}
+        >
+          <span class="peer-status-dot" class:status-p2p={peerStatus(room, p2pState, onlinePeerSet) === "p2p"} class:status-online={peerStatus(room, p2pState, onlinePeerSet) === "online"} class:status-offline={peerStatus(room, p2pState, onlinePeerSet) === "offline"}></span>
+          <span class="room-name">{room.name}</span>
+        </button>
+        <button
+          class="btn-small btn-p2p-connect"
+          class:btn-p2p-active={p2pState.roomId === room.id}
+          disabled={p2pState.roomId && p2pState.roomId !== room.id}
+          on:click|stopPropagation={() => {
+            if (p2pState.roomId === room.id) {
+              p2p.hangup();
+            } else {
+              p2pRoom = room.id;
+              p2pPeer = room;
+              p2p.connect(room.id, room.name, chatStatus.fingerprint, room.fingerprint);
+            }
+          }}
+          title={p2pState.roomId === room.id ? "Disconnect P2P" : "P2P Connect"}
+        ><Icon icon={iconPlug} width={14} /></button>
+      </div>
     {/each}
     {#if rooms.length === 0}
       <p class="sidebar-hint">No rooms yet. Verify a peer to start chatting.</p>
@@ -236,7 +280,7 @@
           <div class="peer-fp">{shortFingerprint(peer.fingerprint)}</div>
           {#if trustedSet.has(peer.fingerprint)}
             <span class="peer-badge trusted">Friends</span>
-            <button class="btn-small btn-defriend" on:click={() => defriend(peer)} title="Remove friend">✕</button>
+            <button class="btn-small btn-defriend" on:click={() => defriend(peer)} title="Remove friend"><Icon icon={iconCross} width={12} /></button>
           {:else}
             <button class="btn-small" on:click={() => verifyPeer(peer.fingerprint)}>Verify</button>
           {/if}
@@ -263,6 +307,14 @@
   </div>
 
   <div class="chat-main">
+    {#if p2pRoom && p2pPeer}
+      <P2P
+        roomId={p2pRoom}
+        peerName={p2pPeer.name}
+        ownFingerprint={chatStatus.fingerprint}
+        peerFingerprint={p2pPeer.fingerprint}
+      />
+    {/if}
     {#if !chatStatus.active}
       <div class="chat-empty">
         <p>Chat is not active. Enable NATS Chat in Settings.</p>
@@ -334,11 +386,70 @@
     margin: 0;
   }
 
+  .room-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25em;
+    min-width: 0;
+  }
+
+  .peer-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-offline {
+    background: var(--error, #f44336);
+  }
+
+  .status-online {
+    background: var(--warning, #ff9800);
+  }
+
+  .status-p2p {
+    background: var(--success, #4caf50);
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 3px var(--success, #4caf50); }
+    50% { opacity: 0.6; box-shadow: 0 0 8px var(--success, #4caf50); }
+  }
+
+  .btn-p2p-connect {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    padding: 0.15em 0.4em;
+    border: 1px solid var(--border, #444);
+    border-radius: 3px;
+    background: var(--bg, #222);
+    color: var(--text-muted, #888);
+    cursor: pointer;
+  }
+
+  .btn-p2p-connect:hover:not(:disabled) {
+    background: var(--bg-hover, #2a2a2a);
+    color: var(--text, #ccc);
+  }
+
+  .btn-p2p-connect:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .btn-p2p-active {
+    border-color: var(--accent, #e6a700);
+    color: var(--accent, #e6a700);
+  }
+
   .room-item {
     display: flex;
     align-items: center;
     gap: 0.5em;
-    width: 100%;
+    flex: 1;
+    min-width: 0;
     padding: 0.5em;
     border: none;
     background: transparent;

@@ -17,6 +17,7 @@
   import iconCamera from "@iconify-icons/twemoji/camera";
   import { setDatabase, storageGet, storageSet, migrateStorage } from "./storage.js";
   import { applyThemeVars, applyCustomThemeVars, resolveDefaultTheme } from "./themes.js";
+  import * as p2p from "./p2p.js";
 
   const DUAL_RIGHT_PAGES = new Set(["notifications", "media"]);
 
@@ -167,6 +168,7 @@
   let sqlQueryEnabled = false;
   let natsChatEnabled = false;
   let natsConnected = false;
+  let chatRoomCount = 0;
   let noShutdown = false;
   let unreadCount = 0;
   let prevUnreadCount = -1;
@@ -607,9 +609,23 @@
       const data = JSON.parse(e.data);
       natsChatEnabled = data.enabled;
     });
-    for (const evt of ["chat-message", "chat-peers", "chat-verify-request", "chat-verify-complete", "chat-rooms", "chat-defriended"]) {
+    for (const evt of ["chat-message", "chat-peers", "chat-verify-request", "chat-verify-complete", "chat-rooms", "chat-defriended", "webrtc-offer", "webrtc-answer", "webrtc-ice", "webrtc-hangup"]) {
       eventSource.addEventListener(evt, (e) => {
-        window.dispatchEvent(new CustomEvent(evt, { detail: JSON.parse(e.data) }));
+        const detail = JSON.parse(e.data);
+        window.dispatchEvent(new CustomEvent(evt, { detail }));
+        if (evt === "chat-rooms") { chatRoomCount = (detail.rooms || []).length; }
+        if (evt === "webrtc-offer") {
+          (async () => {
+            try {
+              const [roomsRes, statusRes] = await Promise.all([fetch("/api/chat/rooms"), fetch("/api/chat/status")]);
+              if (roomsRes.ok && statusRes.ok) {
+                p2p.handleOffer(detail, await roomsRes.json(), await statusRes.json());
+              }
+            } catch {}
+          })();
+        } else if (evt === "webrtc-answer") { p2p.handleAnswer(detail); }
+        else if (evt === "webrtc-ice") { p2p.handleIce(detail); }
+        else if (evt === "webrtc-hangup") { p2p.handleHangup(detail); }
       });
     }
     eventSource.addEventListener("database-changed", () => {
@@ -799,8 +815,15 @@
         natsConnected = data.state === "connected";
       }
     } catch {}
+    fetchChatRoomCount();
   }
 
+  async function fetchChatRoomCount() {
+    try {
+      const res = await fetch("/api/chat/rooms");
+      if (res.ok) chatRoomCount = (await res.json()).length;
+    } catch {}
+  }
 
   function isWide() {
     return typeof window !== "undefined" && window.innerWidth >= wideBreakpoint;
@@ -1112,7 +1135,7 @@
         <h1 class="app-title"><span class="title-full">{appName}</span><span class="title-short">{appName.slice(0, 2).toUpperCase()}</span>{#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}</h1>
       </div>
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <span class="client-count" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>
+      <span class="client-count"><span class="client-count-link" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>{#if natsChatEnabled && natsConnected && chatRoomCount > 0}<span class="client-count-sep"> + </span><span class="client-count-link" on:click={() => navigate("chat")} title="Mutual friends">{chatRoomCount} friend{chatRoomCount !== 1 ? "s" : ""}</span>{/if}</span>
     </header>
     <div class="welcome-container">
       <div class="welcome-card">
@@ -1149,7 +1172,7 @@
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <span class="client-count" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>
+    <span class="client-count"><span class="client-count-link" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>{#if natsChatEnabled && natsConnected && chatRoomCount > 0}<span class="client-count-sep"> + </span><span class="client-count-link" on:click={() => navigate("chat")} title="Mutual friends">{chatRoomCount} friend{chatRoomCount !== 1 ? "s" : ""}</span>{/if}</span>
     <div class="hamburger-wrap">
       {#if wide}
         <button class="add-btn dual-btn" class:active-nav={dualRightPage === "media"} on:click={() => { dualRightPage = "media"; navigate("media"); }} title="Records & Media">{#if dualRightPage === "media" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}<Icon icon={iconCamera} width={18} />{#if dualRightPage === "media" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
@@ -1612,11 +1635,16 @@
   .client-count {
     font-size: 0.75rem;
     color: var(--text-dim);
-    cursor: pointer;
     white-space: nowrap;
   }
-  .client-count:hover {
+  .client-count-link {
+    cursor: pointer;
+  }
+  .client-count-link:hover {
     color: var(--text);
+  }
+  .client-count-sep {
+    color: var(--text-dim);
   }
 
   .add-btn {

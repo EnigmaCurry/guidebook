@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from guidebook.chat import (
+    WEBRTC_SIGNAL_TYPES,
     accept_verification,
     get_messages,
     get_peers,
@@ -14,6 +15,7 @@ from guidebook.chat import (
     reject_verification,
     remove_trusted,
     send_dm_message,
+    send_signal,
 )
 
 logger = logging.getLogger("guidebook.chat")
@@ -23,6 +25,15 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 class SendMessage(BaseModel):
     text: str
+
+
+class SignalMessage(BaseModel):
+    type: str
+    sdp: str | None = None
+    candidate: str | None = None
+    sdpMid: str | None = None
+    sdpMLineIndex: int | None = None
+    ts: float | None = None
 
 
 @router.get("/status")
@@ -61,6 +72,14 @@ async def send_message(room_id: str, data: SendMessage):
     if room_id == "lobby":
         raise HTTPException(status_code=403, detail="Lobby is for peer discovery only")
     await send_dm_message(room_id, data.text)
+    return {"ok": True}
+
+
+@router.post("/rooms/{room_id}/signal")
+async def send_signal_endpoint(room_id: str, data: SignalMessage):
+    if data.type not in WEBRTC_SIGNAL_TYPES:
+        raise HTTPException(status_code=400, detail="Invalid signal type")
+    await send_signal(room_id, data.model_dump(exclude_none=True))
     return {"ok": True}
 
 

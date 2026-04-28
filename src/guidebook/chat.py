@@ -24,11 +24,15 @@ _dm_subs: dict[str, object] = {}  # room_id -> NATS subscription
 _peers: dict[str, dict] = {}  # fingerprint -> {cn, last_seen, cert_pem}
 _trusted: dict[str, dict] = {}  # fingerprint -> {cn, cert_pem, verified_at, mutual}
 _pending_challenges: dict[str, dict] = {}  # fingerprint -> {nonce, timestamp}
-_pending_incoming: dict[str, dict] = {}  # fingerprint -> {from_cn, from_fingerprint, nonce}
+_pending_incoming: dict[
+    str, dict
+] = {}  # fingerprint -> {from_cn, from_fingerprint, nonce}
 
 _chat_buffers: dict[str, deque] = {}  # room_id -> deque of messages
 _buffer_sizes: dict[str, int] = {}  # room_id -> current buffer size in bytes
 BUFFER_MAX_BYTES = 100_000  # 100KB per room
+
+WEBRTC_SIGNAL_TYPES = {"webrtc-offer", "webrtc-answer", "webrtc-ice", "webrtc-hangup"}
 
 _lobby_enabled = False
 _own_cn: str | None = None
@@ -276,7 +280,9 @@ async def _on_verify_message(msg):
             return
 
         if not _verify_signature(cert_pem, nonce, signature):
-            logger.warning("Invalid signature in verification response from %s", from_cn)
+            logger.warning(
+                "Invalid signature in verification response from %s", from_cn
+            )
             return
 
         # Verify fingerprint matches the cert they provided
@@ -351,7 +357,9 @@ def _verify_signature(cert_pem: str, nonce: str, signature_b64: str) -> bool:
         nonce_bytes = nonce.encode()
 
         if isinstance(public_key, rsa.RSAPublicKey):
-            public_key.verify(sig_bytes, nonce_bytes, padding.PKCS1v15(), hashes.SHA256())
+            public_key.verify(
+                sig_bytes, nonce_bytes, padding.PKCS1v15(), hashes.SHA256()
+            )
         elif isinstance(public_key, ec.EllipticCurvePublicKey):
             public_key.verify(sig_bytes, nonce_bytes, ec.ECDSA(hashes.SHA256()))
         else:
@@ -526,6 +534,21 @@ async def send_dm_message(room_id: str, text: str):
     _broadcast_chat_event("chat-message", chat_msg)
 
 
+async def send_signal(room_id: str, signal: dict):
+    """Send a WebRTC signaling message over a DM room."""
+    from guidebook.nats_client import get_client
+
+    nc = get_client()
+    if not nc or not nc.is_connected:
+        return
+    msg_type = signal.get("type")
+    if msg_type not in WEBRTC_SIGNAL_TYPES:
+        return
+    signal["cn"] = _own_cn
+    signal["fingerprint"] = _own_fingerprint
+    await nc.publish(f"guidebook.chat.dm.{room_id}", json.dumps(signal).encode())
+
+
 async def remove_trusted(peer_fingerprint: str):
     """Remove a trusted peer, notify them, and unsubscribe from their DM room."""
     if peer_fingerprint not in _trusted:
@@ -558,7 +581,9 @@ async def remove_trusted(peer_fingerprint: str):
     _chat_buffers.pop(room_id, None)
     _buffer_sizes.pop(room_id, None)
     _broadcast_chat_event("chat-rooms", {"rooms": get_rooms()})
-    logger.info("Removed trusted peer %s, left room %s", peer_fingerprint[:16], room_id[:16])
+    logger.info(
+        "Removed trusted peer %s, left room %s", peer_fingerprint[:16], room_id[:16]
+    )
 
 
 async def _on_dm_message(room_id: str):
@@ -569,6 +594,23 @@ async def _on_dm_message(room_id: str):
             return
         # Skip our own messages
         if data.get("fingerprint") == _own_fingerprint:
+            return
+        msg_type = data.get("type", "message")
+        if msg_type in WEBRTC_SIGNAL_TYPES:
+            # Forward signaling messages as SSE events without buffering
+            signal_event = {
+                "room_id": room_id,
+                "cn": data.get("cn"),
+                "fingerprint": data.get("fingerprint"),
+                "ts": data.get("ts"),
+            }
+            if msg_type in ("webrtc-offer", "webrtc-answer"):
+                signal_event["sdp"] = data.get("sdp")
+            elif msg_type == "webrtc-ice":
+                signal_event["candidate"] = data.get("candidate")
+                signal_event["sdpMid"] = data.get("sdpMid")
+                signal_event["sdpMLineIndex"] = data.get("sdpMLineIndex")
+            _broadcast_chat_event(msg_type, signal_event)
             return
         chat_msg = {
             "room": room_id,
@@ -715,7 +757,9 @@ async def start_chat():
     async with instance_async_session() as db:
         row = (
             await db.execute(
-                select(InstanceSetting).where(InstanceSetting.key == "nats_lobby_enabled")
+                select(InstanceSetting).where(
+                    InstanceSetting.key == "nats_lobby_enabled"
+                )
             )
         ).scalar_one_or_none()
         lobby_enabled = row and row.value == "true"
