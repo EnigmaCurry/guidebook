@@ -367,7 +367,7 @@ async def http_middleware(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' 'wasm-unsafe-eval'; "
+        "script-src 'self' 'wasm-unsafe-eval' 'sha256-yei5Fza+Eyx4G0smvN0xBqEesIKumz6RSyGsU3FJowI='; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob:; "
         "connect-src 'self'"
