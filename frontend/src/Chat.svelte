@@ -17,6 +17,7 @@
   let messageInputEl;
   let p2pRoom = null;
   let p2pPeer = null;
+  let pendingOffer = null;
 
   async function loadStatus() {
     try {
@@ -188,6 +189,18 @@
     loadRooms();
   }
 
+  function onWebrtcOffer(e) {
+    const detail = e.detail;
+    // If P2P panel is already open for this room, the P2P component handles it
+    if (p2pRoom === detail.room_id) return;
+    // Auto-open P2P panel for the incoming offer's room
+    const room = rooms.find(r => r.id === detail.room_id);
+    if (!room) return;
+    pendingOffer = detail;
+    p2pRoom = room.id;
+    p2pPeer = room;
+  }
+
   onMount(() => {
     loadStatus();
     loadRooms();
@@ -202,6 +215,7 @@
     window.addEventListener("chat-verify-complete", onChatVerifyComplete);
     window.addEventListener("chat-rooms", onChatRooms);
     window.addEventListener("chat-defriended", onChatDefriended);
+    window.addEventListener("webrtc-offer", onWebrtcOffer);
   });
 
   onDestroy(() => {
@@ -211,6 +225,7 @@
     window.removeEventListener("chat-verify-complete", onChatVerifyComplete);
     window.removeEventListener("chat-rooms", onChatRooms);
     window.removeEventListener("chat-defriended", onChatDefriended);
+    window.removeEventListener("webrtc-offer", onWebrtcOffer);
   });
 </script>
 
@@ -289,6 +304,8 @@
         peerName={p2pPeer.name}
         ownFingerprint={chatStatus.fingerprint}
         peerFingerprint={p2pPeer.fingerprint}
+        {pendingOffer}
+        on:offer-consumed={() => { pendingOffer = null; }}
       />
     {/if}
     {#if !chatStatus.active}

@@ -1,10 +1,13 @@
 <script>
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, createEventDispatcher } from "svelte";
+
+  const dispatch = createEventDispatcher();
 
   export let roomId;
   export let peerName;
   export let ownFingerprint;
   export let peerFingerprint;
+  export let pendingOffer = null;
 
   let pc = null;
   let dc = null;
@@ -228,6 +231,11 @@
     window.addEventListener("webrtc-answer", onAnswer);
     window.addEventListener("webrtc-ice", onIce);
     window.addEventListener("webrtc-hangup", onHangup);
+    // If opened due to an incoming offer, auto-connect and handle it
+    if (pendingOffer) {
+      handleOffer(pendingOffer);
+      dispatch("offer-consumed");
+    }
   });
 
   onDestroy(() => {
