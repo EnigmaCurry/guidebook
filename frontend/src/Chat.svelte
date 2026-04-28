@@ -151,6 +151,14 @@
     return "offline";
   }
 
+  function peerStatusTooltip(room, _p2p, _online) {
+    const status = peerStatus(room, _p2p, _online);
+    if (status === "p2p") return "Connected via direct P2P (WebRTC)";
+    if (status === "p2p-relay") return "Connected via TURN relay (WebRTC)";
+    if (status === "online") return "Online via NATS (no P2P connection)";
+    return "Offline";
+  }
+
   function isPendingOutgoing(fingerprint) {
     // We don't track this client-side yet, just return false
     return false;
@@ -244,7 +252,7 @@
   <div class="chat-sidebar">
     <div class="sidebar-header">Rooms</div>
     {#each rooms as room}
-      <div class="room-row">
+      <div class="room-row" title={peerStatusTooltip(room, p2pState, onlinePeerSet)}>
         <button
           class="room-item"
           class:active={activeRoom === room.id}
