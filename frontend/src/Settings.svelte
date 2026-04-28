@@ -460,7 +460,7 @@
     if (natsClientCert) settings.nats_client_cert = natsClientCert;
     if (natsClientKey) settings.nats_client_key = natsClientKey;
     for (const [key, value] of Object.entries(settings)) {
-      await fetch(`/api/global-settings/${key}`, {
+      await fetch(`/api/instance-settings/${key}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value }),
@@ -476,7 +476,7 @@
   }
 
   async function toggleNats() {
-    await fetch("/api/global-settings/nats_enabled", {
+    await fetch("/api/instance-settings/nats_enabled", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: natsEnabled ? "true" : "false" }),
@@ -1076,7 +1076,7 @@
       if (res.ok) {
         const data = await res.json();
         settingSources[key] = data.source || "database";
-        if (data.source === "global" && data.value) {
+        if (data.source === "instance" && data.value) {
           globalPlaceholders[key] = data.value;
         } else {
           delete globalPlaceholders[key];
@@ -1325,7 +1325,7 @@
 
   async function fetchGlobalSettings() {
     try {
-      const res = await fetch("/api/global-settings/");
+      const res = await fetch("/api/instance-settings/");
       if (res.ok) {
         const data = await res.json();
         for (const s of data) {
@@ -1339,7 +1339,7 @@
   }
 
   async function saveGlobalSetting(key, value) {
-    await fetch(`/api/global-settings/${key}`, {
+    await fetch(`/api/instance-settings/${key}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value }),

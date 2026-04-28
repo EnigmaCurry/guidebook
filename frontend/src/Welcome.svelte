@@ -23,7 +23,7 @@
 
   async function saveGlobal(key, value) {
     if (!value) return;
-    await fetch(`/api/global-settings/${key}`, {
+    await fetch(`/api/instance-settings/${key}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value }),

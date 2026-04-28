@@ -39,10 +39,12 @@ guidebook/
 
 ## Data Storage
 
-Database and config stored in the OS-appropriate data directory. Created automatically on first run.
-- **Linux**: `$XDG_DATA_HOME/guidebook/` (defaults to `~/.local/share/guidebook/`)
-- **macOS**: `~/Library/Application Support/guidebook/`
-- **Windows**: `%APPDATA%\guidebook\`
+Database and config stored in the OS-appropriate data directory under an `instances/` subdirectory. Created automatically on first run. Existing installs are auto-migrated.
+- **Linux**: `$XDG_DATA_HOME/guidebook/instances/<name>/` (defaults to `~/.local/share/guidebook/instances/default/`)
+- **macOS**: `~/Library/Application Support/guidebook/instances/<name>/`
+- **Windows**: `%APPDATA%\guidebook\instances\<name>\`
+
+Each instance has its own `__instance.db` (instance-level settings), project databases, attachments, and backups. Use `--instance <name>` or `GUIDEBOOK_INSTANCE` env var to select an instance (default: `default`).
 
 ## Key Commands
 

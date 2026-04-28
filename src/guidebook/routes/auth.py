@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from guidebook.db import AuthToken, GlobalSetting, get_global_session
+from guidebook.db import AuthToken, InstanceSetting, get_instance_session
 from guidebook.routes.notifications import create_notification
 from guidebook.sse import broadcast
 
@@ -58,7 +58,7 @@ def _env_disable_auth() -> bool:
 
 async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
     row = (
-        await gdb.execute(select(GlobalSetting).where(GlobalSetting.key == key))
+        await gdb.execute(select(InstanceSetting).where(InstanceSetting.key == key))
     ).scalar_one_or_none()
     return row.value if row else None
 
@@ -66,7 +66,7 @@ async def _get_setting(gdb: AsyncSession, key: str) -> str | None:
 async def _set_setting(gdb: AsyncSession, key: str, value: str) -> None:
     from sqlalchemy.dialects.sqlite import insert
 
-    stmt = insert(GlobalSetting).values(key=key, value=value)
+    stmt = insert(InstanceSetting).values(key=key, value=value)
     stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": value})
     await gdb.execute(stmt)
 
@@ -170,7 +170,7 @@ class AuthStatusResponse(BaseModel):
 @router.get("/status")
 async def auth_status(
     request: Request,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     enabled = await _is_auth_enabled(gdb)
     session_id = _get_current_session_id(request)
@@ -210,7 +210,7 @@ class SessionResponse(BaseModel):
 @router.get("/sessions")
 async def list_sessions(
     request: Request,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     from guidebook.sse import connected_session_ids
 
@@ -249,7 +249,7 @@ class GenerateTokenResponse(BaseModel):
 async def generate_token(
     request: Request,
     body: GenerateTokenRequest,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Generate a login token for a new session. Auth enforced by middleware."""
     if MTLS_MODE == "required":
@@ -291,7 +291,7 @@ async def generate_token(
 @router.post("/transfer")
 async def transfer_session(
     request: Request,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Generate a transfer token — logs out current session when new one logs in.
     Auth enforced by middleware."""
@@ -327,7 +327,7 @@ async def transfer_session(
 @router.post("/check-token")
 async def check_token(
     request: Request,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Check if a login token is still valid (without consuming it)."""
     body = await request.json()
@@ -352,7 +352,7 @@ class LoginResponse(BaseModel):
 async def login_with_token(
     request: Request,
     response: Response,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Login with a token (from URL parameter)."""
     body = await request.json()
@@ -510,7 +510,7 @@ def _set_auth_cookie(response: Response, request: Request, jwt_token: str) -> No
 async def renew_session(
     request: Request,
     response: Response,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Renew the current session cookie if eligible."""
     if not await _is_auth_enabled(gdb):
@@ -554,7 +554,7 @@ async def renew_session(
 async def delete_session(
     session_id: int,
     request: Request,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Delete (logout) a session. Cannot delete current session."""
     current_sid = _get_current_session_id(request)
@@ -578,7 +578,7 @@ async def delete_session(
 async def logout(
     request: Request,
     response: Response,
-    gdb: AsyncSession = Depends(get_global_session),
+    gdb: AsyncSession = Depends(get_instance_session),
 ):
     """Log out the current session. Auth enforced by middleware."""
     session_id = _get_current_session_id(request)

@@ -32,6 +32,23 @@ def _default_data_dir() -> Path:
 
 DB_DIR = _default_data_dir()
 
+# Instance support: databases live under DB_DIR/instances/<name>/
+_INSTANCE_NAME = os.environ.get("GUIDEBOOK_INSTANCE", "default")
+INSTANCE_DIR = DB_DIR / "instances" / _INSTANCE_NAME
+
+
+def set_instance(name: str) -> None:
+    """Set the active instance name (call before init_db)."""
+    global _INSTANCE_NAME, INSTANCE_DIR, INSTANCE_DB_PATH, _LAST_OPENED_FILE
+    _INSTANCE_NAME = name
+    INSTANCE_DIR = DB_DIR / "instances" / name
+    INSTANCE_DB_PATH = INSTANCE_DIR / "__instance.db"
+    _LAST_OPENED_FILE = INSTANCE_DIR / "last_opened.json"
+
+
+def get_instance_name() -> str:
+    return _INSTANCE_NAME
+
 
 def _ensure_data_dir(path: Path) -> None:
     """Create a directory with owner-only permissions (0o700).
@@ -49,14 +66,14 @@ def _secure_file(path: Path) -> None:
         path.chmod(0o600)
 
 
-META_DB_PATH = DB_DIR / "__global.db"
-_LAST_OPENED_FILE = DB_DIR / "last_opened.json"
+INSTANCE_DB_PATH = INSTANCE_DIR / "__instance.db"
+_LAST_OPENED_FILE = INSTANCE_DIR / "last_opened.json"
 
-# Settings that can be set globally in __global.db and overridden per-database
-GLOBAL_DEFAULTABLE_KEYS: set[str] = set()
+# Settings that can be set in __instance.db and overridden per-database
+INSTANCE_DEFAULTABLE_KEYS: set[str] = set()
 
-# Settings that live exclusively in __global.db (not per-database)
-GLOBAL_ONLY_KEYS = {
+# Settings that live exclusively in __instance.db (not per-database)
+INSTANCE_ONLY_KEYS = {
     "update_check_enabled",
     "default_pick_mode",
     "default_host",
@@ -182,14 +199,14 @@ class Notification(Base):
     )
 
 
-# --- Global database models (shared __global.db) ---
+# --- Instance database models (shared __instance.db) ---
 
 
-class GlobalBase(DeclarativeBase):
+class InstanceBase(DeclarativeBase):
     pass
 
 
-class GlobalSetting(GlobalBase):
+class InstanceSetting(InstanceBase):
     __tablename__ = "settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -197,7 +214,7 @@ class GlobalSetting(GlobalBase):
     value: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-class GlobalCache(GlobalBase):
+class InstanceCache(InstanceBase):
     __tablename__ = "cache"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -207,7 +224,7 @@ class GlobalCache(GlobalBase):
     expires_at: Mapped[float] = mapped_column(nullable=False)
 
 
-class GlobalLastOpened(GlobalBase):
+class InstanceLastOpened(InstanceBase):
     __tablename__ = "last_opened"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -215,7 +232,7 @@ class GlobalLastOpened(GlobalBase):
     opened_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
-class AuthToken(GlobalBase):
+class AuthToken(InstanceBase):
     __tablename__ = "auth_tokens"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -230,7 +247,7 @@ class AuthToken(GlobalBase):
     user_agent: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
-class ClientCert(GlobalBase):
+class ClientCert(InstanceBase):
     __tablename__ = "client_certs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -357,9 +374,9 @@ def _run_migrations(conn, migrations, table="settings") -> bool:
 
 DATABASE_MIGRATIONS: list = []
 
-# --- Global DB migrations ---
+# --- Instance DB migrations ---
 
-GLOBAL_MIGRATIONS: list = []
+INSTANCE_MIGRATIONS: list = []
 
 
 def _global_migration_1_client_certs(conn):
@@ -379,7 +396,7 @@ def _global_migration_1_client_certs(conn):
     )
 
 
-GLOBAL_MIGRATIONS.append(_global_migration_1_client_certs)
+INSTANCE_MIGRATIONS.append(_global_migration_1_client_certs)
 
 
 def _global_migration_2_client_certs_pending_session(conn):
@@ -390,7 +407,7 @@ def _global_migration_2_client_certs_pending_session(conn):
         pass  # column may already exist
 
 
-GLOBAL_MIGRATIONS.append(_global_migration_2_client_certs_pending_session)
+INSTANCE_MIGRATIONS.append(_global_migration_2_client_certs_pending_session)
 
 
 class DatabaseManager:
@@ -404,9 +421,9 @@ class DatabaseManager:
         self._lock_file = None
         self._host: str | None = None
         self._port: int | None = None
-        # Global database (shared __global.db)
-        self.global_engine = None
-        self._global_session_factory = None
+        # Instance database (shared __instance.db)
+        self.instance_engine = None
+        self._instance_session_factory = None
 
     def configure(self, db_name: str | None = None, picker: bool = False) -> None:
         cli_name = db_name
@@ -442,8 +459,8 @@ class DatabaseManager:
     @property
     def default_db_path(self) -> Path:
         if self._db_override:
-            return DB_DIR / f"{self._db_override}.db"
-        return DB_DIR / "guidebook.db"
+            return INSTANCE_DIR / f"{self._db_override}.db"
+        return INSTANCE_DIR / "guidebook.db"
 
     def check_lock(self, db_path: Path) -> None:
         """Raise DatabaseLockError if the database is locked by another process."""
@@ -602,16 +619,16 @@ class DatabaseManager:
         self.db_path = None
         self._release_lock()
 
-    async def open_global(self) -> None:
-        """Open the shared __global.db with WAL mode for multi-process safety."""
-        if self.global_engine is not None:
+    async def open_instance(self) -> None:
+        """Open the shared __instance.db with WAL mode for multi-process safety."""
+        if self.instance_engine is not None:
             return
-        _ensure_data_dir(META_DB_PATH.parent)
+        _ensure_data_dir(INSTANCE_DB_PATH.parent)
         # Back up before migration if needed
-        if META_DB_PATH.exists() and GLOBAL_MIGRATIONS:
+        if INSTANCE_DB_PATH.exists() and INSTANCE_MIGRATIONS:
             import sqlite3
 
-            _conn = sqlite3.connect(str(META_DB_PATH))
+            _conn = sqlite3.connect(str(INSTANCE_DB_PATH))
             try:
                 row = _conn.execute(
                     "SELECT value FROM settings WHERE key = '_schema_version'"
@@ -620,82 +637,86 @@ class DatabaseManager:
             except Exception:
                 current_v = 0
             _conn.close()
-            if current_v < len(GLOBAL_MIGRATIONS):
+            if current_v < len(INSTANCE_MIGRATIONS):
                 _backup_before_migration(
-                    META_DB_PATH, current_v, len(GLOBAL_MIGRATIONS)
+                    INSTANCE_DB_PATH, current_v, len(INSTANCE_MIGRATIONS)
                 )
-        self.global_engine = create_async_engine(f"sqlite+aiosqlite:///{META_DB_PATH}")
-        self._global_session_factory = async_sessionmaker(
-            self.global_engine, expire_on_commit=False
+        self.instance_engine = create_async_engine(
+            f"sqlite+aiosqlite:///{INSTANCE_DB_PATH}"
         )
-        async with self.global_engine.begin() as conn:
+        self._instance_session_factory = async_sessionmaker(
+            self.instance_engine, expire_on_commit=False
+        )
+        async with self.instance_engine.begin() as conn:
             await conn.execute(text("PRAGMA journal_mode=WAL"))
             await conn.execute(text("PRAGMA busy_timeout=5000"))
-            await conn.run_sync(GlobalBase.metadata.create_all)
-            await conn.run_sync(_add_missing_columns_global)
+            await conn.run_sync(InstanceBase.metadata.create_all)
+            await conn.run_sync(_add_missing_columns_instance)
             await conn.run_sync(
-                lambda c: _run_migrations(c, GLOBAL_MIGRATIONS, "settings")
+                lambda c: _run_migrations(c, INSTANCE_MIGRATIONS, "settings")
             )
-        _secure_file(META_DB_PATH)
+        _secure_file(INSTANCE_DB_PATH)
         # Migrate last_opened.json if it exists
         await self._migrate_last_opened()
-        async with self.global_engine.connect() as conn:
+        async with self.instance_engine.connect() as conn:
             gsv = await conn.run_sync(lambda c: _get_schema_version(c, "settings"))
-        logger.info("Opened global database: %s (schema v%d)", META_DB_PATH, gsv)
+        logger.info(
+            "Opened instance database: %s (schema v%d)", INSTANCE_DB_PATH, gsv
+        )
 
-    async def close_global(self) -> None:
-        """Dispose of the global database engine."""
-        if self.global_engine:
-            await self.global_engine.dispose()
-        self.global_engine = None
-        self._global_session_factory = None
+    async def close_instance(self) -> None:
+        """Dispose of the instance database engine."""
+        if self.instance_engine:
+            await self.instance_engine.dispose()
+        self.instance_engine = None
+        self._instance_session_factory = None
 
     async def _migrate_last_opened(self) -> None:
-        """One-time migration of last_opened.json into GlobalLastOpened table."""
+        """One-time migration of last_opened.json into InstanceLastOpened table."""
         if not _LAST_OPENED_FILE.exists():
             return
         data = _read_last_opened()
         if not data:
             _LAST_OPENED_FILE.unlink(missing_ok=True)
             return
-        async with self._global_session_factory() as session:
+        async with self._instance_session_factory() as session:
             for name, ts in data.items():
                 existing = (
                     await session.execute(
-                        select(GlobalLastOpened).where(GlobalLastOpened.name == name)
+                        select(InstanceLastOpened).where(InstanceLastOpened.name == name)
                     )
                 ).scalar_one_or_none()
                 if existing:
                     if ts > existing.opened_at:
                         existing.opened_at = ts
                 else:
-                    session.add(GlobalLastOpened(name=name, opened_at=ts))
+                    session.add(InstanceLastOpened(name=name, opened_at=ts))
             await session.commit()
         _LAST_OPENED_FILE.unlink(missing_ok=True)
         logger.info("Migrated last_opened.json to global database")
 
     async def record_last_opened(self, name: str) -> None:
         """Record when a database was last opened (in global DB)."""
-        if self._global_session_factory is None:
+        if self._instance_session_factory is None:
             return
-        async with self._global_session_factory() as session:
+        async with self._instance_session_factory() as session:
             existing = (
                 await session.execute(
-                    select(GlobalLastOpened).where(GlobalLastOpened.name == name)
+                    select(InstanceLastOpened).where(InstanceLastOpened.name == name)
                 )
             ).scalar_one_or_none()
             if existing:
                 existing.opened_at = time.time()
             else:
-                session.add(GlobalLastOpened(name=name, opened_at=time.time()))
+                session.add(InstanceLastOpened(name=name, opened_at=time.time()))
             await session.commit()
 
     async def read_last_opened(self) -> dict[str, float]:
         """Read last-opened timestamps from global DB."""
-        if self._global_session_factory is None:
+        if self._instance_session_factory is None:
             return {}
-        async with self._global_session_factory() as session:
-            result = await session.execute(select(GlobalLastOpened))
+        async with self._instance_session_factory() as session:
+            result = await session.execute(select(InstanceLastOpened))
             return {row.name: row.opened_at for row in result.scalars().all()}
 
 
@@ -708,22 +729,22 @@ def async_session():
     return db_manager._session_factory()
 
 
-def global_async_session():
-    if db_manager._global_session_factory is None:
-        raise RuntimeError("Global database is not open")
-    return db_manager._global_session_factory()
+def instance_async_session():
+    if db_manager._instance_session_factory is None:
+        raise RuntimeError("Instance database is not open")
+    return db_manager._instance_session_factory()
 
 
 async def resolve_setting(key: str, session: AsyncSession, default: str = "") -> str:
-    """Read a setting from the database, falling back to global DB if blank/missing."""
+    """Read a setting from the database, falling back to instance DB if blank/missing."""
     result = await session.execute(select(Setting).where(Setting.key == key))
     row = result.scalar_one_or_none()
     if row and row.value:
         return row.value
-    if key in GLOBAL_DEFAULTABLE_KEYS and db_manager._global_session_factory:
-        async with db_manager._global_session_factory() as gdb:
+    if key in INSTANCE_DEFAULTABLE_KEYS and db_manager._instance_session_factory:
+        async with db_manager._instance_session_factory() as gdb:
             gdb_result = await gdb.execute(
-                select(GlobalSetting).where(GlobalSetting.key == key)
+                select(InstanceSetting).where(InstanceSetting.key == key)
             )
             gdb_row = gdb_result.scalar_one_or_none()
             if gdb_row and gdb_row.value:
@@ -733,7 +754,7 @@ async def resolve_setting(key: str, session: AsyncSession, default: str = "") ->
 
 def cleanup_stale_locks() -> None:
     """Remove .lock and .addr files left behind by dead processes."""
-    for lock_path in DB_DIR.glob("*.lock"):
+    for lock_path in INSTANCE_DIR.glob("*.lock"):
         try:
             with open(lock_path, "r+") as f:
                 _lock_exclusive(f)
@@ -748,20 +769,56 @@ def cleanup_stale_locks() -> None:
 
 def _secure_existing_data() -> None:
     """Fix permissions on existing data directory contents (migration for existing installs)."""
-    if sys.platform == "win32" or not DB_DIR.exists():
+    if sys.platform == "win32" or not INSTANCE_DIR.exists():
         return
-    for item in DB_DIR.iterdir():
+    for item in INSTANCE_DIR.iterdir():
         if item.is_dir():
             item.chmod(0o700)
         elif item.is_file():
             item.chmod(0o600)
 
 
+def _migrate_to_instances() -> None:
+    """One-time migration: move databases from DB_DIR root into instances/default/."""
+    default_dir = DB_DIR / "instances" / "default"
+    if default_dir.exists():
+        return  # Already migrated
+    # Check if there are any databases in the old location
+    old_dbs = list(DB_DIR.glob("*.db"))
+    old_locks = list(DB_DIR.glob("*.lock"))
+    old_addrs = list(DB_DIR.glob("*.addr"))
+    old_json = DB_DIR / "last_opened.json"
+    old_attachments = DB_DIR / "attachments"
+    old_backups = DB_DIR / "backups"
+    if not old_dbs and not old_json.exists():
+        return  # Fresh install, nothing to migrate
+    _ensure_data_dir(default_dir)
+    for f in old_dbs:
+        dest = default_dir / f.name
+        if f.stem == "__global":
+            dest = default_dir / "__instance.db"
+        f.rename(dest)
+        logger.info("Migrated %s → instances/default/%s", f.name, dest.name)
+    for f in old_locks + old_addrs:
+        f.rename(default_dir / f.name)
+    if old_json.exists():
+        old_json.rename(default_dir / old_json.name)
+    if old_attachments.exists():
+        old_attachments.rename(default_dir / "attachments")
+        logger.info("Migrated attachments/ → instances/default/attachments/")
+    if old_backups.exists():
+        old_backups.rename(default_dir / "backups")
+        logger.info("Migrated backups/ → instances/default/backups/")
+    logger.info("Migration to instances directory complete")
+
+
 async def init_db() -> None:
     _ensure_data_dir(DB_DIR)
+    _migrate_to_instances()
+    _ensure_data_dir(INSTANCE_DIR)
     _secure_existing_data()
     cleanup_stale_locks()
-    await db_manager.open_global()
+    await db_manager.open_instance()
     if db_manager.picker_mode:
         return
     db_path = db_manager.default_db_path
@@ -785,9 +842,9 @@ def _add_missing_columns(conn):
                 )
 
 
-def _add_missing_columns_global(conn):
+def _add_missing_columns_instance(conn):
     insp = inspect(conn)
-    for table_name, table in GlobalBase.metadata.tables.items():
+    for table_name, table in InstanceBase.metadata.tables.items():
         if not insp.has_table(table_name):
             continue
         existing = {c["name"] for c in insp.get_columns(table_name)}
@@ -806,8 +863,8 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-async def get_global_session() -> AsyncGenerator[AsyncSession, None]:
-    if db_manager._global_session_factory is None:
-        raise HTTPException(status_code=503, detail="Global database is not open")
-    async with db_manager._global_session_factory() as session:
+async def get_instance_session() -> AsyncGenerator[AsyncSession, None]:
+    if db_manager._instance_session_factory is None:
+        raise HTTPException(status_code=503, detail="Instance database is not open")
+    async with db_manager._instance_session_factory() as session:
         yield session
