@@ -132,6 +132,17 @@ function setupDataChannel(channel) {
         handleSyncDeleteRecord(msg);
       } else if (msg.type === "sync-ack") {
         log(`Sync ack: ${msg.accepted} accepted, ${msg.skipped} skipped`);
+      } else if (msg.type === "chat-file") {
+        log(`Received file: ${msg.filename} (${msg.size} bytes)`);
+        window.dispatchEvent(new CustomEvent("chat-file-received", { detail: {
+          filename: msg.filename,
+          content_type: msg.content_type,
+          size: msg.size,
+          data: msg.data,
+          peerName: peerName,
+          peerFingerprint: peerFingerprint,
+          roomId: roomId,
+        }}));
       }
     } catch {}
   };
@@ -367,6 +378,36 @@ export function sendPing() {
     dc.send(JSON.stringify({ type: "ping", ts: Date.now() }));
     log("Ping sent");
   }
+}
+
+/**
+ * Send a file to the connected peer as a chat file transfer.
+ * The file is read as base64 and sent over the data channel.
+ * Returns a promise that resolves with the message payload on success.
+ */
+export function sendChatFile(file) {
+  return new Promise((resolve, reject) => {
+    if (!dc || dc.readyState !== "open") {
+      reject(new Error("No open P2P connection"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const b64 = reader.result.split(",")[1];
+      const msg = {
+        type: "chat-file",
+        filename: file.name,
+        content_type: file.type || "application/octet-stream",
+        size: file.size,
+        data: b64,
+      };
+      dc.send(JSON.stringify(msg));
+      log(`Sent file: ${file.name} (${file.size} bytes)`);
+      resolve(msg);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 export function hangup() {

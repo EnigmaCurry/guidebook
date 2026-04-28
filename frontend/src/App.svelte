@@ -65,6 +65,7 @@
   let formDirty = false;
   let dualShowForm = !!editId || (page === "dual" && (window.location.hash.slice(1) === "/add"));
   let recordsRef = null;
+  let chatRef = null;
   let recordAutoCreated = false;
   let databaseRight = false;
   let mediaSearchQuery = "";
@@ -97,6 +98,12 @@
     // If dropped on the attachments section, Records already handled the upload
     if (e.target.closest?.(".attachments-section")) return;
     const files = e.dataTransfer.files;
+
+    // If on chat page with an active P2P connection, send files via WebRTC
+    if (page === "chat" && chatRef && chatRef.canDropFiles()) {
+      chatRef.dropFiles(files);
+      return;
+    }
 
     // If Records component exists and has a form open, upload to it
     if (recordsRef) {
@@ -1117,7 +1124,7 @@
 <main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:chat-mode={page === "chat"} class:settings-mode={page === "settings"}>
   {#if globalDragOver && databaseOpen}
     <div class="global-drop-overlay">
-      <div class="global-drop-message">Drop files to attach</div>
+      <div class="global-drop-message">{page === "chat" && chatRef && chatRef.canDropFiles() ? "Drop files to send via P2P" : "Drop files to attach"}</div>
     </div>
   {/if}
   {#if authBlocked}
@@ -1261,7 +1268,7 @@
     {:else if page === "scratchpad"}
       <Scratchpad />
     {:else if page === "chat"}
-      <Chat />
+      <Chat bind:this={chatRef} />
     {:else if page === "about"}
       <About />
     {/if}

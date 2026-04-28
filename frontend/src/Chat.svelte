@@ -142,6 +142,7 @@
 
   $: trustedSet = new Set(trusted.map(t => t.fingerprint));
   $: onlinePeerSet = new Set(peers.map(p => p.fingerprint));
+  $: activeRoomObj = rooms.find(r => r.id === activeRoom) || null;
 
   function peerStatus(room, _p2p, _online) {
     if (_p2p.roomId === room.id && _p2p.connectionState === "connected") {
@@ -173,6 +174,57 @@
       e.preventDefault();
       sendMessage();
     }
+  }
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function b64ToObjectUrl(b64, contentType) {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: contentType });
+    return URL.createObjectURL(blob);
+  }
+
+  export function dropFiles(files) {
+    if (!activeRoom || !p2pState.dcOpen || p2pState.roomId !== activeRoomObj?.id) return;
+    for (const file of files) {
+      p2p.sendChatFile(file).then((msg) => {
+        messages = [...messages, {
+          cn: chatStatus.cn || "You",
+          fingerprint: chatStatus.fingerprint,
+          ts: Date.now() / 1000,
+          text: null,
+          file: { filename: msg.filename, content_type: msg.content_type, size: msg.size, data: msg.data },
+          room: activeRoom,
+        }];
+        tick().then(scrollToBottom);
+      }).catch(() => {});
+    }
+  }
+
+  export function canDropFiles() {
+    if (!activeRoom) return false;
+    const room = rooms.find(r => r.id === activeRoom);
+    return room && p2pState.dcOpen && p2pState.roomId === room.id;
+  }
+
+  function onChatFileReceived(e) {
+    const detail = e.detail;
+    if (detail.roomId !== activeRoom) return;
+    messages = [...messages, {
+      cn: detail.peerName || "Peer",
+      fingerprint: detail.peerFingerprint,
+      ts: Date.now() / 1000,
+      text: null,
+      file: { filename: detail.filename, content_type: detail.content_type, size: detail.size, data: detail.data },
+      room: detail.roomId,
+    }];
+    tick().then(scrollToBottom);
   }
 
   function onChatMessage(e) {
@@ -229,6 +281,7 @@
     window.addEventListener("chat-verify-complete", onChatVerifyComplete);
     window.addEventListener("chat-rooms", onChatRooms);
     window.addEventListener("chat-defriended", onChatDefriended);
+    window.addEventListener("chat-file-received", onChatFileReceived);
     unsubP2P = p2p.onChange(s => {
       p2pState = s;
       // Auto-open P2P panel when connection is established from any page
@@ -247,6 +300,7 @@
     window.removeEventListener("chat-verify-request", onChatVerifyRequest);
     window.removeEventListener("chat-verify-complete", onChatVerifyComplete);
     window.removeEventListener("chat-rooms", onChatRooms);
+    window.removeEventListener("chat-file-received", onChatFileReceived);
     window.removeEventListener("chat-defriended", onChatDefriended);
     if (unsubP2P) unsubP2P();
   });
@@ -345,7 +399,17 @@
               <span class="message-cn" class:own-cn={isOwnMessage(msg)}>{msg.cn}</span>
               <span class="message-time">{formatTime(msg.ts)}</span>
             </div>
-            <div class="message-text">{msg.text}</div>
+            {#if msg.file}
+              <div class="message-file">
+                <a class="file-download" href={b64ToObjectUrl(msg.file.data, msg.file.content_type)} download={msg.file.filename}>
+                  <span class="file-icon">📎</span>
+                  <span class="file-name">{msg.file.filename}</span>
+                  <span class="file-size">({formatFileSize(msg.file.size)})</span>
+                </a>
+              </div>
+            {:else}
+              <div class="message-text">{msg.text}</div>
+            {/if}
           </div>
         {/each}
         <div bind:this={messagesEnd}></div>
@@ -637,6 +701,48 @@
     font-size: 0.9rem;
     word-break: break-word;
     white-space: pre-wrap;
+  }
+
+  .message-file {
+    font-size: 0.9rem;
+  }
+
+  .file-download {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    color: inherit;
+    text-decoration: none;
+    padding: 0.2em 0.4em;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.08);
+  }
+
+  .file-download:hover {
+    background: rgba(255,255,255,0.15);
+    text-decoration: underline;
+  }
+
+  .message.own .file-download {
+    background: rgba(0,0,0,0.1);
+  }
+
+  .message.own .file-download:hover {
+    background: rgba(0,0,0,0.2);
+  }
+
+  .file-icon {
+    font-size: 1.1em;
+  }
+
+  .file-name {
+    font-weight: 500;
+    word-break: break-all;
+  }
+
+  .file-size {
+    font-size: 0.8em;
+    opacity: 0.7;
   }
 
   .chat-input {
