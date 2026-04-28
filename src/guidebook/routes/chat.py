@@ -1,8 +1,11 @@
+import json
 import logging
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from guidebook.db import InstanceSetting, db_manager
 from guidebook.chat import (
     WEBRTC_SIGNAL_TYPES,
     accept_verification,
@@ -34,6 +37,22 @@ class SignalMessage(BaseModel):
     sdpMid: str | None = None
     sdpMLineIndex: int | None = None
     ts: float | None = None
+
+
+@router.get("/ice-servers")
+async def get_ice_servers():
+    """Return configured ICE servers for WebRTC, or empty list if none set."""
+    async with db_manager.instance_session() as session:
+        result = await session.execute(
+            select(InstanceSetting).where(InstanceSetting.key == "ice_servers")
+        )
+        row = result.scalar_one_or_none()
+    if row and row.value:
+        try:
+            return json.loads(row.value)
+        except (json.JSONDecodeError, TypeError):
+            return []
+    return []
 
 
 @router.get("/status")

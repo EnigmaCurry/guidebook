@@ -110,15 +110,22 @@ function setupDataChannel(channel) {
   };
 }
 
-function createPC() {
+async function createPC() {
   if (pc) return;
   log("Creating RTCPeerConnection");
   state.connectionState = "connecting";
   notify();
 
-  pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  });
+  let iceServers = [];
+  try {
+    const res = await fetch("/api/chat/ice-servers");
+    if (res.ok) iceServers = await res.json();
+  } catch {}
+  if (iceServers.length > 0) {
+    log(`ICE servers: ${iceServers.map((s) => s.urls).join(", ")}`);
+  }
+
+  pc = new RTCPeerConnection({ iceServers });
 
   pc.onicecandidate = ({ candidate }) => {
     if (candidate) {
@@ -192,7 +199,7 @@ function isStale() {
 }
 
 /** Start a P2P connection to a peer (called from UI). */
-export function connect(rid, name, ownFp, peerFp) {
+export async function connect(rid, name, ownFp, peerFp) {
   if (pc && isStale()) { log("Clearing stale connection"); cleanup(true); }
   if (pc) return;
   roomId = rid;
@@ -204,7 +211,7 @@ export function connect(rid, name, ownFp, peerFp) {
   state.ownFingerprint = ownFp;
   state.peerFingerprint = peerFp;
   state.polite = ownFp < peerFp;
-  createPC();
+  await createPC();
 }
 
 /**
@@ -368,7 +375,7 @@ function cleanup(silent) {
 
 // --- Event handlers called from App.svelte SSE dispatch ---
 
-export function handleOffer(detail, rooms, chatStatus) {
+export async function handleOffer(detail, rooms, chatStatus) {
   if (detail.room_id === roomId && pc) {
     if (isStale()) {
       // Stale connection to same room — tear down and reconnect
@@ -395,7 +402,7 @@ export function handleOffer(detail, rooms, chatStatus) {
   state.ownFingerprint = ownFingerprint;
   state.peerFingerprint = peerFingerprint;
   state.polite = ownFingerprint < peerFingerprint;
-  createPC();
+  await createPC();
   _handleOfferInternal(detail);
 }
 

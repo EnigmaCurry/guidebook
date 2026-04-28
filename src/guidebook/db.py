@@ -98,6 +98,7 @@ INSTANCE_ONLY_KEYS = {
     "nats_client_key",
     "nats_chat_enabled",
     "nats_lobby_enabled",
+    "ice_servers",
     "app_name",
 }
 

@@ -444,6 +444,8 @@
   let natsReplacing = { ca: false, cert: false, key: false };
   let natsChatEnabled = false;
   let natsLobbyEnabled = false;
+  let iceServersText = "";
+  let iceServersSaving = false;
 
   async function loadNatsStatus() {
     try {
@@ -1372,6 +1374,7 @@
           if (s.key === "update_check_enabled") update_check_enabled = s.value !== "false";
           if (s.key === "nats_enabled") natsEnabled = s.value === "true";
           if (s.key === "nats_endpoint") natsEndpoint = s.value || "";
+          if (s.key === "ice_servers") iceServersText = s.value || "";
         }
         globalSettingsLoaded = true;
       }
@@ -1391,6 +1394,15 @@
   async function saveAppName() {
     await saveGlobalSetting("app_name", appNameInput);
     dispatch("app-name-changed");
+  }
+
+  async function saveIceServers() {
+    iceServersSaving = true;
+    try {
+      await saveGlobalSetting("ice_servers", iceServersText.trim());
+    } finally {
+      iceServersSaving = false;
+    }
   }
 
   async function saveGlobalSetting(key, value) {
@@ -2516,6 +2528,20 @@
       {/if}
     </section>
     {/if}
+
+    <section class="settings-section">
+      <h3>ICE Servers (WebRTC)</h3>
+      <p class="hint">JSON array of ICE server objects for WebRTC peer connections. Leave empty for LAN-only (no external STUN/TURN). Example:</p>
+      <pre class="hint" style="margin: 0.3rem 0; font-size: 0.75rem;">[{{"urls":"turn:example.com:3478","username":"user","credential":"pass"}}]</pre>
+      <div class="form-field">
+        <textarea bind:value={iceServersText} rows="3" placeholder='[{"urls":"turn:your-server:3478","username":"user","credential":"pass"}]'></textarea>
+      </div>
+      <div class="button-row">
+        <button class="save-btn" on:click={saveIceServers} disabled={iceServersSaving}>
+          {iceServersSaving ? "Saving..." : "Save"}
+        </button>
+      </div>
+    </section>
 
     {/if}
   </div></div>
