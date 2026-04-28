@@ -205,19 +205,29 @@ export function connect(rid, name, ownFp, peerFp) {
 
 /**
  * Push a single record (and its attachments) to the connected peer
- * if the peer is a recipient. Called after record save.
+ * if the peer is a recipient. If not connected, auto-connects first
+ * (the on-open sync will deliver the record).
  */
 export async function pushRecord(record) {
-  if (!dc || dc.readyState !== "open" || !peerFingerprint) return;
-  if (!record.recipients || !record.recipients.includes(peerFingerprint))
-    return;
+  if (!record.recipients || record.recipients.length === 0) return;
 
-  // Send the record
-  dc.send(JSON.stringify({ type: "sync-offer", records: [record] }));
-  log(`Pushed record to peer: ${record.title}`);
+  // If connected and peer is a recipient, push immediately
+  if (dc && dc.readyState === "open" && peerFingerprint) {
+    if (record.recipients.includes(peerFingerprint)) {
+      dc.send(JSON.stringify({ type: "sync-offer", records: [record] }));
+      log(`Pushed record to peer: ${record.title}`);
+      await pushAttachments(record);
+      return;
+    }
+  }
 
-  // Send attachments
-  if (!record.id) return;
+  // Not connected (or connected to a different peer) — auto-connect
+  // to the first recipient that has a mutual room
+  await autoConnectForRecipients(record.recipients);
+}
+
+async function pushAttachments(record) {
+  if (!record.id || !dc || dc.readyState !== "open") return;
   try {
     const attRes = await fetch(`/api/records/${record.id}/attachments/`);
     if (!attRes.ok) return;
@@ -236,6 +246,30 @@ export async function pushRecord(record) {
       );
     }
     if (atts.length > 0) log(`Pushed ${atts.length} attachments`);
+  } catch {}
+}
+
+async function autoConnectForRecipients(recipients) {
+  // Already connected to one of the recipients — on-open sync will handle it
+  if (pc && !isStale() && peerFingerprint && recipients.includes(peerFingerprint))
+    return;
+  try {
+    const [statusRes, roomsRes] = await Promise.all([
+      fetch("/api/chat/status"),
+      fetch("/api/chat/rooms"),
+    ]);
+    if (!statusRes.ok || !roomsRes.ok) return;
+    const chatStatus = await statusRes.json();
+    const rooms = await roomsRes.json();
+    if (!chatStatus.fingerprint) return;
+
+    for (const fp of recipients) {
+      const room = rooms.find((r) => r.fingerprint === fp);
+      if (!room) continue;
+      log(`Auto-connecting to ${room.name} for record sync`);
+      connect(room.id, room.name, chatStatus.fingerprint, room.fingerprint);
+      return;
+    }
   } catch {}
 }
 
