@@ -112,9 +112,7 @@
     return msg.fingerprint === chatStatus.fingerprint;
   }
 
-  function isTrusted(fingerprint) {
-    return trusted.some(t => t.fingerprint === fingerprint);
-  }
+  $: trustedSet = new Set(trusted.map(t => t.fingerprint));
 
   function isPendingOutgoing(fingerprint) {
     // We don't track this client-side yet, just return false
@@ -207,7 +205,7 @@
         <div class="peer-item">
           <div class="peer-cn">{peer.cn}</div>
           <div class="peer-fp">{shortFingerprint(peer.fingerprint)}</div>
-          {#if isTrusted(peer.fingerprint)}
+          {#if trustedSet.has(peer.fingerprint)}
             <span class="peer-badge trusted">Trusted</span>
           {:else}
             <button class="btn-small" on:click={() => verifyPeer(peer.fingerprint)}>Verify</button>
