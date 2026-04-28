@@ -2532,9 +2532,9 @@
     <section class="settings-section">
       <h3>ICE Servers (WebRTC)</h3>
       <p class="hint">JSON array of ICE server objects for WebRTC peer connections. Leave empty for LAN-only (no external STUN/TURN). Example:</p>
-      <pre class="hint" style="margin: 0.3rem 0; font-size: 0.75rem;">[{{"urls":"turn:example.com:3478","username":"user","credential":"pass"}}]</pre>
+      <pre class="hint" style="margin: 0.3rem 0; font-size: 0.75rem;">[{'{"urls":"turn:example.com:3478","username":"user","credential":"pass"}'}]</pre>
       <div class="form-field">
-        <textarea bind:value={iceServersText} rows="3" placeholder='[{"urls":"turn:your-server:3478","username":"user","credential":"pass"}]'></textarea>
+        <textarea bind:value={iceServersText} rows="3" placeholder={'[{"urls":"turn:your-server:3478","username":"user","credential":"pass"}]'}></textarea>
       </div>
       <div class="button-row">
         <button class="save-btn" on:click={saveIceServers} disabled={iceServersSaving}>
