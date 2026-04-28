@@ -211,7 +211,7 @@
           <div class="peer-cn">{peer.cn}</div>
           <div class="peer-fp">{shortFingerprint(peer.fingerprint)}</div>
           {#if trustedSet.has(peer.fingerprint)}
-            <span class="peer-badge trusted">Trusted</span>
+            <span class="peer-badge trusted">Friends</span>
           {:else}
             <button class="btn-small" on:click={() => verifyPeer(peer.fingerprint)}>Verify</button>
           {/if}
