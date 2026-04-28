@@ -1,5 +1,7 @@
 <script>
   import { onMount, onDestroy, tick } from "svelte";
+  import Icon from "@iconify/svelte";
+  import iconLocked from "@iconify-icons/twemoji/locked";
 
   let rooms = [];
   let peers = [];
@@ -207,7 +209,7 @@
         class:active={activeRoom === room.id}
         on:click={() => selectRoom(room.id)}
       >
-        <span class="room-icon">🔒</span>
+        <span class="room-icon"><Icon icon={iconLocked} width={16} /></span>
         <span class="room-name">{room.name}</span>
       </button>
     {/each}
