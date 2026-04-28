@@ -90,6 +90,17 @@
     await loadRooms();
   }
 
+  async function defriend(peer) {
+    if (!confirm(`Remove ${peer.cn} as a friend? This will close your private room.`)) return;
+    await fetch(`/api/chat/trusted/${encodeURIComponent(peer.fingerprint)}`, { method: "DELETE" });
+    await loadTrusted();
+    await loadRooms();
+    if (activeRoom && !rooms.find(r => r.id === activeRoom)) {
+      activeRoom = rooms.length > 0 ? rooms[0].id : null;
+      if (activeRoom) loadMessages();
+    }
+  }
+
   async function rejectVerification(fingerprint) {
     await fetch(`/api/chat/verify/${encodeURIComponent(fingerprint)}/reject`, { method: "POST" });
     pendingVerifications = pendingVerifications.filter(p => p.fingerprint !== fingerprint);
@@ -212,6 +223,7 @@
           <div class="peer-fp">{shortFingerprint(peer.fingerprint)}</div>
           {#if trustedSet.has(peer.fingerprint)}
             <span class="peer-badge trusted">Friends</span>
+            <button class="btn-small btn-defriend" on:click={() => defriend(peer)} title="Remove friend">✕</button>
           {:else}
             <button class="btn-small" on:click={() => verifyPeer(peer.fingerprint)}>Verify</button>
           {/if}
@@ -370,6 +382,14 @@
   .peer-badge.trusted {
     background: #2d5a2d;
     color: #8f8;
+  }
+
+  .btn-defriend {
+    border-color: #a44;
+    color: #f88;
+    margin-left: 0.3em;
+    padding: 1px 5px;
+    font-size: 0.7rem;
   }
 
   .verify-actions {

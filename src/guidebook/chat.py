@@ -434,6 +434,24 @@ async def send_dm_message(room_id: str, text: str):
     _broadcast_chat_event("chat-message", chat_msg)
 
 
+async def remove_trusted(peer_fingerprint: str):
+    """Remove a trusted peer and unsubscribe from their DM room."""
+    if peer_fingerprint not in _trusted:
+        return
+    del _trusted[peer_fingerprint]
+    room_id = _derive_room_id(_own_fingerprint, peer_fingerprint)
+    sub = _dm_subs.pop(room_id, None)
+    if sub:
+        try:
+            await sub.unsubscribe()
+        except Exception:
+            pass
+    _chat_buffers.pop(room_id, None)
+    _buffer_sizes.pop(room_id, None)
+    _broadcast_chat_event("chat-rooms", {"rooms": get_rooms()})
+    logger.info("Removed trusted peer %s, left room %s", peer_fingerprint[:16], room_id[:16])
+
+
 async def _on_dm_message(room_id: str):
     async def handler(msg):
         try:

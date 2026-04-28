@@ -12,6 +12,7 @@ from guidebook.chat import (
     get_trusted,
     initiate_verification,
     reject_verification,
+    remove_trusted,
     send_dm_message,
 )
 
@@ -66,6 +67,12 @@ async def send_message(room_id: str, data: SendMessage):
 @router.get("/trusted")
 async def list_trusted():
     return get_trusted()
+
+
+@router.delete("/trusted/{fingerprint}")
+async def delete_trusted(fingerprint: str):
+    await remove_trusted(fingerprint)
+    return {"ok": True}
 
 
 @router.get("/verify/pending")
