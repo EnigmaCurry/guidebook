@@ -20,6 +20,7 @@ let state = {
   iceState: "",
   signalingState: "",
   dcOpen: false,
+  routeType: "", // "direct" | "relay" | ""
   roomId: null,
   peerName: null,
   ownFingerprint: null,
@@ -55,6 +56,28 @@ function log(msg) {
   notify();
 }
 
+async function detectRouteType() {
+  if (!pc) return;
+  try {
+    const stats = await pc.getStats();
+    for (const report of stats.values()) {
+      if (report.type === "candidate-pair" && report.state === "succeeded") {
+        const localId = report.localCandidateId;
+        const local = stats.get(localId);
+        if (local && local.candidateType === "relay") {
+          state.routeType = "relay";
+          log("Route: relay (TURN)");
+        } else {
+          state.routeType = "direct";
+          log("Route: direct");
+        }
+        notify();
+        return;
+      }
+    }
+  } catch {}
+}
+
 async function sendSignal(type, fields = {}) {
   if (!roomId) return;
   try {
@@ -75,6 +98,7 @@ function setupDataChannel(channel) {
     state.dcOpen = true;
     dc = channel;
     log("Data channel open");
+    detectRouteType();
     channel.send(JSON.stringify({ type: "sync-request" }));
     log("Sync request sent");
   };
@@ -360,6 +384,7 @@ function cleanup(silent) {
   state.iceState = "";
   state.signalingState = "";
   state.dcOpen = false;
+  state.routeType = "";
   state.roomId = null;
   state.peerName = null;
   state.ownFingerprint = null;

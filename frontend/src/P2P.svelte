@@ -26,8 +26,8 @@
     p2p.connect(roomId, peerName, ownFingerprint, peerFingerprint);
   }
 
-  function stateColor(state) {
-    if (state === "connected") return "var(--success, #4caf50)";
+  function stateColor(state, routeType) {
+    if (state === "connected") return routeType === "relay" ? "#42a5f5" : "var(--success, #4caf50)";
     if (state === "connecting") return "var(--warning, #ff9800)";
     if (state === "failed") return "var(--error, #f44336)";
     return "var(--text-muted, #888)";
@@ -36,9 +36,9 @@
 
 <div class="p2p-panel">
   <div class="p2p-header">
-    <span class="p2p-status-dot" style="background: {stateColor(active ? s.connectionState : 'idle')}"></span>
+    <span class="p2p-status-dot" style="background: {stateColor(active ? s.connectionState : 'idle', s.routeType)}"></span>
     <span class="p2p-title">P2P: {peerName}</span>
-    <span class="p2p-state">{active ? s.connectionState : "idle"}</span>
+    <span class="p2p-state">{active ? (s.connectionState === "connected" && s.routeType ? `${s.connectionState} (${s.routeType})` : s.connectionState) : "idle"}</span>
     <div class="p2p-actions">
       {#if !active || s.connectionState === "idle"}
         <button class="btn-p2p" on:click={connect} disabled={s.roomId && !active}>Connect</button>

@@ -144,7 +144,9 @@
   $: onlinePeerSet = new Set(peers.map(p => p.fingerprint));
 
   function peerStatus(room, _p2p, _online) {
-    if (_p2p.roomId === room.id && _p2p.connectionState === "connected") return "p2p";
+    if (_p2p.roomId === room.id && _p2p.connectionState === "connected") {
+      return _p2p.routeType === "relay" ? "p2p-relay" : "p2p";
+    }
     if (_online.has(room.fingerprint)) return "online";
     return "offline";
   }
@@ -248,7 +250,7 @@
           class:active={activeRoom === room.id}
           on:click={() => selectRoom(room.id)}
         >
-          <span class="peer-status-dot" class:status-p2p={peerStatus(room, p2pState, onlinePeerSet) === "p2p"} class:status-online={peerStatus(room, p2pState, onlinePeerSet) === "online"} class:status-offline={peerStatus(room, p2pState, onlinePeerSet) === "offline"}></span>
+          <span class="peer-status-dot" class:status-p2p={peerStatus(room, p2pState, onlinePeerSet) === "p2p"} class:status-p2p-relay={peerStatus(room, p2pState, onlinePeerSet) === "p2p-relay"} class:status-online={peerStatus(room, p2pState, onlinePeerSet) === "online"} class:status-offline={peerStatus(room, p2pState, onlinePeerSet) === "offline"}></span>
           <span class="room-name">{room.name}</span>
         </button>
         <button
@@ -410,12 +412,22 @@
 
   .status-p2p {
     background: var(--success, #4caf50);
-    animation: pulse-glow 2s ease-in-out infinite;
+    animation: pulse-glow-green 2s ease-in-out infinite;
   }
 
-  @keyframes pulse-glow {
+  .status-p2p-relay {
+    background: #42a5f5;
+    animation: pulse-glow-blue 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow-green {
     0%, 100% { opacity: 1; box-shadow: 0 0 3px var(--success, #4caf50); }
     50% { opacity: 0.6; box-shadow: 0 0 8px var(--success, #4caf50); }
+  }
+
+  @keyframes pulse-glow-blue {
+    0%, 100% { opacity: 1; box-shadow: 0 0 3px #42a5f5; }
+    50% { opacity: 0.6; box-shadow: 0 0 8px #42a5f5; }
   }
 
   .btn-p2p-connect {
