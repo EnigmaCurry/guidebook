@@ -135,6 +135,7 @@ function setupDataChannel(channel) {
       } else if (msg.type === "chat-file") {
         log(`Received file: ${msg.filename} (${msg.size} bytes)`);
         window.dispatchEvent(new CustomEvent("chat-file-received", { detail: {
+          fileId: msg.fileId,
           filename: msg.filename,
           content_type: msg.content_type,
           size: msg.size,
@@ -142,6 +143,11 @@ function setupDataChannel(channel) {
           peerName: peerName,
           peerFingerprint: peerFingerprint,
           roomId: roomId,
+        }}));
+      } else if (msg.type === "chat-file-delete") {
+        log(`Received file delete: ${msg.fileId}`);
+        window.dispatchEvent(new CustomEvent("chat-file-deleted", { detail: {
+          fileId: msg.fileId,
         }}));
       }
     } catch {}
@@ -385,6 +391,8 @@ export function sendPing() {
  * The file is read as base64 and sent over the data channel.
  * Returns a promise that resolves with the message payload on success.
  */
+let fileIdCounter = 0;
+
 export function sendChatFile(file) {
   return new Promise((resolve, reject) => {
     if (!dc || dc.readyState !== "open") {
@@ -394,8 +402,10 @@ export function sendChatFile(file) {
     const reader = new FileReader();
     reader.onloadend = () => {
       const b64 = reader.result.split(",")[1];
+      const fileId = `${Date.now()}-${++fileIdCounter}`;
       const msg = {
         type: "chat-file",
+        fileId,
         filename: file.name,
         content_type: file.type || "application/octet-stream",
         size: file.size,
@@ -408,6 +418,12 @@ export function sendChatFile(file) {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+export function sendChatFileDelete(fileId) {
+  if (!dc || dc.readyState !== "open") return;
+  dc.send(JSON.stringify({ type: "chat-file-delete", fileId }));
+  log(`Sent file delete: ${fileId}`);
 }
 
 export function hangup() {

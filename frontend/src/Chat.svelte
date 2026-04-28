@@ -199,11 +199,18 @@
         fingerprint: chatStatus.fingerprint,
         ts: Date.now() / 1000,
         text: null,
+        fileId: msg.fileId,
         file: { filename: msg.filename, content_type: msg.content_type, size: msg.size, data: msg.data },
         room: activeRoom,
       }];
       tick().then(scrollToBottom);
     }).catch(() => {});
+  }
+
+  function deleteChatFile(msg) {
+    if (msg.fileId) p2p.sendChatFileDelete(msg.fileId);
+    if (msg.file?._url) URL.revokeObjectURL(msg.file._url);
+    messages = messages.filter(m => m !== msg);
   }
 
   function flushPendingFiles() {
@@ -239,10 +246,18 @@
       fingerprint: detail.peerFingerprint,
       ts: Date.now() / 1000,
       text: null,
+      fileId: detail.fileId,
       file: { filename: detail.filename, content_type: detail.content_type, size: detail.size, data: detail.data },
       room: detail.roomId,
     }];
     tick().then(scrollToBottom);
+  }
+
+  function onChatFileDeleted(e) {
+    const { fileId } = e.detail;
+    const msg = messages.find(m => m.fileId === fileId);
+    if (msg?.file?._url) URL.revokeObjectURL(msg.file._url);
+    messages = messages.filter(m => m.fileId !== fileId);
   }
 
   function onChatMessage(e) {
@@ -300,6 +315,7 @@
     window.addEventListener("chat-rooms", onChatRooms);
     window.addEventListener("chat-defriended", onChatDefriended);
     window.addEventListener("chat-file-received", onChatFileReceived);
+    window.addEventListener("chat-file-deleted", onChatFileDeleted);
     unsubP2P = p2p.onChange(s => {
       const wasOpen = p2pState.dcOpen;
       p2pState = s;
@@ -324,6 +340,7 @@
     window.removeEventListener("chat-verify-complete", onChatVerifyComplete);
     window.removeEventListener("chat-rooms", onChatRooms);
     window.removeEventListener("chat-file-received", onChatFileReceived);
+    window.removeEventListener("chat-file-deleted", onChatFileDeleted);
     window.removeEventListener("chat-defriended", onChatDefriended);
     if (unsubP2P) unsubP2P();
   });
@@ -436,11 +453,14 @@
                     <source src={url} type={msg.file.content_type} />
                   </audio>
                 {/if}
-                <a class="file-download" href={url} download={msg.file.filename}>
-                  <span class="file-icon">📎</span>
-                  <span class="file-name">{msg.file.filename}</span>
-                  <span class="file-size">({formatFileSize(msg.file.size)})</span>
-                </a>
+                <div class="file-actions">
+                  <a class="file-download" href={url} download={msg.file.filename}>
+                    <span class="file-icon">📎</span>
+                    <span class="file-name">{msg.file.filename}</span>
+                    <span class="file-size">({formatFileSize(msg.file.size)})</span>
+                  </a>
+                  <button class="file-delete-btn" on:click={() => deleteChatFile(msg)} title="Delete file">✕</button>
+                </div>
               </div>
             {:else}
               <div class="message-text">{msg.text}</div>
@@ -801,6 +821,40 @@
   .file-size {
     font-size: 0.8em;
     opacity: 0.7;
+  }
+
+  .file-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+  }
+
+  .file-delete-btn {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--text-muted, #888);
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.1em 0.35em;
+    line-height: 1;
+    opacity: 0.5;
+    transition: opacity 0.15s;
+  }
+
+  .file-delete-btn:hover {
+    opacity: 1;
+    color: var(--error, #f44336);
+    border-color: var(--error, #f44336);
+  }
+
+  .message.own .file-delete-btn {
+    color: var(--bg, #333);
+  }
+
+  .message.own .file-delete-btn:hover {
+    color: var(--error, #f44336);
+    border-color: var(--error, #f44336);
   }
 
   .chat-input {
