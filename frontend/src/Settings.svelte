@@ -444,10 +444,9 @@
   let natsReplacing = { ca: false, cert: false, key: false };
   let natsChatEnabled = false;
   let natsLobbyEnabled = false;
-  let iceTurnServer = "";
-  let iceTurnUsername = "";
-  let iceTurnCredential = "";
-  let iceServersSaving = false;
+  let turnServer = "";
+  let turnSecret = "";
+  let turnSaving = false;
   let iceTestResult = null;
   let iceTestRunning = false;
 
@@ -1378,18 +1377,8 @@
           if (s.key === "update_check_enabled") update_check_enabled = s.value !== "false";
           if (s.key === "nats_enabled") natsEnabled = s.value === "true";
           if (s.key === "nats_endpoint") natsEndpoint = s.value || "";
-          if (s.key === "ice_servers" && s.value) {
-            try {
-              const arr = JSON.parse(s.value);
-              if (arr.length > 0) {
-                const srv = arr[0];
-                const urls = (typeof srv.urls === "string" ? srv.urls : (srv.urls || [])[0]) || "";
-                iceTurnServer = urls.replace(/^turn:/, "");
-                iceTurnUsername = srv.username || "";
-                iceTurnCredential = srv.credential || "";
-              }
-            } catch {}
-          }
+          if (s.key === "turn_server") turnServer = s.value || "";
+          if (s.key === "turn_secret") turnSecret = s.value || "";
         }
         globalSettingsLoaded = true;
       }
@@ -1411,33 +1400,36 @@
     dispatch("app-name-changed");
   }
 
-  function buildIceServers() {
-    const server = iceTurnServer.trim();
-    if (!server) return [];
-    const entry = { urls: `turn:${server}` };
-    if (iceTurnUsername.trim()) entry.username = iceTurnUsername.trim();
-    if (iceTurnCredential.trim()) entry.credential = iceTurnCredential.trim();
-    return [entry];
-  }
-
-  async function saveIceServers() {
-    iceServersSaving = true;
+  async function saveTurnSettings() {
+    turnSaving = true;
     iceTestResult = null;
     try {
-      const servers = buildIceServers();
-      await saveGlobalSetting("ice_servers", servers.length > 0 ? JSON.stringify(servers) : "");
+      await saveGlobalSetting("turn_server", turnServer.trim());
+      await saveGlobalSetting("turn_secret", turnSecret.trim());
     } finally {
-      iceServersSaving = false;
+      turnSaving = false;
     }
   }
 
-  async function saveAndTestIceServers() {
-    await saveIceServers();
+  async function saveAndTestTurn() {
+    await saveTurnSettings();
     await testIceServers();
   }
 
   async function testIceServers() {
-    const iceServers = buildIceServers();
+    // Fetch computed credentials from server
+    let iceServers = [];
+    try {
+      const res = await fetch("/api/chat/ice-servers");
+      if (res.ok) iceServers = await res.json();
+    } catch (err) {
+      iceTestResult = { status: "error", error: err.message };
+      return;
+    }
+    if (iceServers.length === 0) {
+      iceTestResult = { status: "ok", host: 0, srflx: 0, relay: 0, candidates: [], detail: "No TURN server configured (LAN-only)" };
+      return;
+    }
 
     iceTestRunning = true;
     iceTestResult = null;
@@ -2623,22 +2615,18 @@
 
     <section class="settings-section">
       <h3>TURN Server (WebRTC)</h3>
-      <p class="hint">Configure a TURN relay server for P2P connections across the internet. Leave empty for LAN-only connections.</p>
+      <p class="hint">Configure a TURN relay server for P2P connections across the internet. Credentials are generated automatically from the shared secret. Leave empty for LAN-only connections.</p>
       <div class="setting-row">
-        <label for="ice-turn-server">Server:Port</label>
-        <input id="ice-turn-server" type="text" bind:value={iceTurnServer} placeholder="turn.example.com:3478" />
+        <label for="turn-server">Server:Port</label>
+        <input id="turn-server" type="text" bind:value={turnServer} placeholder="turn.example.com:3478" />
       </div>
       <div class="setting-row">
-        <label for="ice-turn-user">Username</label>
-        <input id="ice-turn-user" type="text" bind:value={iceTurnUsername} placeholder="username" />
-      </div>
-      <div class="setting-row">
-        <label for="ice-turn-cred">Credential</label>
-        <input id="ice-turn-cred" type="password" bind:value={iceTurnCredential} placeholder="credential" />
+        <label for="turn-secret">Shared Secret</label>
+        <input id="turn-secret" type="password" bind:value={turnSecret} placeholder="coturn static-auth-secret" />
       </div>
       <div class="button-row">
-        <button class="save-btn" on:click={saveAndTestIceServers} disabled={iceServersSaving || iceTestRunning}>
-          {iceServersSaving ? "Saving..." : iceTestRunning ? "Testing..." : "Save & Test"}
+        <button class="save-btn" on:click={saveAndTestTurn} disabled={turnSaving || iceTestRunning}>
+          {turnSaving ? "Saving..." : iceTestRunning ? "Testing..." : "Save & Test"}
         </button>
         <button class="cancel-btn" on:click={testIceServers} disabled={iceTestRunning}>
           {iceTestRunning ? "Testing..." : "Test Only"}

@@ -17,7 +17,12 @@ logger = logging.getLogger("guidebook")
 router = APIRouter(prefix="/api/instance-settings", tags=["instance-settings"])
 
 ALLOWED_KEYS = INSTANCE_DEFAULTABLE_KEYS | INSTANCE_ONLY_KEYS
-HIDDEN_KEYS: set[str] = {"nats_ca_cert", "nats_client_cert", "nats_client_key"}
+HIDDEN_KEYS: set[str] = {
+    "nats_ca_cert",
+    "nats_client_cert",
+    "nats_client_key",
+    "turn_secret",
+}
 
 
 class SettingValue(BaseModel):
@@ -44,8 +49,12 @@ async def list_instance_settings(gdb: AsyncSession = Depends(get_instance_sessio
 
 
 @router.get("/{key}", response_model=SettingResponse)
-async def get_instance_setting(key: str, gdb: AsyncSession = Depends(get_instance_session)):
-    result = await gdb.execute(select(InstanceSetting).where(InstanceSetting.key == key))
+async def get_instance_setting(
+    key: str, gdb: AsyncSession = Depends(get_instance_session)
+):
+    result = await gdb.execute(
+        select(InstanceSetting).where(InstanceSetting.key == key)
+    )
     setting = result.scalar_one_or_none()
     if not setting:
         return SettingResponse(key=key, value=None)
@@ -66,7 +75,9 @@ async def upsert_instance_setting(
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
     stmt = sqlite_insert(InstanceSetting).values(key=key, value=data.value)
-    stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": data.value})
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["key"], set_={"value": data.value}
+    )
     await gdb.execute(stmt)
     await gdb.commit()
     log_value = "***" if key in HIDDEN_KEYS else data.value

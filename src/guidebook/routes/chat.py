@@ -1,5 +1,8 @@
-import json
+import base64
+import hashlib
+import hmac
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -39,20 +42,43 @@ class SignalMessage(BaseModel):
     ts: float | None = None
 
 
+TURN_TTL_SECONDS = 14400  # 4 hours
+
+
 @router.get("/ice-servers")
 async def get_ice_servers():
-    """Return configured ICE servers for WebRTC, or empty list if none set."""
+    """Return ICE servers with ephemeral TURN credentials computed from shared secret."""
     async with db_manager.instance_session() as session:
-        result = await session.execute(
-            select(InstanceSetting).where(InstanceSetting.key == "ice_servers")
+        rows = (
+            (
+                await session.execute(
+                    select(InstanceSetting).where(
+                        InstanceSetting.key.in_(["turn_server", "turn_secret"])
+                    )
+                )
+            )
+            .scalars()
+            .all()
         )
-        row = result.scalar_one_or_none()
-    if row and row.value:
-        try:
-            return json.loads(row.value)
-        except (json.JSONDecodeError, TypeError):
-            return []
-    return []
+    settings = {r.key: r.value for r in rows if r.value}
+    server = settings.get("turn_server", "").strip()
+    secret = settings.get("turn_secret", "").strip()
+    if not server or not secret:
+        return []
+
+    expiry = int(time.time()) + TURN_TTL_SECONDS
+    username = f"{expiry}:guidebook"
+    password = base64.b64encode(
+        hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
+    ).decode()
+
+    return [
+        {
+            "urls": f"turn:{server}",
+            "username": username,
+            "credential": password,
+        }
+    ]
 
 
 @router.get("/status")
