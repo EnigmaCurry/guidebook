@@ -587,6 +587,9 @@
       _themeState[key] = value;
       applyThemeFromState(_themeState);
     });
+    eventSource.addEventListener("nats-status", (e) => {
+      window.dispatchEvent(new CustomEvent("nats-status", { detail: JSON.parse(e.data) }));
+    });
     eventSource.addEventListener("database-changed", () => {
       if (switchingDatabase || !welcomeAcknowledged) return;
       // Navigate home before reloading — the new database may not support the current page

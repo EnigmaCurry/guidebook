@@ -13,6 +13,7 @@ dependencies = [
     "cryptography",
     "pyjwt",
     "python-multipart>=0.0.26",
+    "nats-py",
 ]
 
 [project.scripts]

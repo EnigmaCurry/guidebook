@@ -17,7 +17,7 @@ logger = logging.getLogger("guidebook")
 router = APIRouter(prefix="/api/global-settings", tags=["global-settings"])
 
 ALLOWED_KEYS = GLOBAL_DEFAULTABLE_KEYS | GLOBAL_ONLY_KEYS
-HIDDEN_KEYS: set[str] = set()
+HIDDEN_KEYS: set[str] = {"nats_ca_cert", "nats_client_cert", "nats_client_key"}
 
 
 class SettingValue(BaseModel):

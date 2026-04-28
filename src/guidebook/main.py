@@ -49,6 +49,7 @@ from guidebook.routes.update import router as update_router
 from guidebook.routes.scratchpad import router as scratchpad_router
 from guidebook.routes.media import router as media_router
 from guidebook.routes.mtls import router as mtls_router
+from guidebook.routes.nats import router as nats_router
 from guidebook.routes.tls import (
     router as tls_router,
     start_acme_renewal,
@@ -123,7 +124,11 @@ async def lifespan(app: FastAPI):
     if db_manager.is_open:
         await start_auto_backup()
     await start_acme_renewal()
+    from guidebook.nats_client import start_nats, stop_nats
+
+    await start_nats()
     yield
+    await stop_nats()
     await stop_acme_renewal()
     await stop_sse_auto_shutdown()
     await stop_auto_backup()
@@ -591,6 +596,7 @@ app.include_router(scratchpad_router)
 app.include_router(media_router)
 app.include_router(mtls_router)
 app.include_router(tls_router)
+app.include_router(nats_router)
 app.include_router(sse_router)
 
 static_dir = _resource_path("static")

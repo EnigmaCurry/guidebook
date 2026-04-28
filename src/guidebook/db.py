@@ -74,6 +74,11 @@ GLOBAL_ONLY_KEYS = {
     "auth_required",
     "auth_slots",
     "auth_configured",
+    "nats_enabled",
+    "nats_endpoint",
+    "nats_ca_cert",
+    "nats_client_cert",
+    "nats_client_key",
 }
 
 

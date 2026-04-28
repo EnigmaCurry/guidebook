@@ -56,7 +56,7 @@
   // Store global default values for use as placeholders
   let globalPlaceholders = {};
 
-  const validTabs = ["features", "appearance", "updates", "data", "auth", "tls", "global"];
+  const validTabs = ["features", "appearance", "updates", "data", "auth", "tls", "nats", "global"];
   let activeTab = (initialTab && validTabs.includes(initialTab)) ? initialTab : "features";
   let settingsLoaded = false;
 
@@ -426,6 +426,75 @@
   let tlsAcmeRegistering = false;
   let tlsAcmeReverting = false;
   let tlsRestartRequired = false;
+
+  // NATS settings
+  let natsEnabled = false;
+  let natsEndpoint = "";
+  let natsCaCert = "";
+  let natsClientCert = "";
+  let natsClientKey = "";
+  let natsStatus = { state: "disabled", detail: null, cn: null };
+  let natsCertInfo = { ca_fingerprint: null, client_fingerprint: null, cn: null, has_key: false };
+  let natsSaving = false;
+  let natsReplacing = { ca: false, cert: false, key: false };
+
+  async function loadNatsStatus() {
+    try {
+      const res = await fetch("/api/nats/status");
+      if (res.ok) natsStatus = await res.json();
+    } catch {}
+  }
+
+  async function loadNatsCerts() {
+    try {
+      const res = await fetch("/api/nats/certs");
+      if (res.ok) natsCertInfo = await res.json();
+    } catch {}
+  }
+
+  async function saveNatsSettings() {
+    natsSaving = true;
+    const settings = {};
+    settings.nats_endpoint = natsEndpoint;
+    if (natsCaCert) settings.nats_ca_cert = natsCaCert;
+    if (natsClientCert) settings.nats_client_cert = natsClientCert;
+    if (natsClientKey) settings.nats_client_key = natsClientKey;
+    for (const [key, value] of Object.entries(settings)) {
+      await fetch(`/api/global-settings/${key}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+      });
+    }
+    await fetch("/api/nats/restart", { method: "POST" });
+    natsCaCert = "";
+    natsClientCert = "";
+    natsClientKey = "";
+    natsReplacing = { ca: false, cert: false, key: false };
+    await loadNatsCerts();
+    natsSaving = false;
+  }
+
+  async function toggleNats() {
+    await fetch("/api/global-settings/nats_enabled", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: natsEnabled ? "true" : "false" }),
+    });
+    await fetch("/api/nats/restart", { method: "POST" });
+  }
+
+  function handleNatsFileUpload(field, event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (field === "ca") natsCaCert = e.target.result;
+      else if (field === "cert") natsClientCert = e.target.result;
+      else if (field === "key") natsClientKey = e.target.result;
+    };
+    reader.readAsText(file);
+  }
 
   async function loadTlsStatus() {
     try {
@@ -1261,6 +1330,8 @@
         const data = await res.json();
         for (const s of data) {
           if (s.key === "update_check_enabled") update_check_enabled = s.value !== "false";
+          if (s.key === "nats_enabled") natsEnabled = s.value === "true";
+          if (s.key === "nats_endpoint") natsEndpoint = s.value || "";
         }
         globalSettingsLoaded = true;
       }
@@ -1408,10 +1479,17 @@
     loadAuthSessions();
     loadMtlsStatus();
     loadTlsStatus();
+    loadNatsStatus();
+    loadNatsCerts();
+    function onNatsStatus(e) { natsStatus = e.detail; }
+    window.addEventListener("nats-status", onNatsStatus);
+    natsCleanup = () => window.removeEventListener("nats-status", onNatsStatus);
   });
 
+  let natsCleanup = null;
   onDestroy(() => {
     flushPending();
+    if (natsCleanup) natsCleanup();
   });
 </script>
 
@@ -1425,6 +1503,7 @@
     <button class="tab" class:active={activeTab === "data"} on:click={() => switchTab("data")}>Data</button>
     <button class="tab" class:active={activeTab === "auth"} on:click={() => switchTab("auth")}>Auth</button>
     <button class="tab" class:active={activeTab === "tls"} on:click={() => switchTab("tls")}>TLS</button>
+    <button class="tab" class:active={activeTab === "nats"} on:click={() => switchTab("nats")}>NATS</button>
   </div>
 
   {#if activeTab === "features"}
@@ -2299,6 +2378,125 @@
 </div>
 {/if}
 
+{#if activeTab === "nats"}
+<div class="tab-scroll"><div class="tab-content" use:masonry>
+  <section class="settings-section">
+    <h3>NATS Connection</h3>
+    <div class="setting-row">
+      <label class="toggle-label">
+        <input type="checkbox" bind:checked={natsEnabled} on:change={toggleNats} />
+        Enable NATS
+      </label>
+    </div>
+    <p class="hint">Connect to a NATS server for real-time pub/sub messaging.</p>
+  </section>
+
+  {#if natsEnabled}
+  <section class="settings-section">
+    <h3>Connection Status</h3>
+    <div class="setting-row">
+      <span class="nats-status-dot"
+        class:connected={natsStatus.state === "connected"}
+        class:connecting={natsStatus.state === "connecting"}
+        class:error={natsStatus.state === "error"}
+        class:disconnected={natsStatus.state === "disconnected" || natsStatus.state === "disabled"}
+      ></span>
+      <span class="nats-status-text">
+        {#if natsStatus.state === "connected"}
+          Connected
+        {:else if natsStatus.state === "connecting"}
+          Connecting...
+        {:else if natsStatus.state === "error"}
+          Error: {natsStatus.detail || "unknown"}
+        {:else if natsStatus.state === "disconnected"}
+          Disconnected
+        {:else}
+          Disabled
+        {/if}
+      </span>
+    </div>
+    {#if natsStatus.cn}
+      <p class="hint">Client CN: {natsStatus.cn}</p>
+    {/if}
+    <div class="setting-row" style="margin-top: 0.5em;">
+      <button class="btn" on:click={async () => { await fetch("/api/nats/restart", { method: "POST" }); }}>Reconnect</button>
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <h3>Server</h3>
+    <div class="setting-row">
+      <label for="nats-endpoint">NATS Endpoint</label>
+      <input id="nats-endpoint" type="text" bind:value={natsEndpoint} placeholder="nats://host:4222" />
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <h3>TLS Certificates</h3>
+
+    <div class="setting-row">
+      <label>Root CA Certificate</label>
+      {#if natsCertInfo.ca_fingerprint && !natsReplacing.ca}
+        <p class="cert-fingerprint">SHA-256: {natsCertInfo.ca_fingerprint}</p>
+        <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, ca: true }; }}>Replace</button>
+      {:else}
+        <textarea bind:value={natsCaCert} placeholder="Paste PEM-encoded CA certificate..." rows="4"></textarea>
+        <div class="file-upload-row">
+          <input type="file" accept=".pem,.crt,.cer" on:change={(e) => handleNatsFileUpload("ca", e)} />
+        </div>
+        {#if natsCertInfo.ca_fingerprint}
+          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, ca: false }; natsCaCert = ""; }}>Cancel</button>
+        {/if}
+      {/if}
+    </div>
+
+    <div class="setting-row">
+      <label>Client Certificate</label>
+      {#if natsCertInfo.client_fingerprint && !natsReplacing.cert}
+        <p class="cert-fingerprint">SHA-256: {natsCertInfo.client_fingerprint}</p>
+        {#if natsCertInfo.cn}
+          <p class="hint">CN: {natsCertInfo.cn}</p>
+        {/if}
+        <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, cert: true }; }}>Replace</button>
+      {:else}
+        <textarea bind:value={natsClientCert} placeholder="Paste PEM-encoded client certificate..." rows="4"></textarea>
+        <div class="file-upload-row">
+          <input type="file" accept=".pem,.crt,.cer" on:change={(e) => handleNatsFileUpload("cert", e)} />
+        </div>
+        {#if natsCertInfo.client_fingerprint}
+          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, cert: false }; natsClientCert = ""; }}>Cancel</button>
+        {/if}
+      {/if}
+    </div>
+
+    <div class="setting-row">
+      <label>Client Key</label>
+      {#if natsCertInfo.has_key && !natsReplacing.key}
+        <p class="hint">Key saved (hidden)</p>
+        <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, key: true }; }}>Replace</button>
+      {:else}
+        <textarea bind:value={natsClientKey} placeholder="Paste PEM-encoded client key..." rows="4"></textarea>
+        <div class="file-upload-row">
+          <input type="file" accept=".pem,.key" on:change={(e) => handleNatsFileUpload("key", e)} />
+        </div>
+        {#if natsCertInfo.has_key}
+          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, key: false }; natsClientKey = ""; }}>Cancel</button>
+        {/if}
+      {/if}
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <div class="setting-row">
+      <button class="btn" on:click={saveNatsSettings} disabled={natsSaving}>
+        {natsSaving ? "Saving..." : "Save & Connect"}
+      </button>
+    </div>
+  </section>
+  {/if}
+</div></div>
+{/if}
+
 <style>
   .settings {
     display: flex;
@@ -3000,5 +3198,48 @@
   }
   .mtls-radio input[type="radio"]:disabled {
     cursor: wait;
+  }
+  .nats-status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 0.5em;
+    background: var(--muted, #666);
+  }
+  .nats-status-dot.connected {
+    background: #22c55e;
+  }
+  .nats-status-dot.connecting {
+    background: #eab308;
+    animation: pulse 1s ease-in-out infinite;
+  }
+  .nats-status-dot.error {
+    background: #ef4444;
+  }
+  .nats-status-dot.disconnected {
+    background: var(--muted, #666);
+  }
+  .nats-status-text {
+    vertical-align: middle;
+  }
+  .cert-fingerprint {
+    font-family: monospace;
+    font-size: 0.8em;
+    word-break: break-all;
+    color: var(--muted, #999);
+    margin: 0.25em 0;
+  }
+  .file-upload-row {
+    margin-top: 0.5em;
+  }
+  .btn-small {
+    font-size: 0.85em;
+    padding: 0.25em 0.75em;
+    margin-top: 0.5em;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
   }
 </style>
