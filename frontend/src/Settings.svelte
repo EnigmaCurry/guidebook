@@ -2327,6 +2327,7 @@
     <section class="settings-section">
       <h3>Connection Status</h3>
       <div class="setting-row">
+        <span class="nats-status-line">
         <span class="nats-status-dot"
           class:connected={natsStatus.state === "connected"}
           class:connecting={natsStatus.state === "connecting"}
@@ -2346,6 +2347,7 @@
             Disabled
           {/if}
         </span>
+      </span>
       </div>
       {#if natsStatus.cn}
         <p class="hint">Client CN: {natsStatus.cn}</p>
@@ -3198,6 +3200,11 @@
   }
   .mtls-radio input[type="radio"]:disabled {
     cursor: wait;
+  }
+  .nats-status-line {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
   }
   .nats-status-dot {
     display: inline-block;
