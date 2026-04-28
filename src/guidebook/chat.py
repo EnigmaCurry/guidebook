@@ -175,6 +175,15 @@ async def _on_verify_message(msg):
         if reciprocal and from_fp in _trusted:
             # Auto-respond to reciprocal challenges from already-accepted peers
             await _sign_and_respond(from_fp, nonce)
+            # Subscribe to private room (the initiator already did on their side)
+            _trusted[from_fp]["mutual"] = True
+            room_id = _derive_room_id(_own_fingerprint, from_fp)
+            await _subscribe_dm(room_id)
+            _broadcast_chat_event(
+                "chat-verify-complete",
+                {"cn": from_cn, "fingerprint": from_fp, "room_id": room_id},
+            )
+            _broadcast_chat_event("chat-rooms", {"rooms": get_rooms()})
             return
 
         # Store as pending incoming request for UI
