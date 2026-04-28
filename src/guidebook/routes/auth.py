@@ -17,7 +17,12 @@ logger = logging.getLogger("guidebook")
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-AUTH_COOKIE_NAME = "guidebook_token"
+def _cookie_name() -> str:
+    from guidebook.db import get_instance_name
+    instance = get_instance_name()
+    if instance == "default":
+        return "guidebook_token"
+    return f"guidebook_token_{instance}"
 AUTH_TTL_DEFAULT = 30 * 24 * 3600  # 30 days
 AUTH_RENEW_COOLDOWN_DEFAULT = 24 * 3600  # 24 hours
 LOGIN_LINK_TTL = 300  # 5 minutes (hardcoded)
@@ -100,7 +105,7 @@ def _decode_jwt(token_str: str) -> dict | None:
 
 
 def _get_jwt_claims(request: Request) -> dict | None:
-    cookie = request.cookies.get(AUTH_COOKIE_NAME)
+    cookie = request.cookies.get(_cookie_name())
     if not cookie:
         return None
     return _decode_jwt(cookie)
@@ -496,7 +501,7 @@ def _is_secure(request: Request) -> bool:
 
 def _set_auth_cookie(response: Response, request: Request, jwt_token: str) -> None:
     response.set_cookie(
-        AUTH_COOKIE_NAME,
+        _cookie_name(),
         jwt_token,
         max_age=AUTH_TTL,
         httponly=True,
@@ -589,5 +594,5 @@ async def logout(
             await gdb.delete(tok)
             await gdb.commit()
             logger.info("Session logged out")
-    response.delete_cookie(AUTH_COOKIE_NAME, path="/")
+    response.delete_cookie(_cookie_name(), path="/")
     return {"status": "logged_out"}
