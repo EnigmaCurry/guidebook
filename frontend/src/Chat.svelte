@@ -141,6 +141,13 @@
   }
 
   $: trustedSet = new Set(trusted.map(t => t.fingerprint));
+  $: onlinePeerSet = new Set(peers.map(p => p.fingerprint));
+
+  function peerStatus(room) {
+    if (p2pState.roomId === room.id && p2pState.connectionState === "connected") return "p2p";
+    if (onlinePeerSet.has(room.fingerprint)) return "online";
+    return "offline";
+  }
 
   function isPendingOutgoing(fingerprint) {
     // We don't track this client-side yet, just return false
@@ -241,7 +248,7 @@
           class:active={activeRoom === room.id}
           on:click={() => selectRoom(room.id)}
         >
-          <span class="room-icon"><Icon icon={iconLocked} width={16} /></span>
+          <span class="peer-status-dot" class:status-p2p={peerStatus(room) === "p2p"} class:status-online={peerStatus(room) === "online"} class:status-offline={peerStatus(room) === "offline"}></span>
           <span class="room-name">{room.name}</span>
         </button>
         <button
@@ -384,6 +391,31 @@
     align-items: center;
     gap: 0.25em;
     min-width: 0;
+  }
+
+  .peer-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .status-offline {
+    background: var(--error, #f44336);
+  }
+
+  .status-online {
+    background: var(--warning, #ff9800);
+  }
+
+  .status-p2p {
+    background: var(--success, #4caf50);
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 3px var(--success, #4caf50); }
+    50% { opacity: 0.6; box-shadow: 0 0 8px var(--success, #4caf50); }
   }
 
   .btn-p2p-connect {
