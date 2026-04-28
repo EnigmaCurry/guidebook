@@ -778,43 +778,8 @@ def _secure_existing_data() -> None:
             item.chmod(0o600)
 
 
-def _migrate_to_instances() -> None:
-    """One-time migration: move databases from DB_DIR root into instances/default/."""
-    default_dir = DB_DIR / "instances" / "default"
-    if default_dir.exists():
-        return  # Already migrated
-    # Check if there are any databases in the old location
-    old_dbs = list(DB_DIR.glob("*.db"))
-    old_locks = list(DB_DIR.glob("*.lock"))
-    old_addrs = list(DB_DIR.glob("*.addr"))
-    old_json = DB_DIR / "last_opened.json"
-    old_attachments = DB_DIR / "attachments"
-    old_backups = DB_DIR / "backups"
-    if not old_dbs and not old_json.exists():
-        return  # Fresh install, nothing to migrate
-    _ensure_data_dir(default_dir)
-    for f in old_dbs:
-        dest = default_dir / f.name
-        if f.stem == "__global":
-            dest = default_dir / "__instance.db"
-        f.rename(dest)
-        logger.info("Migrated %s → instances/default/%s", f.name, dest.name)
-    for f in old_locks + old_addrs:
-        f.rename(default_dir / f.name)
-    if old_json.exists():
-        old_json.rename(default_dir / old_json.name)
-    if old_attachments.exists():
-        old_attachments.rename(default_dir / "attachments")
-        logger.info("Migrated attachments/ → instances/default/attachments/")
-    if old_backups.exists():
-        old_backups.rename(default_dir / "backups")
-        logger.info("Migrated backups/ → instances/default/backups/")
-    logger.info("Migration to instances directory complete")
-
-
 async def init_db() -> None:
     _ensure_data_dir(DB_DIR)
-    _migrate_to_instances()
     _ensure_data_dir(INSTANCE_DIR)
     _secure_existing_data()
     cleanup_stale_locks()
