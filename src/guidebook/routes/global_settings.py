@@ -93,11 +93,13 @@ async def upsert_global_setting(
 
     if key == "nats_chat_enabled":
         from guidebook.chat import start_chat, stop_chat
+        from guidebook.sse import broadcast
 
         if data.value == "true":
             await start_chat()
         else:
             await stop_chat()
+        broadcast("chat-enabled", {"enabled": data.value == "true"})
 
     if key == "nats_lobby_enabled":
         from guidebook.chat import join_lobby, leave_lobby

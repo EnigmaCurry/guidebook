@@ -597,6 +597,10 @@
       natsConnected = data.state === "connected";
       window.dispatchEvent(new CustomEvent("nats-status", { detail: data }));
     });
+    eventSource.addEventListener("chat-enabled", (e) => {
+      const data = JSON.parse(e.data);
+      natsChatEnabled = data.enabled;
+    });
     for (const evt of ["chat-message", "chat-peers", "chat-verify-request", "chat-verify-complete", "chat-rooms"]) {
       eventSource.addEventListener(evt, (e) => {
         window.dispatchEvent(new CustomEvent(evt, { detail: JSON.parse(e.data) }));
