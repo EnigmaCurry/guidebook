@@ -2,6 +2,7 @@
   import { onMount, onDestroy, tick } from "svelte";
   import Icon from "@iconify/svelte";
   import iconLocked from "@iconify-icons/twemoji/locked";
+  import iconPlug from "@iconify-icons/twemoji/electric-plug";
   import P2P from "./P2P.svelte";
 
   let rooms = [];
@@ -256,7 +257,7 @@
             }
           }}
           title={p2pRoom === room.id ? "Close P2P" : "P2P Connect"}
-        >{p2pRoom === room.id ? "P2P ✕" : "P2P"}</button>
+        ><Icon icon={iconPlug} width={14} /></button>
       </div>
     {/each}
     {#if rooms.length === 0}
