@@ -787,7 +787,7 @@
   async function fetchNatsChatEnabled() {
     try {
       const [chatRes, statusRes] = await Promise.all([
-        fetch("/api/global-settings/nats_chat_enabled"),
+        fetch("/api/instance-settings/nats_chat_enabled"),
         fetch("/api/nats/status"),
       ]);
       if (chatRes.ok) {

@@ -504,7 +504,7 @@
   }
 
   async function toggleNatsChat() {
-    await fetch("/api/global-settings/nats_chat_enabled", {
+    await fetch("/api/instance-settings/nats_chat_enabled", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: natsChatEnabled ? "true" : "false" }),
@@ -512,7 +512,7 @@
   }
 
   async function toggleNatsLobby() {
-    await fetch("/api/global-settings/nats_lobby_enabled", {
+    await fetch("/api/instance-settings/nats_lobby_enabled", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value: natsLobbyEnabled ? "true" : "false" }),
@@ -522,8 +522,8 @@
   async function loadNatsChatSettings() {
     try {
       const [chatRes, lobbyRes] = await Promise.all([
-        fetch("/api/global-settings/nats_chat_enabled"),
-        fetch("/api/global-settings/nats_lobby_enabled"),
+        fetch("/api/instance-settings/nats_chat_enabled"),
+        fetch("/api/instance-settings/nats_lobby_enabled"),
       ]);
       if (chatRes.ok) {
         const d = await chatRes.json();
