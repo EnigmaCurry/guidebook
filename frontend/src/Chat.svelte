@@ -190,27 +190,45 @@
     return URL.createObjectURL(blob);
   }
 
+  let pendingFiles = [];
+
+  function sendFileNow(file) {
+    p2p.sendChatFile(file).then((msg) => {
+      messages = [...messages, {
+        cn: chatStatus.cn || "You",
+        fingerprint: chatStatus.fingerprint,
+        ts: Date.now() / 1000,
+        text: null,
+        file: { filename: msg.filename, content_type: msg.content_type, size: msg.size, data: msg.data },
+        room: activeRoom,
+      }];
+      tick().then(scrollToBottom);
+    }).catch(() => {});
+  }
+
+  function flushPendingFiles() {
+    const files = pendingFiles;
+    pendingFiles = [];
+    for (const file of files) sendFileNow(file);
+  }
+
   export function dropFiles(files) {
-    if (!activeRoom || !p2pState.dcOpen || p2pState.roomId !== activeRoomObj?.id) return;
-    for (const file of files) {
-      p2p.sendChatFile(file).then((msg) => {
-        messages = [...messages, {
-          cn: chatStatus.cn || "You",
-          fingerprint: chatStatus.fingerprint,
-          ts: Date.now() / 1000,
-          text: null,
-          file: { filename: msg.filename, content_type: msg.content_type, size: msg.size, data: msg.data },
-          room: activeRoom,
-        }];
-        tick().then(scrollToBottom);
-      }).catch(() => {});
+    if (!activeRoom || !activeRoomObj) return;
+    const room = activeRoomObj;
+
+    // P2P already connected to this room — send immediately
+    if (p2pState.dcOpen && p2pState.roomId === room.id) {
+      for (const file of files) sendFileNow(file);
+      return;
     }
+
+    // Queue files and initiate P2P connection
+    pendingFiles = [...pendingFiles, ...files];
+    p2p.connect(room.id, room.name, chatStatus.fingerprint, room.fingerprint);
   }
 
   export function canDropFiles() {
-    if (!activeRoom) return false;
-    const room = rooms.find(r => r.id === activeRoom);
-    return room && p2pState.dcOpen && p2pState.roomId === room.id;
+    return !!activeRoom && !!activeRoomObj;
   }
 
   function onChatFileReceived(e) {
@@ -283,6 +301,7 @@
     window.addEventListener("chat-defriended", onChatDefriended);
     window.addEventListener("chat-file-received", onChatFileReceived);
     unsubP2P = p2p.onChange(s => {
+      const wasOpen = p2pState.dcOpen;
       p2pState = s;
       // Auto-open P2P panel when connection is established from any page
       if (s.roomId && !p2pRoom) {
@@ -291,6 +310,10 @@
       }
       // Clear panel when connection closes
       if (!s.roomId && p2pRoom) { p2pRoom = null; p2pPeer = null; }
+      // Flush queued files when data channel opens
+      if (s.dcOpen && !wasOpen && pendingFiles.length > 0) {
+        flushPendingFiles();
+      }
     });
   });
 

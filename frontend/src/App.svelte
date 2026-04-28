@@ -99,7 +99,7 @@
     if (e.target.closest?.(".attachments-section")) return;
     const files = e.dataTransfer.files;
 
-    // If on chat page with an active P2P connection, send files via WebRTC
+    // If on chat page with an active room, send files via WebRTC (auto-connects if needed)
     if (page === "chat" && chatRef && chatRef.canDropFiles()) {
       chatRef.dropFiles(files);
       return;
