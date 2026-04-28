@@ -5,6 +5,8 @@
   let textareaEl;
   let eventSource = null;
   let suppressNextUpdate = false;
+  let observerCount = 0;
+  let observers = [];
 
   async function fetchContent() {
     try {
@@ -40,6 +42,12 @@
       } else {
         content = data.content;
       }
+    });
+
+    eventSource.addEventListener("observers", (e) => {
+      const data = JSON.parse(e.data);
+      observerCount = data.count;
+      observers = data.observers || [];
     });
 
     eventSource.onerror = () => {};
@@ -90,6 +98,14 @@
   <div class="toolbar">
     <button class="btn" on:click={copyContent}>{copyLabel}</button>
     <button class="btn" on:click={clearContent}>Clear</button>
+    <span class="observer-info">
+      {observerCount} observer{observerCount === 1 ? '' : 's'}
+      {#if observers.length > 0}
+        <span class="observer-labels" title={observers.map(o => `${o.label} (${o.auth_type})`).join(', ')}>
+          — {observers.map(o => o.label).join(', ')}
+        </span>
+      {/if}
+    </span>
   </div>
   <textarea
     bind:this={textareaEl}
@@ -123,6 +139,7 @@
     display: flex;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
+    align-items: center;
   }
   .btn {
     padding: 0.4rem 1rem;
@@ -136,6 +153,15 @@
   }
   .btn:hover {
     background: var(--btn-secondary);
+  }
+  .observer-info {
+    margin-left: auto;
+    font-size: 0.8rem;
+    color: var(--text-dim, #888);
+    white-space: nowrap;
+  }
+  .observer-labels {
+    opacity: 0.8;
   }
   textarea {
     flex: 1;
