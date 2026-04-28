@@ -148,6 +148,9 @@
 
   let menuOpen = false;
   let customHeader = "";
+  let instanceName = "";
+  let appName = "Guidebook";
+  let defaultAppName = "Guidebook";
   let appVersion = "";
   let updateAvailable = false;
   let updateChecked = false;
@@ -259,6 +262,8 @@
         const data = await res.json();
         pickerMode = data.picker;
         noShutdown = data.no_shutdown;
+        instanceName = data.instance_name || "";
+        defaultAppName = data.default_app_name || "Guidebook";
       }
     } catch {}
     try {
@@ -279,6 +284,7 @@
   async function startAppServices() {
     fetchVersion();
     fetchUpdateCheck();
+    fetchAppName();
     fetchCustomHeader();
     await fetchDefaultPage();
     fetchPopupNotifEnabled();
@@ -718,6 +724,20 @@
     } catch {}
   }
 
+  async function fetchAppName() {
+    try {
+      const res = await fetch("/api/instance-settings/app_name");
+      if (res.ok) {
+        const data = await res.json();
+        appName = data.value || defaultAppName;
+      } else {
+        appName = defaultAppName;
+      }
+    } catch {
+      appName = defaultAppName;
+    }
+  }
+
   async function fetchCustomHeader() {
     try {
       const res = await fetch("/api/settings/custom_header");
@@ -979,6 +999,7 @@
     await checkWelcome();
     if (!welcomeAcknowledged) return; // Welcome screen will handle the rest
     await checkDatabaseMode();
+    fetchAppName();
     setDatabase(currentDatabase);
     dualSplit = parseFloat(storageGet("dualSplit")) || 50;
     if (databaseOpen) {
@@ -1054,7 +1075,7 @@
     <header>
       <div class="header-left">
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-        <h1 class="app-title"><span class="title-full">Guidebook</span><span class="title-short">GB</span>{#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}</h1>
+        <h1 class="app-title"><span class="title-full">{appName}</span><span class="title-short">{appName.slice(0, 2).toUpperCase()}</span>{#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}</h1>
       </div>
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
       <span class="client-count" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>
@@ -1079,7 +1100,7 @@
       <div class="title-group">
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-        <h1 class="app-title" on:click={goHome} style="cursor: pointer"><span class="title-full">Guidebook</span><span class="title-short">GB</span></h1>
+        <h1 class="app-title" on:click={goHome} style="cursor: pointer"><span class="title-full">{appName}</span><span class="title-short">{appName.slice(0, 2).toUpperCase()}</span></h1>
         <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
         {#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}
       </div>
@@ -1168,7 +1189,7 @@
     {:else if page === "notifications"}
       <Notifications refreshTrigger={notifRefreshTrigger} on:countchange={() => fetchUnreadCount()} />
     {:else if page === "settings"}
-      <Settings databaseName={currentDatabase} pickerMode={pickerMode} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} {authRefreshTrigger} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); databaseOpen = false; currentDatabase = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchDatabaseRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchDatabaseRight(); await fetchSqlQueryEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} />
+      <Settings databaseName={currentDatabase} pickerMode={pickerMode} {instanceName} {defaultAppName} initialTab={settingsTab} bind:highlightSection={settingsHighlight} {clientCount} {authRefreshTrigger} on:disconnect-others={async () => { const nonce = Math.random().toString(36).slice(2); disconnectNonce = nonce; try { await fetch("/api/events/disconnect-others", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nonce }) }); } catch {} }} on:deleted={e => { if (e.detail.shutdown) { setShutdownState(); } else { stopAppServices(); databaseOpen = false; currentDatabase = ""; page = "picker"; applySystemTheme(); } }} on:setupcomplete={async () => { await fetchDatabaseRight(); await fetchSqlQueryEnabled(); navigate(isWide() ? "dual" : "records"); }} on:saved={async () => { fetchCustomHeader(); fetchDefaultPage(); applyTheme(); fetchPopupNotifEnabled(); await fetchDatabaseRight(); await fetchSqlQueryEnabled(); fetchUpdateCheck(); }} on:shutdown-pending={() => { shutdownPendingSince = Date.now(); }} on:shutdown={() => { setShutdownState(); }} on:app-name-changed={fetchAppName} />
     {:else if page === "scratchpad"}
       <Scratchpad />
     {:else if page === "about"}

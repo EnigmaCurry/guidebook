@@ -7,6 +7,8 @@
   export let databaseName = "";
   export const pickerMode = false;
   export const needsSetup = false;
+  export let instanceName = "";
+  export let defaultAppName = "Guidebook";
   export let initialTab = null;
   export let highlightSection = null;
   export let clientCount = 0;
@@ -47,6 +49,9 @@
 
   let sql_query_enabled = false;
   let default_page = "log";
+
+  // App name override
+  let appNameInput = "";
 
   // Global settings state
   let globalSettingsLoaded = false;
@@ -1338,6 +1343,21 @@
     } catch {}
   }
 
+  async function loadAppName() {
+    try {
+      const res = await fetch("/api/instance-settings/app_name");
+      if (res.ok) {
+        const data = await res.json();
+        appNameInput = data.value || "";
+      }
+    } catch {}
+  }
+
+  async function saveAppName() {
+    await saveGlobalSetting("app_name", appNameInput);
+    dispatch("app-name-changed");
+  }
+
   async function saveGlobalSetting(key, value) {
     await fetch(`/api/instance-settings/${key}`, {
       method: "PUT",
@@ -1471,6 +1491,7 @@
   onMount(() => {
     fetchSettings();
     fetchGlobalSettings();
+    loadAppName();
     fetchEntryCount();
     loadDbInfo();
     loadBackupStatus();
@@ -1785,6 +1806,16 @@
 
   {#if activeTab === "data"}
   <div class="tab-scroll"><div class="tab-content" use:masonry>
+
+  <section class="settings-section">
+    <h3>Instance</h3>
+    <p class="hint">Instance: <strong>{instanceName || "default"}</strong></p>
+    <div class="setting-row">
+      <label for="app_name">App Name</label>
+      <input id="app_name" type="text" bind:value={appNameInput} placeholder={defaultAppName} on:change={saveAppName} />
+    </div>
+    <p class="hint">Displayed in the header. Leave blank to use the default ({defaultAppName}).</p>
+  </section>
 
   <section class="settings-section">
     <h3>Backup</h3>

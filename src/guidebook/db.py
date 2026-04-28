@@ -96,6 +96,7 @@ INSTANCE_ONLY_KEYS = {
     "nats_ca_cert",
     "nats_client_cert",
     "nats_client_key",
+    "app_name",
 }
 
 

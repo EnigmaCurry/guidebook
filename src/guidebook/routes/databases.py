@@ -43,6 +43,7 @@ def _validate_name(name: str) -> None:
 async def get_mode():
     from guidebook.main import NO_SHUTDOWN
 
+    instance_name = _db.get_instance_name()
     has_databases = any(
         f.stem != "__instance" for f in _db.INSTANCE_DIR.glob("*.db")
     )
@@ -51,6 +52,8 @@ async def get_mode():
         "db_override": db_manager._db_override is not None,
         "no_shutdown": NO_SHUTDOWN,
         "has_databases": has_databases,
+        "instance_name": instance_name,
+        "default_app_name": "Guidebook" if instance_name == "default" else instance_name,
     }
 
 
