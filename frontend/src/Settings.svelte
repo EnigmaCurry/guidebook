@@ -2310,6 +2310,125 @@
   </div></div>
   {/if}
 
+  {#if activeTab === "nats"}
+  <div class="tab-scroll"><div class="tab-content" use:masonry>
+    <section class="settings-section">
+      <h3>NATS Connection</h3>
+      <div class="setting-row">
+        <label class="toggle-label">
+          <input type="checkbox" bind:checked={natsEnabled} on:change={toggleNats} />
+          Enable NATS
+        </label>
+      </div>
+      <p class="hint">Connect to a NATS server for real-time pub/sub messaging.</p>
+    </section>
+
+    {#if natsEnabled}
+    <section class="settings-section">
+      <h3>Connection Status</h3>
+      <div class="setting-row">
+        <span class="nats-status-dot"
+          class:connected={natsStatus.state === "connected"}
+          class:connecting={natsStatus.state === "connecting"}
+          class:error={natsStatus.state === "error"}
+          class:disconnected={natsStatus.state === "disconnected" || natsStatus.state === "disabled"}
+        ></span>
+        <span class="nats-status-text">
+          {#if natsStatus.state === "connected"}
+            Connected
+          {:else if natsStatus.state === "connecting"}
+            Connecting...
+          {:else if natsStatus.state === "error"}
+            Error: {natsStatus.detail || "unknown"}
+          {:else if natsStatus.state === "disconnected"}
+            Disconnected
+          {:else}
+            Disabled
+          {/if}
+        </span>
+      </div>
+      {#if natsStatus.cn}
+        <p class="hint">Client CN: {natsStatus.cn}</p>
+      {/if}
+      <div class="setting-row" style="margin-top: 0.5em;">
+        <button class="btn" on:click={async () => { await fetch("/api/nats/restart", { method: "POST" }); }}>Reconnect</button>
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h3>Server</h3>
+      <div class="setting-row">
+        <label for="nats-endpoint">NATS Endpoint</label>
+        <input id="nats-endpoint" type="text" bind:value={natsEndpoint} placeholder="nats://host:4222" />
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <h3>TLS Certificates</h3>
+
+      <div class="setting-row">
+        <label>Root CA Certificate</label>
+        {#if natsCertInfo.ca_fingerprint && !natsReplacing.ca}
+          <p class="cert-fingerprint">SHA-256: {natsCertInfo.ca_fingerprint}</p>
+          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, ca: true }; }}>Replace</button>
+        {:else}
+          <textarea bind:value={natsCaCert} placeholder="Paste PEM-encoded CA certificate..." rows="4"></textarea>
+          <div class="file-upload-row">
+            <input type="file" accept=".pem,.crt,.cer" on:change={(e) => handleNatsFileUpload("ca", e)} />
+          </div>
+          {#if natsCertInfo.ca_fingerprint}
+            <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, ca: false }; natsCaCert = ""; }}>Cancel</button>
+          {/if}
+        {/if}
+      </div>
+
+      <div class="setting-row">
+        <label>Client Certificate</label>
+        {#if natsCertInfo.client_fingerprint && !natsReplacing.cert}
+          <p class="cert-fingerprint">SHA-256: {natsCertInfo.client_fingerprint}</p>
+          {#if natsCertInfo.cn}
+            <p class="hint">CN: {natsCertInfo.cn}</p>
+          {/if}
+          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, cert: true }; }}>Replace</button>
+        {:else}
+          <textarea bind:value={natsClientCert} placeholder="Paste PEM-encoded client certificate..." rows="4"></textarea>
+          <div class="file-upload-row">
+            <input type="file" accept=".pem,.crt,.cer" on:change={(e) => handleNatsFileUpload("cert", e)} />
+          </div>
+          {#if natsCertInfo.client_fingerprint}
+            <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, cert: false }; natsClientCert = ""; }}>Cancel</button>
+          {/if}
+        {/if}
+      </div>
+
+      <div class="setting-row">
+        <label>Client Key</label>
+        {#if natsCertInfo.has_key && !natsReplacing.key}
+          <p class="hint">Key saved (hidden)</p>
+          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, key: true }; }}>Replace</button>
+        {:else}
+          <textarea bind:value={natsClientKey} placeholder="Paste PEM-encoded client key..." rows="4"></textarea>
+          <div class="file-upload-row">
+            <input type="file" accept=".pem,.key" on:change={(e) => handleNatsFileUpload("key", e)} />
+          </div>
+          {#if natsCertInfo.has_key}
+            <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, key: false }; natsClientKey = ""; }}>Cancel</button>
+          {/if}
+        {/if}
+      </div>
+    </section>
+
+    <section class="settings-section">
+      <div class="setting-row">
+        <button class="btn" on:click={saveNatsSettings} disabled={natsSaving}>
+          {natsSaving ? "Saving..." : "Save & Connect"}
+        </button>
+      </div>
+    </section>
+    {/if}
+  </div></div>
+  {/if}
+
 </div>
 
 {#if mtlsShowCertModal}
@@ -2376,125 +2495,6 @@
     {/if}
   </div>
 </div>
-{/if}
-
-{#if activeTab === "nats"}
-<div class="tab-scroll"><div class="tab-content" use:masonry>
-  <section class="settings-section">
-    <h3>NATS Connection</h3>
-    <div class="setting-row">
-      <label class="toggle-label">
-        <input type="checkbox" bind:checked={natsEnabled} on:change={toggleNats} />
-        Enable NATS
-      </label>
-    </div>
-    <p class="hint">Connect to a NATS server for real-time pub/sub messaging.</p>
-  </section>
-
-  {#if natsEnabled}
-  <section class="settings-section">
-    <h3>Connection Status</h3>
-    <div class="setting-row">
-      <span class="nats-status-dot"
-        class:connected={natsStatus.state === "connected"}
-        class:connecting={natsStatus.state === "connecting"}
-        class:error={natsStatus.state === "error"}
-        class:disconnected={natsStatus.state === "disconnected" || natsStatus.state === "disabled"}
-      ></span>
-      <span class="nats-status-text">
-        {#if natsStatus.state === "connected"}
-          Connected
-        {:else if natsStatus.state === "connecting"}
-          Connecting...
-        {:else if natsStatus.state === "error"}
-          Error: {natsStatus.detail || "unknown"}
-        {:else if natsStatus.state === "disconnected"}
-          Disconnected
-        {:else}
-          Disabled
-        {/if}
-      </span>
-    </div>
-    {#if natsStatus.cn}
-      <p class="hint">Client CN: {natsStatus.cn}</p>
-    {/if}
-    <div class="setting-row" style="margin-top: 0.5em;">
-      <button class="btn" on:click={async () => { await fetch("/api/nats/restart", { method: "POST" }); }}>Reconnect</button>
-    </div>
-  </section>
-
-  <section class="settings-section">
-    <h3>Server</h3>
-    <div class="setting-row">
-      <label for="nats-endpoint">NATS Endpoint</label>
-      <input id="nats-endpoint" type="text" bind:value={natsEndpoint} placeholder="nats://host:4222" />
-    </div>
-  </section>
-
-  <section class="settings-section">
-    <h3>TLS Certificates</h3>
-
-    <div class="setting-row">
-      <label>Root CA Certificate</label>
-      {#if natsCertInfo.ca_fingerprint && !natsReplacing.ca}
-        <p class="cert-fingerprint">SHA-256: {natsCertInfo.ca_fingerprint}</p>
-        <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, ca: true }; }}>Replace</button>
-      {:else}
-        <textarea bind:value={natsCaCert} placeholder="Paste PEM-encoded CA certificate..." rows="4"></textarea>
-        <div class="file-upload-row">
-          <input type="file" accept=".pem,.crt,.cer" on:change={(e) => handleNatsFileUpload("ca", e)} />
-        </div>
-        {#if natsCertInfo.ca_fingerprint}
-          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, ca: false }; natsCaCert = ""; }}>Cancel</button>
-        {/if}
-      {/if}
-    </div>
-
-    <div class="setting-row">
-      <label>Client Certificate</label>
-      {#if natsCertInfo.client_fingerprint && !natsReplacing.cert}
-        <p class="cert-fingerprint">SHA-256: {natsCertInfo.client_fingerprint}</p>
-        {#if natsCertInfo.cn}
-          <p class="hint">CN: {natsCertInfo.cn}</p>
-        {/if}
-        <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, cert: true }; }}>Replace</button>
-      {:else}
-        <textarea bind:value={natsClientCert} placeholder="Paste PEM-encoded client certificate..." rows="4"></textarea>
-        <div class="file-upload-row">
-          <input type="file" accept=".pem,.crt,.cer" on:change={(e) => handleNatsFileUpload("cert", e)} />
-        </div>
-        {#if natsCertInfo.client_fingerprint}
-          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, cert: false }; natsClientCert = ""; }}>Cancel</button>
-        {/if}
-      {/if}
-    </div>
-
-    <div class="setting-row">
-      <label>Client Key</label>
-      {#if natsCertInfo.has_key && !natsReplacing.key}
-        <p class="hint">Key saved (hidden)</p>
-        <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, key: true }; }}>Replace</button>
-      {:else}
-        <textarea bind:value={natsClientKey} placeholder="Paste PEM-encoded client key..." rows="4"></textarea>
-        <div class="file-upload-row">
-          <input type="file" accept=".pem,.key" on:change={(e) => handleNatsFileUpload("key", e)} />
-        </div>
-        {#if natsCertInfo.has_key}
-          <button class="btn btn-small" on:click={() => { natsReplacing = { ...natsReplacing, key: false }; natsClientKey = ""; }}>Cancel</button>
-        {/if}
-      {/if}
-    </div>
-  </section>
-
-  <section class="settings-section">
-    <div class="setting-row">
-      <button class="btn" on:click={saveNatsSettings} disabled={natsSaving}>
-        {natsSaving ? "Saving..." : "Save & Connect"}
-      </button>
-    </div>
-  </section>
-  {/if}
-</div></div>
 {/if}
 
 <style>
