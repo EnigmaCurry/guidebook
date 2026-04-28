@@ -143,9 +143,9 @@
   $: trustedSet = new Set(trusted.map(t => t.fingerprint));
   $: onlinePeerSet = new Set(peers.map(p => p.fingerprint));
 
-  function peerStatus(room) {
-    if (p2pState.roomId === room.id && p2pState.connectionState === "connected") return "p2p";
-    if (onlinePeerSet.has(room.fingerprint)) return "online";
+  function peerStatus(room, _p2p, _online) {
+    if (_p2p.roomId === room.id && _p2p.connectionState === "connected") return "p2p";
+    if (_online.has(room.fingerprint)) return "online";
     return "offline";
   }
 
@@ -248,7 +248,7 @@
           class:active={activeRoom === room.id}
           on:click={() => selectRoom(room.id)}
         >
-          <span class="peer-status-dot" class:status-p2p={peerStatus(room) === "p2p"} class:status-online={peerStatus(room) === "online"} class:status-offline={peerStatus(room) === "offline"}></span>
+          <span class="peer-status-dot" class:status-p2p={peerStatus(room, p2pState, onlinePeerSet) === "p2p"} class:status-online={peerStatus(room, p2pState, onlinePeerSet) === "online"} class:status-offline={peerStatus(room, p2pState, onlinePeerSet) === "offline"}></span>
           <span class="room-name">{room.name}</span>
         </button>
         <button
