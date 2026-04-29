@@ -18,11 +18,13 @@ logger = logging.getLogger("guidebook")
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 def _cookie_name() -> str:
+    import re
     from guidebook.db import get_instance_name
     instance = get_instance_name()
     if instance == "default":
         return "guidebook_token"
-    return f"guidebook_token_{instance}"
+    sanitized = re.sub(r"[^a-zA-Z0-9_]", "_", instance)
+    return f"guidebook_token_{sanitized}"
 AUTH_TTL_DEFAULT = 30 * 24 * 3600  # 30 days
 AUTH_RENEW_COOLDOWN_DEFAULT = 24 * 3600  # 24 hours
 LOGIN_LINK_TTL = 300  # 5 minutes (hardcoded)

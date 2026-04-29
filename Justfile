@@ -165,6 +165,10 @@ ssb-install instance="default": ssb-deps build-frontend
     set -euo pipefail
     mkdir -p ~/.local/bin ~/.local/share/applications
     instance="{{ instance }}"
+    if [[ ! "$instance" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo "Error: instance name must contain only letters, digits, hyphens, and underscores" >&2
+        exit 1
+    fi
     host=$(just _instance-host "$instance")
     port=4280
     project_dir="$(pwd)"
