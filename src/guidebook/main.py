@@ -344,6 +344,12 @@ async def http_middleware(request: Request, call_next):
                         status_code=401,
                         content=_inline_page(
                             "<p>You need a login link from the owner to access this site.</p>"
+                            '<form method="GET" action="/" style="margin:1rem 0">'
+                            '<input type="text" name="auth_token" placeholder="Paste login token" '
+                            'style="background:#222;color:#ccc;border:1px solid #444;padding:8px 12px;'
+                            'border-radius:4px;font-size:0.9rem;width:100%;box-sizing:border-box;font-family:monospace" />'
+                            '<button type="submit">Login</button>'
+                            "</form>"
                             '<p class="dim">If you are the owner and have lost access, restart the server with '
                             "<code style='white-space:nowrap'>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
                         ),
