@@ -159,20 +159,20 @@ _instance-host instance:
         echo "127.$(( (dec >> 16) & 255 )).$(( (dec >> 8) & 255 )).$(( dec & 255 ))"
     fi
 
-# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo, just ssb-install foo --dev)
-ssb-install instance="default" *FLAGS="": ssb-deps build-frontend
+# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo, just ssb-install --dev foo)
+ssb-install *ARGS="": ssb-deps build-frontend
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p ~/.local/bin ~/.local/share/applications
-    flags="{{ FLAGS }}"
+    instance="default"
     dev=false
-    for flag in $flags; do
-        case "$flag" in
+    for arg in {{ ARGS }}; do
+        case "$arg" in
             --dev) dev=true ;;
-            *) echo "Unknown flag: $flag" >&2; exit 1 ;;
+            --*) echo "Unknown flag: $arg" >&2; exit 1 ;;
+            *) instance="$arg" ;;
         esac
     done
-    instance="{{ instance }}"
     if [[ ! "$instance" =~ ^[a-zA-Z0-9_-]+$ ]]; then
         echo "Error: instance name must contain only letters, digits, hyphens, and underscores" >&2
         exit 1
