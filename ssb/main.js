@@ -7,6 +7,7 @@ const args = parseArgs(process.argv.slice(2));
 const HOST = args.host || process.env.GUIDEBOOK_SSB_HOST || "127.0.0.1";
 const PORT = parseInt(args.port || process.env.GUIDEBOOK_SSB_PORT || "4280", 10);
 const AUTH_TOKEN = args.authToken || null;
+const DEV = args.dev || false;
 const SCALE = parseFloat(args.scale || process.env.GUIDEBOOK_SSB_SCALE || "2");
 app.commandLine.appendSwitch("force-device-scale-factor", String(SCALE));
 
@@ -25,7 +26,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--port" && argv[i + 1]) result.port = argv[++i];
     else if (argv[i] === "--auth-token" && argv[i + 1]) result.authToken = argv[++i];
     else if (argv[i] === "--scale" && argv[i + 1]) result.scale = argv[++i];
-
+    else if (argv[i] === "--dev") result.dev = true;
   }
   return result;
 }
@@ -75,7 +76,7 @@ function createWindow() {
 
   // App-local keyboard shortcuts
   win.webContents.on("before-input-event", (event, input) => {
-    if (input.key === "F12" && input.type === "keyDown") {
+    if (DEV && input.key === "F12" && input.type === "keyDown") {
       event.preventDefault();
       win.webContents.toggleDevTools();
     } else if (input.alt && !input.control && !input.meta && input.key === "w" && input.type === "keyDown") {
@@ -103,6 +104,7 @@ function blockShortcuts() {
     "CommandOrControl+W",
     "CommandOrControl+Shift+I",
     "CommandOrControl+Shift+J",
+    ...(DEV ? [] : ["F12"]),
     "F5",
     "F11",
     "Alt+Left",
