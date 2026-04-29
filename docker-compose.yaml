@@ -25,6 +25,7 @@ services:
       GUIDEBOOK_NO_TLS: ${GUIDEBOOK_NO_TLS:-false}
       GUIDEBOOK_PROXY: ${GUIDEBOOK_PROXY:-}
       GUIDEBOOK_BROWSER_URL: ${GUIDEBOOK_BROWSER_URL:-}
+    init: true
     restart: unless-stopped
 
 volumes:
