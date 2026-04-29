@@ -8,7 +8,7 @@ set -euo pipefail
 #   guidebook-ssb --host 10.0.0.5 --port 8443 --scale 1.5
 
 # Defaults (overridden by args or env)
-HOST="${GUIDEBOOK_SSB_HOST:-127.0.0.1}"
+HOST="${GUIDEBOOK_SSB_HOST:-__HOST__}"
 PORT="${GUIDEBOOK_SSB_PORT:-__PORT__}"
 SCALE="${GUIDEBOOK_SSB_SCALE:-2}"
 INSTANCE="__INSTANCE__"
@@ -29,9 +29,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# If host is not localhost, this is a remote connection (no server management)
+# If host is in 127.0.0.0/8, this is local (manage server lifecycle)
 case "$HOST" in
-    127.0.0.1|localhost|::1) LOCAL_MODE=true ;;
+    127.*|localhost|::1) LOCAL_MODE=true ;;
     *) LOCAL_MODE=false ;;
 esac
 
@@ -40,7 +40,7 @@ if [[ "$LOCAL_MODE" == true ]] && [[ -d "$PROJECT_DIR" ]]; then
     if ! curl -sk --connect-timeout 1 "https://${HOST}:${PORT}/api/version" >/dev/null 2>&1; then
         echo "Starting Guidebook server..."
         cd "$PROJECT_DIR"
-        uv run guidebook --no-browser --port "$PORT" --instance "$INSTANCE" &
+        GUIDEBOOK_HOST="$HOST" uv run guidebook --no-browser --port "$PORT" --instance "$INSTANCE" &
         SERVER_PID=$!
         # Wait for server to come up
         for i in $(seq 1 30); do

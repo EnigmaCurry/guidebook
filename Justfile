@@ -145,13 +145,28 @@ ssb *ARGS: _check-node
 ssb-build: _check-node
     cd ssb && npx electron-builder --linux
 
-# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo 4281)
-ssb-install instance="default" port="4280": ssb-deps build-frontend
+# Derive a 127.x.x.x address from an instance name
+_instance-host instance:
+    #!/usr/bin/env bash
+    instance="{{ instance }}"
+    if [[ "$instance" == "default" ]]; then
+        echo "127.0.0.1"
+    else
+        hash=$(echo -n "$instance" | md5sum | cut -c1-6)
+        dec=$(( 16#$hash ))
+        # Map to 127.0.0.2 – 127.255.255.254 (avoid .0.0.0, .0.0.1, .255.255.255)
+        dec=$(( (dec % 16777213) + 2 ))
+        echo "127.$(( (dec >> 16) & 255 )).$(( (dec >> 8) & 255 )).$(( dec & 255 ))"
+    fi
+
+# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo)
+ssb-install instance="default": ssb-deps build-frontend
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p ~/.local/bin ~/.local/share/applications
     instance="{{ instance }}"
-    port="{{ port }}"
+    host=$(just _instance-host "$instance")
+    port=4280
     project_dir="$(pwd)"
     ssb_dir="$(pwd)/ssb"
     if [[ "$instance" == "default" ]]; then
@@ -169,6 +184,7 @@ ssb-install instance="default" port="4280": ssb-deps build-frontend
     sed -e "s|__SSB_DIR__|${ssb_dir}|g" \
         -e "s|__PROJECT_DIR__|${project_dir}|g" \
         -e "s|__INSTANCE__|${instance}|g" \
+        -e "s|__HOST__|${host}|g" \
         -e "s|__PORT__|${port}|g" \
         ssb/guidebook-ssb > "$launcher"
     chmod +x "$launcher"
@@ -176,12 +192,12 @@ ssb-install instance="default" port="4280": ssb-deps build-frontend
     sed -e "s|Exec=guidebook-ssb|Exec=${launcher}|" \
         -e "s|Name=Guidebook|Name=${name}|" \
         ssb/guidebook-ssb.desktop > "$desktop"
-    echo "Installed: $launcher (instance=${instance}, port=${port})"
+    echo "Installed: $launcher (instance=${instance}, host=${host}:${port})"
     echo "Installed: $desktop"
     # Bootstrap auth and launch SSB on first install
     echo ""
     echo "Starting first-run auth setup..."
-    uv run guidebook --reset-auth --ssb --port "$port" --instance "$instance"
+    GUIDEBOOK_HOST="$host" uv run guidebook --reset-auth --ssb --port "$port" --instance "$instance"
 
 # Uninstall an SSB launcher (e.g. just ssb-uninstall, just ssb-uninstall foo)
 ssb-uninstall instance="default":
