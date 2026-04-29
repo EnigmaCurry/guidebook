@@ -100,6 +100,11 @@ function blockShortcuts() {
       // Swallow the shortcut
     });
   }
+
+  // Alt+W: open a new window on the same session
+  globalShortcut.register("Alt+W", () => {
+    createWindow();
+  });
 }
 
 // Single instance lock — second launch focuses existing window
