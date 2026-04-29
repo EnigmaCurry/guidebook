@@ -10,7 +10,7 @@ set -euo pipefail
 # Defaults (overridden by args or env)
 HOST="${GUIDEBOOK_SSB_HOST:-__HOST__}"
 PORT="${GUIDEBOOK_SSB_PORT:-__PORT__}"
-SCALE="${GUIDEBOOK_SSB_SCALE:-__SCALE__}"
+SCALE="${GUIDEBOOK_SSB_SCALE:-1.5}"
 INSTANCE="__INSTANCE__"
 AUTH_TOKEN=""
 SSB_DIR="__SSB_DIR__"
