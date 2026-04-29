@@ -11,6 +11,7 @@ set -euo pipefail
 HOST="${GUIDEBOOK_SSB_HOST:-127.0.0.1}"
 PORT="${GUIDEBOOK_SSB_PORT:-4280}"
 SCALE="${GUIDEBOOK_SSB_SCALE:-2}"
+INSTANCE="__INSTANCE__"
 AUTH_TOKEN=""
 SSB_DIR="__SSB_DIR__"
 PROJECT_DIR="__PROJECT_DIR__"
@@ -22,6 +23,7 @@ while [[ $# -gt 0 ]]; do
         --host) HOST="$2"; shift 2 ;;
         --port) PORT="$2"; shift 2 ;;
         --scale) SCALE="$2"; shift 2 ;;
+        --instance) INSTANCE="$2"; shift 2 ;;
         --auth-token) AUTH_TOKEN="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -38,7 +40,7 @@ if [[ "$LOCAL_MODE" == true ]] && [[ -d "$PROJECT_DIR" ]]; then
     if ! curl -sk --connect-timeout 1 "https://${HOST}:${PORT}/api/version" >/dev/null 2>&1; then
         echo "Starting Guidebook server..."
         cd "$PROJECT_DIR"
-        uv run guidebook --no-browser --port "$PORT" &
+        uv run guidebook --no-browser --port "$PORT" --instance "$INSTANCE" &
         SERVER_PID=$!
         # Wait for server to come up
         for i in $(seq 1 30); do

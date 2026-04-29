@@ -145,23 +145,37 @@ ssb *ARGS: _check-node
 ssb-build: _check-node
     cd ssb && npx electron-builder --linux
 
-# Install local dev SSB launcher into ~/.local/bin and ~/.local/share/applications
-ssb-install: ssb-deps
+# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo)
+ssb-install instance="default": ssb-deps
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p ~/.local/bin ~/.local/share/applications
+    instance="{{ instance }}"
     project_dir="$(pwd)"
     ssb_dir="$(pwd)/ssb"
+    if [[ "$instance" == "default" ]]; then
+        suffix=""
+        name="Guidebook"
+    else
+        suffix="-${instance}"
+        # Capitalize first letter of instance name
+        pretty="$(echo "${instance:0:1}" | tr '[:lower:]' '[:upper:]')${instance:1}"
+        name="Guidebook-${pretty}"
+    fi
+    launcher=~/.local/bin/guidebook-ssb${suffix}
+    desktop=~/.local/share/applications/guidebook-ssb${suffix}.desktop
     # Generate launcher with paths baked in
     sed -e "s|__SSB_DIR__|${ssb_dir}|g" \
         -e "s|__PROJECT_DIR__|${project_dir}|g" \
-        ssb/guidebook-ssb > ~/.local/bin/guidebook-ssb
-    chmod +x ~/.local/bin/guidebook-ssb
+        -e "s|__INSTANCE__|${instance}|g" \
+        ssb/guidebook-ssb > "$launcher"
+    chmod +x "$launcher"
     # Install desktop entry
-    sed "s|Exec=guidebook-ssb|Exec=${HOME}/.local/bin/guidebook-ssb|" \
-        ssb/guidebook-ssb.desktop > ~/.local/share/applications/guidebook-ssb.desktop
-    echo "Installed: ~/.local/bin/guidebook-ssb"
-    echo "Installed: ~/.local/share/applications/guidebook-ssb.desktop"
+    sed -e "s|Exec=guidebook-ssb|Exec=${launcher}|" \
+        -e "s|Name=Guidebook|Name=${name}|" \
+        ssb/guidebook-ssb.desktop > "$desktop"
+    echo "Installed: $launcher"
+    echo "Installed: $desktop"
 
 # Create a remote SSB launcher (e.g. just ssb-connect myserver 10.0.0.5 4280)
 ssb-connect name host port="4280" scale="2": ssb-deps
