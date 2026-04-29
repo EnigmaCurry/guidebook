@@ -78,7 +78,7 @@ function createWindow() {
   win.webContents.on("before-input-event", (event, input) => {
     if (DEV && input.key === "F12" && input.type === "keyDown") {
       event.preventDefault();
-      win.webContents.toggleDevTools();
+      win.webContents.toggleDevTools({ mode: "detach" });
     } else if (input.alt && !input.control && !input.meta && input.key === "w" && input.type === "keyDown") {
       event.preventDefault();
       const now = Date.now();
