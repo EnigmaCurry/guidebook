@@ -57,15 +57,6 @@ function createWindow() {
     return { action: "deny" };
   });
 
-  // Trust the self-signed cert on the configured host
-  session.defaultSession.setCertificateVerifyProc((request, callback) => {
-    if (request.hostname === HOST && request.port === PORT) {
-      callback(0); // Trust
-    } else {
-      callback(-2); // Use default verification (reject if invalid)
-    }
-  });
-
   win.loadURL(START_URL);
 }
 
@@ -100,6 +91,17 @@ function blockShortcuts() {
     });
   }
 }
+
+// Trust self-signed certs on the configured host (TOFU)
+app.on("certificate-error", (event, webContents, url, error, certificate, callback) => {
+  const parsed = new URL(url);
+  if (parsed.hostname === HOST && parseInt(parsed.port, 10) === PORT) {
+    event.preventDefault();
+    callback(true); // Trust this certificate
+  } else {
+    callback(false);
+  }
+});
 
 app.whenReady().then(() => {
   blockShortcuts();
