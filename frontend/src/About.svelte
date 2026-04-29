@@ -37,6 +37,7 @@
       <tr><td class="key">?</td><td>This page</td></tr>
       <tr><td class="key">Ctrl+Enter</td><td>Save record (in form)</td></tr>
       <tr><td class="key">Esc</td><td>Close menu / cancel form</td></tr>
+      <tr><td class="key">Alt+W</td><td>New window (Electron)</td></tr>
     </tbody>
   </table>
 
