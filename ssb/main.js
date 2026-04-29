@@ -9,7 +9,11 @@ const PORT = parseInt(args.port || process.env.GUIDEBOOK_SSB_PORT || "4280", 10)
 const AUTH_TOKEN = args.authToken || null;
 const DEV = args.dev || false;
 const SCALE = parseFloat(args.scale || process.env.GUIDEBOOK_SSB_SCALE || "1.5");
+const REMOTE_DEBUGGING_PORT = parseInt(args.remoteDebuggingPort || process.env.GUIDEBOOK_SSB_REMOTE_DEBUGGING_PORT || "0", 10);
 app.commandLine.appendSwitch("force-device-scale-factor", String(SCALE));
+if (DEV && REMOTE_DEBUGGING_PORT > 0) {
+  app.commandLine.appendSwitch("remote-debugging-port", String(REMOTE_DEBUGGING_PORT));
+}
 
 // Isolate session data (cookies, localStorage) per host:port
 app.setPath("userData", path.join(app.getPath("appData"), `guidebook-ssb-${HOST}-${PORT}`));
@@ -26,6 +30,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--port" && argv[i + 1]) result.port = argv[++i];
     else if (argv[i] === "--auth-token" && argv[i + 1]) result.authToken = argv[++i];
     else if (argv[i] === "--scale" && argv[i + 1]) result.scale = argv[++i];
+    else if (argv[i] === "--remote-debugging-port" && argv[i + 1]) result.remoteDebuggingPort = argv[++i];
     else if (argv[i] === "--dev") result.dev = true;
   }
   return result;
