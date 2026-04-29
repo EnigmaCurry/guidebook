@@ -13,6 +13,8 @@ PORT="${GUIDEBOOK_SSB_PORT:-__PORT__}"
 SCALE="${GUIDEBOOK_SSB_SCALE:-1.5}"
 INSTANCE="__INSTANCE__"
 AUTH_TOKEN=""
+DEV=__DEV__
+REMOTE_DEBUGGING_PORT="${GUIDEBOOK_SSB_REMOTE_DEBUGGING_PORT:-9222}"
 SSB_DIR="__SSB_DIR__"
 PROJECT_DIR="__PROJECT_DIR__"
 LOCAL_MODE=true
@@ -25,6 +27,8 @@ while [[ $# -gt 0 ]]; do
         --scale) SCALE="$2"; shift 2 ;;
         --instance) INSTANCE="$2"; shift 2 ;;
         --auth-token) AUTH_TOKEN="$2"; shift 2 ;;
+        --dev) DEV=true; shift ;;
+        --remote-debugging-port) REMOTE_DEBUGGING_PORT="$2"; shift 2 ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -61,6 +65,10 @@ fi
 ELECTRON_ARGS=(. --host "$HOST" --port "$PORT" --scale "$SCALE")
 if [[ -n "$AUTH_TOKEN" ]]; then
     ELECTRON_ARGS+=(--auth-token "$AUTH_TOKEN")
+fi
+if [[ "$DEV" == true ]]; then
+    ELECTRON_ARGS+=(--dev)
+    ELECTRON_ARGS+=(--remote-debugging-port "$REMOTE_DEBUGGING_PORT")
 fi
 
 cd "$SSB_DIR"
