@@ -7,7 +7,6 @@ const args = parseArgs(process.argv.slice(2));
 const HOST = args.host || process.env.GUIDEBOOK_SSB_HOST || "127.0.0.1";
 const PORT = parseInt(args.port || process.env.GUIDEBOOK_SSB_PORT || "4280", 10);
 const AUTH_TOKEN = args.authToken || null;
-const DEV = args.dev || false;
 const SCALE = parseFloat(args.scale || process.env.GUIDEBOOK_SSB_SCALE || "2");
 app.commandLine.appendSwitch("force-device-scale-factor", String(SCALE));
 
@@ -26,7 +25,7 @@ function parseArgs(argv) {
     else if (argv[i] === "--port" && argv[i + 1]) result.port = argv[++i];
     else if (argv[i] === "--auth-token" && argv[i + 1]) result.authToken = argv[++i];
     else if (argv[i] === "--scale" && argv[i + 1]) result.scale = argv[++i];
-    else if (argv[i] === "--dev") result.dev = true;
+
   }
   return result;
 }
@@ -86,20 +85,12 @@ function createWindow() {
     }
   });
 
-  win.once("ready-to-show", () => {
-    win.show();
-    if (DEV) win.webContents.openDevTools();
-  });
+  win.once("ready-to-show", () => win.show());
   win.loadURL(START_URL);
 }
 
 // Disable default keyboard shortcuts
 function blockShortcuts() {
-  const devShortcuts = [
-    "CommandOrControl+Shift+I",
-    "CommandOrControl+Shift+J",
-    "F12",
-  ];
   const blocked = [
     "CommandOrControl+R",
     "CommandOrControl+Shift+R",
@@ -107,7 +98,8 @@ function blockShortcuts() {
     "CommandOrControl+T",
     "CommandOrControl+N",
     "CommandOrControl+W",
-    ...(DEV ? [] : devShortcuts),
+    "CommandOrControl+Shift+I",
+    "CommandOrControl+Shift+J",
     "F5",
     "F11",
     "Alt+Left",
