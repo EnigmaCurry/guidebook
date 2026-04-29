@@ -66,6 +66,14 @@ function createWindow() {
     return { action: "deny" };
   });
 
+  // App-local keyboard shortcuts
+  win.webContents.on("before-input-event", (event, input) => {
+    if (input.alt && !input.control && !input.meta && input.key === "w") {
+      event.preventDefault();
+      createWindow();
+    }
+  });
+
   win.once("ready-to-show", () => win.show());
   win.loadURL(START_URL);
 }
@@ -101,10 +109,6 @@ function blockShortcuts() {
     });
   }
 
-  // Alt+W: open a new window on the same session
-  globalShortcut.register("Alt+W", () => {
-    createWindow();
-  });
 }
 
 // Single instance lock — second launch focuses existing window
