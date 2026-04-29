@@ -96,6 +96,10 @@ docker-build: _check-docker
 docker-install: docker-build
     docker compose up -d
 
+# Follow container logs
+docker-logs: _check-docker
+    docker compose logs -f
+
 # Remove containers (preserves volumes)
 docker-uninstall: _check-docker
     docker compose down
