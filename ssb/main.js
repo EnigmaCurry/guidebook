@@ -57,6 +57,7 @@ function createWindow() {
     return { action: "deny" };
   });
 
+  win.webContents.setZoomFactor(2.0);
   win.loadURL(START_URL);
 }
 
