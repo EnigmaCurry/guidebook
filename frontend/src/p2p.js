@@ -20,6 +20,7 @@ let state = {
   iceState: "",
   signalingState: "",
   dcOpen: false,
+  routeType: "", // "direct" | "relay" | ""
   roomId: null,
   peerName: null,
   ownFingerprint: null,
@@ -55,6 +56,31 @@ function log(msg) {
   notify();
 }
 
+async function detectRouteType() {
+  if (!pc) return;
+  try {
+    const stats = await pc.getStats();
+    for (const report of stats.values()) {
+      if (report.type === "candidate-pair" && report.state === "succeeded") {
+        const local = stats.get(report.localCandidateId);
+        const typ = local ? local.candidateType : "unknown";
+        if (typ === "relay") {
+          state.routeType = "relay";
+          log("Route: relay (TURN)");
+        } else if (typ === "srflx") {
+          state.routeType = "srflx";
+          log("Route: direct via NAT traversal (STUN)");
+        } else {
+          state.routeType = "host";
+          log("Route: direct LAN");
+        }
+        notify();
+        return;
+      }
+    }
+  } catch {}
+}
+
 async function sendSignal(type, fields = {}) {
   if (!roomId) return;
   try {
@@ -70,11 +96,15 @@ async function sendSignal(type, fields = {}) {
 
 function setupDataChannel(channel) {
   dc = channel;
+  channel.binaryType = "arraybuffer";
   channel.onopen = () => {
     state.connectionState = "connected";
     state.dcOpen = true;
     dc = channel;
     log("Data channel open");
+    detectRouteType();
+    channel.send(JSON.stringify({ type: "sync-request" }));
+    log("Sync request sent");
   };
   channel.onclose = () => {
     log("Data channel closed");
@@ -83,6 +113,11 @@ function setupDataChannel(channel) {
     notify();
   };
   channel.onmessage = (e) => {
+    // Binary messages are file chunks
+    if (e.data instanceof ArrayBuffer) {
+      handleFileChunk(e.data);
+      return;
+    }
     try {
       const msg = JSON.parse(e.data);
       if (msg.type === "ping") {
@@ -91,20 +126,84 @@ function setupDataChannel(channel) {
         const rtt = Date.now() - msg.ts;
         state.pingResults = [...state.pingResults, rtt];
         log(`Pong: ${rtt}ms RTT`);
+      } else if (msg.type === "sync-request") {
+        handleSyncRequest(channel);
+      } else if (msg.type === "sync-offer") {
+        handleSyncOffer(msg.records, channel);
+      } else if (msg.type === "sync-attachment") {
+        handleSyncAttachment(msg);
+      } else if (msg.type === "sync-delete-attachment") {
+        handleSyncDeleteAttachment(msg);
+      } else if (msg.type === "sync-delete-record") {
+        handleSyncDeleteRecord(msg);
+      } else if (msg.type === "sync-ack") {
+        log(`Sync ack: ${msg.accepted} accepted, ${msg.skipped} skipped`);
+      } else if (msg.type === "chat-file") {
+        // Small inline file (< 10 MB)
+        log(`Received file: ${msg.filename} (${msg.size} bytes)`);
+        window.dispatchEvent(new CustomEvent("chat-file-received", { detail: {
+          fileId: msg.fileId,
+          filename: msg.filename,
+          content_type: msg.content_type,
+          size: msg.size,
+          data: msg.data,
+          peerName: peerName,
+          peerFingerprint: peerFingerprint,
+          roomId: roomId,
+        }}));
+      } else if (msg.type === "chat-file-offer") {
+        // Large file offer — receiver must accept
+        log(`Received file offer: ${msg.filename} (${msg.size} bytes)`);
+        incomingTransfers[msg.fileId] = {
+          filename: msg.filename,
+          content_type: msg.content_type,
+          totalBytes: msg.size,
+          chunks: [],
+          receivedBytes: 0,
+        };
+        window.dispatchEvent(new CustomEvent("chat-file-offer-incoming", { detail: {
+          fileId: msg.fileId,
+          filename: msg.filename,
+          content_type: msg.content_type,
+          size: msg.size,
+          peerName: peerName,
+          peerFingerprint: peerFingerprint,
+          roomId: roomId,
+        }}));
+      } else if (msg.type === "chat-file-accept") {
+        const cb = pendingOfferCallbacks[msg.fileId];
+        if (cb) { delete pendingOfferCallbacks[msg.fileId]; cb.resolve(); }
+      } else if (msg.type === "chat-file-reject") {
+        const cb = pendingOfferCallbacks[msg.fileId];
+        if (cb) { delete pendingOfferCallbacks[msg.fileId]; cb.reject(); }
+      } else if (msg.type === "chat-file-complete") {
+        handleFileComplete(msg.fileId);
+      } else if (msg.type === "chat-file-delete") {
+        log(`Received file delete: ${msg.fileId}`);
+        window.dispatchEvent(new CustomEvent("chat-file-deleted", { detail: {
+          fileId: msg.fileId,
+        }}));
       }
     } catch {}
   };
 }
 
-function createPC() {
+async function createPC() {
   if (pc) return;
   log("Creating RTCPeerConnection");
   state.connectionState = "connecting";
   notify();
 
-  pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  });
+  let iceServers = [];
+  try {
+    const res = await fetch("/api/chat/ice-servers");
+    if (res.ok) iceServers = await res.json();
+  } catch {}
+  if (iceServers.length > 0) {
+    log(`ICE servers: ${iceServers.map((s) => s.urls).join(", ")}`);
+  }
+
+  pc = new RTCPeerConnection({ iceServers });
 
   pc.onicecandidate = ({ candidate }) => {
     if (candidate) {
@@ -178,7 +277,7 @@ function isStale() {
 }
 
 /** Start a P2P connection to a peer (called from UI). */
-export function connect(rid, name, ownFp, peerFp) {
+export async function connect(rid, name, ownFp, peerFp) {
   if (pc && isStale()) { log("Clearing stale connection"); cleanup(true); }
   if (pc) return;
   roomId = rid;
@@ -190,7 +289,128 @@ export function connect(rid, name, ownFp, peerFp) {
   state.ownFingerprint = ownFp;
   state.peerFingerprint = peerFp;
   state.polite = ownFp < peerFp;
-  createPC();
+  await createPC();
+}
+
+/**
+ * Push a single record (and its attachments) to the connected peer
+ * if the peer is a recipient. If not connected, auto-connects first
+ * (the on-open sync will deliver the record).
+ */
+export async function pushRecord(record) {
+  if (!record.recipients || record.recipients.length === 0) return;
+
+  // If connected and peer is a recipient, push immediately
+  if (dc && dc.readyState === "open" && peerFingerprint) {
+    if (record.recipients.includes(peerFingerprint)) {
+      dc.send(JSON.stringify({ type: "sync-offer", records: [record] }));
+      log(`Pushed record to peer: ${record.title}`);
+      await pushAttachments(record);
+      return;
+    }
+  }
+
+  // Not connected (or connected to a different peer) — auto-connect
+  // to the first recipient that has a mutual room
+  await autoConnectForRecipients(record.recipients);
+}
+
+async function pushAttachments(record) {
+  if (!record.id || !dc || dc.readyState !== "open") return;
+  try {
+    const attRes = await fetch(`/api/records/${record.id}/attachments/`);
+    if (!attRes.ok) return;
+    const atts = await attRes.json();
+    for (const att of atts) {
+      const b64 = await fetchAttachmentAsBase64(record.id, att.id);
+      if (!b64) continue;
+      dc.send(
+        JSON.stringify({
+          type: "sync-attachment",
+          record_uuid: record.uuid,
+          filename: att.filename,
+          content_type: att.content_type,
+          data: b64,
+        })
+      );
+    }
+    if (atts.length > 0) log(`Pushed ${atts.length} attachments`);
+  } catch {}
+}
+
+/**
+ * Notify the connected peer that an attachment was deleted.
+ * Auto-connects if needed.
+ */
+export async function pushDeleteAttachment(recordUuid, filename, recipients) {
+  if (!recipients || recipients.length === 0) return;
+
+  if (dc && dc.readyState === "open" && peerFingerprint) {
+    if (recipients.includes(peerFingerprint)) {
+      dc.send(
+        JSON.stringify({
+          type: "sync-delete-attachment",
+          record_uuid: recordUuid,
+          filename: filename,
+        })
+      );
+      log(`Pushed attachment deletion: ${filename}`);
+      return;
+    }
+  }
+
+  // Not connected — auto-connect; on-open sync won't delete, but the
+  // attachment won't exist on our side so it won't be sent either.
+  // For an explicit delete we need to queue it and send after connect.
+  // For now, auto-connect so future syncs are consistent.
+  await autoConnectForRecipients(recipients);
+}
+
+/**
+ * Notify the connected peer that a record was deleted.
+ * Auto-connects if needed.
+ */
+export async function pushDeleteRecord(recordUuid, recipients) {
+  if (!recipients || recipients.length === 0) return;
+
+  if (dc && dc.readyState === "open" && peerFingerprint) {
+    if (recipients.includes(peerFingerprint)) {
+      dc.send(
+        JSON.stringify({
+          type: "sync-delete-record",
+          record_uuid: recordUuid,
+        })
+      );
+      log(`Pushed record deletion: ${recordUuid}`);
+      return;
+    }
+  }
+
+  await autoConnectForRecipients(recipients);
+}
+
+async function autoConnectForRecipients(recipients) {
+  // Already connected to one of the recipients — on-open sync will handle it
+  if (pc && !isStale() && peerFingerprint && recipients.includes(peerFingerprint))
+    return;
+  try {
+    const [statusRes, roomsRes] = await Promise.all([
+      fetch("/api/chat/status"),
+      fetch("/api/chat/rooms"),
+    ]);
+    if (!statusRes.ok || !roomsRes.ok) return;
+    const chatStatus = await statusRes.json();
+    const rooms = await roomsRes.json();
+    if (!chatStatus.fingerprint) return;
+
+    for (const fp of recipients) {
+      const room = rooms.find((r) => r.fingerprint === fp);
+      if (!room) continue;
+      log(`Auto-connecting to ${room.name} for record sync`);
+      connect(room.id, room.name, chatStatus.fingerprint, room.fingerprint);
+      return;
+    }
+  } catch {}
 }
 
 export function sendPing() {
@@ -200,6 +420,186 @@ export function sendPing() {
   }
 }
 
+// --- Chat file transfer ---
+
+const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10 MB
+const CHUNK_SIZE = 65536; // 64 KB
+const MAX_BUFFERED = 1048576; // 1 MB
+
+let fileIdCounter = 0;
+const pendingOfferCallbacks = {};
+const incomingTransfers = {};
+
+/**
+ * Send a file to the connected peer.
+ * Small files (< 10 MB) are sent inline as base64.
+ * Large files use chunked binary transfer with offer/accept.
+ */
+export function sendChatFile(file) {
+  if (!dc || dc.readyState !== "open") {
+    return Promise.reject(new Error("No open P2P connection"));
+  }
+  const fileId = `${Date.now()}-${++fileIdCounter}`;
+  if (file.size < LARGE_FILE_THRESHOLD) {
+    return sendSmallFile(file, fileId);
+  }
+  return sendLargeFile(file, fileId);
+}
+
+function sendSmallFile(file, fileId) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const b64 = reader.result.split(",")[1];
+      const msg = {
+        type: "chat-file",
+        fileId,
+        filename: file.name,
+        content_type: file.type || "application/octet-stream",
+        size: file.size,
+        data: b64,
+      };
+      dc.send(JSON.stringify(msg));
+      log(`Sent file: ${file.name} (${file.size} bytes)`);
+      resolve(msg);
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function sendLargeFile(file, fileId) {
+  dc.send(JSON.stringify({
+    type: "chat-file-offer",
+    fileId,
+    filename: file.name,
+    content_type: file.type || "application/octet-stream",
+    size: file.size,
+  }));
+  log(`Sent file offer: ${file.name} (${file.size} bytes)`);
+
+  window.dispatchEvent(new CustomEvent("chat-file-offer-sent", { detail: {
+    fileId,
+    filename: file.name,
+    content_type: file.type || "application/octet-stream",
+    size: file.size,
+  }}));
+
+  return new Promise((resolve, reject) => {
+    pendingOfferCallbacks[fileId] = {
+      resolve: async () => {
+        try {
+          await sendFileChunks(fileId, file);
+          dc.send(JSON.stringify({ type: "chat-file-complete", fileId }));
+          log(`File transfer complete: ${file.name}`);
+          resolve({ fileId, filename: file.name, content_type: file.type || "application/octet-stream", size: file.size });
+        } catch (err) {
+          reject(err);
+        }
+      },
+      reject: () => {
+        log(`File transfer rejected: ${file.name}`);
+        reject(new Error("File transfer rejected"));
+      },
+    };
+  });
+}
+
+async function sendFileChunks(fileId, file) {
+  const encoder = new TextEncoder();
+  const idBytes = encoder.encode(fileId);
+  let offset = 0;
+
+  while (offset < file.size) {
+    if (!dc || dc.readyState !== "open") throw new Error("Connection lost");
+
+    // Flow control: wait if send buffer is full
+    while (dc.bufferedAmount > MAX_BUFFERED) {
+      await new Promise((resolve) => {
+        const onLow = () => { resolve(); };
+        dc.addEventListener("bufferedamountlow", onLow, { once: true });
+        dc.bufferedAmountLowThreshold = MAX_BUFFERED / 2;
+      });
+      if (!dc || dc.readyState !== "open") throw new Error("Connection lost");
+    }
+
+    const end = Math.min(offset + CHUNK_SIZE, file.size);
+    const chunkData = await file.slice(offset, end).arrayBuffer();
+
+    // Binary message: [idLen:2][id:N][data:...]
+    const header = new Uint8Array(2 + idBytes.length);
+    header[0] = (idBytes.length >> 8) & 0xff;
+    header[1] = idBytes.length & 0xff;
+    header.set(idBytes, 2);
+    const msg = new Uint8Array(header.length + chunkData.byteLength);
+    msg.set(header);
+    msg.set(new Uint8Array(chunkData), header.length);
+    dc.send(msg.buffer);
+
+    offset = end;
+    window.dispatchEvent(new CustomEvent("chat-file-send-progress", {
+      detail: { fileId, sentBytes: offset, totalBytes: file.size },
+    }));
+  }
+}
+
+function handleFileChunk(buffer) {
+  const view = new Uint8Array(buffer);
+  const idLen = (view[0] << 8) | view[1];
+  const decoder = new TextDecoder();
+  const fileId = decoder.decode(view.slice(2, 2 + idLen));
+  const chunkData = view.slice(2 + idLen);
+
+  const transfer = incomingTransfers[fileId];
+  if (!transfer) return;
+  transfer.chunks.push(chunkData);
+  transfer.receivedBytes += chunkData.byteLength;
+
+  window.dispatchEvent(new CustomEvent("chat-file-recv-progress", {
+    detail: { fileId, receivedBytes: transfer.receivedBytes, totalBytes: transfer.totalBytes },
+  }));
+}
+
+function handleFileComplete(fileId) {
+  const transfer = incomingTransfers[fileId];
+  if (!transfer) return;
+  delete incomingTransfers[fileId];
+
+  const blob = new Blob(transfer.chunks, { type: transfer.content_type });
+  const url = URL.createObjectURL(blob);
+  log(`File received: ${transfer.filename} (${transfer.totalBytes} bytes)`);
+
+  window.dispatchEvent(new CustomEvent("chat-file-received", { detail: {
+    fileId,
+    filename: transfer.filename,
+    content_type: transfer.content_type,
+    size: transfer.totalBytes,
+    blobUrl: url,
+    peerName: peerName,
+    peerFingerprint: peerFingerprint,
+    roomId: roomId,
+  }}));
+}
+
+export function acceptFileTransfer(fileId) {
+  if (!dc || dc.readyState !== "open") return;
+  dc.send(JSON.stringify({ type: "chat-file-accept", fileId }));
+  log(`Accepted file transfer: ${fileId}`);
+}
+
+export function rejectFileTransfer(fileId) {
+  if (!dc || dc.readyState !== "open") return;
+  dc.send(JSON.stringify({ type: "chat-file-reject", fileId }));
+  delete incomingTransfers[fileId];
+  log(`Rejected file transfer: ${fileId}`);
+}
+
+export function sendChatFileDelete(fileId) {
+  if (!dc || dc.readyState !== "open") return;
+  dc.send(JSON.stringify({ type: "chat-file-delete", fileId }));
+  log(`Sent file delete: ${fileId}`);
+}
+
 export function hangup() {
   sendSignal("webrtc-hangup");
   cleanup(false);
@@ -207,6 +607,14 @@ export function hangup() {
 
 function cleanup(silent) {
   if (iceDisconnectTimer) { clearTimeout(iceDisconnectTimer); iceDisconnectTimer = null; }
+  // Abort pending file transfers
+  for (const fileId of Object.keys(pendingOfferCallbacks)) {
+    pendingOfferCallbacks[fileId].reject();
+    delete pendingOfferCallbacks[fileId];
+  }
+  for (const fileId of Object.keys(incomingTransfers)) {
+    delete incomingTransfers[fileId];
+  }
   if (dc) { try { dc.close(); } catch {} dc = null; }
   if (pc) { try { pc.close(); } catch {} pc = null; }
   roomId = null;
@@ -218,6 +626,7 @@ function cleanup(silent) {
   state.iceState = "";
   state.signalingState = "";
   state.dcOpen = false;
+  state.routeType = "";
   state.roomId = null;
   state.peerName = null;
   state.ownFingerprint = null;
@@ -233,7 +642,7 @@ function cleanup(silent) {
 
 // --- Event handlers called from App.svelte SSE dispatch ---
 
-export function handleOffer(detail, rooms, chatStatus) {
+export async function handleOffer(detail, rooms, chatStatus) {
   if (detail.room_id === roomId && pc) {
     if (isStale()) {
       // Stale connection to same room — tear down and reconnect
@@ -260,7 +669,7 @@ export function handleOffer(detail, rooms, chatStatus) {
   state.ownFingerprint = ownFingerprint;
   state.peerFingerprint = peerFingerprint;
   state.polite = ownFingerprint < peerFingerprint;
-  createPC();
+  await createPC();
   _handleOfferInternal(detail);
 }
 
@@ -313,4 +722,176 @@ export function handleHangup(detail) {
   if (detail.room_id !== roomId) return;
   log("Remote peer hung up");
   cleanup(false);
+}
+
+// --- P2P Record Sync ---
+
+const SYNC_BATCH_SIZE = 50;
+
+async function fetchAttachmentAsBase64(recordId, attId) {
+  const res = await fetch(
+    `/api/records/${recordId}/attachments/${attId}/download`
+  );
+  if (!res.ok) return null;
+  const blob = await res.blob();
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      // Strip the data:...;base64, prefix
+      const b64 = reader.result.split(",")[1];
+      resolve(b64);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function handleSyncRequest(channel) {
+  try {
+    const res = await fetch("/api/records/?limit=10000");
+    if (!res.ok) return;
+    const records = await res.json();
+    const forPeer = records.filter(
+      (r) => r.recipients && r.recipients.includes(peerFingerprint)
+    );
+
+    // Fetch attachment metadata for each record
+    for (const rec of forPeer) {
+      try {
+        const attRes = await fetch(`/api/records/${rec.id}/attachments/`);
+        if (attRes.ok) {
+          const atts = await attRes.json();
+          rec.attachments = atts.map((a) => ({
+            id: a.id,
+            filename: a.filename,
+            content_type: a.content_type,
+            size: a.size,
+          }));
+        }
+      } catch {}
+    }
+
+    // Send record metadata in batches
+    for (let i = 0; i < forPeer.length; i += SYNC_BATCH_SIZE) {
+      const batch = forPeer.slice(i, i + SYNC_BATCH_SIZE);
+      channel.send(JSON.stringify({ type: "sync-offer", records: batch }));
+    }
+    if (forPeer.length === 0) {
+      channel.send(JSON.stringify({ type: "sync-offer", records: [] }));
+    }
+    log(`Sync offer sent: ${forPeer.length} records`);
+
+    // Send attachment data for each record
+    let attCount = 0;
+    for (const rec of forPeer) {
+      if (!rec.attachments || rec.attachments.length === 0) continue;
+      for (const att of rec.attachments) {
+        const b64 = await fetchAttachmentAsBase64(rec.id, att.id);
+        if (!b64) continue;
+        channel.send(
+          JSON.stringify({
+            type: "sync-attachment",
+            record_uuid: rec.uuid,
+            filename: att.filename,
+            content_type: att.content_type,
+            data: b64,
+          })
+        );
+        attCount++;
+      }
+    }
+    if (attCount > 0) log(`Sent ${attCount} attachments`);
+  } catch (err) {
+    log(`Sync request error: ${err.message}`);
+  }
+}
+
+async function handleSyncOffer(records, channel) {
+  let accepted = 0;
+  let skipped = 0;
+  for (const rec of records) {
+    try {
+      // Add the sender as a recipient so updates flow back
+      if (peerFingerprint) {
+        const recipients = rec.recipients || [];
+        if (!recipients.includes(peerFingerprint)) {
+          rec.recipients = [...recipients, peerFingerprint];
+        }
+      }
+      const res = await fetch("/api/records/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rec),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        if (result.action === "created" || result.action === "updated")
+          accepted++;
+        else skipped++;
+      }
+    } catch {}
+  }
+  channel.send(JSON.stringify({ type: "sync-ack", accepted, skipped }));
+  log(`Sync complete: ${accepted} accepted, ${skipped} skipped`);
+}
+
+async function handleSyncAttachment(msg) {
+  try {
+    const res = await fetch("/api/records/sync-attachment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        record_uuid: msg.record_uuid,
+        filename: msg.filename,
+        content_type: msg.content_type,
+        data: msg.data,
+      }),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (result.action === "created") {
+        log(`Attachment synced: ${msg.filename}`);
+      }
+    }
+  } catch (err) {
+    log(`Attachment sync error: ${err.message}`);
+  }
+}
+
+async function handleSyncDeleteAttachment(msg) {
+  try {
+    const res = await fetch("/api/records/sync-delete-attachment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        record_uuid: msg.record_uuid,
+        filename: msg.filename,
+      }),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (result.action === "deleted") {
+        log(`Attachment deleted via sync: ${msg.filename}`);
+      }
+    }
+  } catch (err) {
+    log(`Attachment delete sync error: ${err.message}`);
+  }
+}
+
+async function handleSyncDeleteRecord(msg) {
+  try {
+    const res = await fetch("/api/records/sync-delete-record", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ record_uuid: msg.record_uuid }),
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (result.action === "deleted") {
+        log(`Record deleted via sync: ${msg.record_uuid}`);
+      }
+    }
+  } catch (err) {
+    log(`Record delete sync error: ${err.message}`);
+  }
 }

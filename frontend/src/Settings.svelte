@@ -444,6 +444,11 @@
   let natsReplacing = { ca: false, cert: false, key: false };
   let natsChatEnabled = false;
   let natsLobbyEnabled = false;
+  let turnServer = "";
+  let turnSecret = "";
+  let turnSaving = false;
+  let iceTestResult = null;
+  let iceTestRunning = false;
 
   async function loadNatsStatus() {
     try {
@@ -1372,6 +1377,8 @@
           if (s.key === "update_check_enabled") update_check_enabled = s.value !== "false";
           if (s.key === "nats_enabled") natsEnabled = s.value === "true";
           if (s.key === "nats_endpoint") natsEndpoint = s.value || "";
+          if (s.key === "turn_server") turnServer = s.value || "";
+          if (s.key === "turn_secret") turnSecret = s.value === "***" ? "" : (s.value || "");
         }
         globalSettingsLoaded = true;
       }
@@ -1391,6 +1398,98 @@
   async function saveAppName() {
     await saveGlobalSetting("app_name", appNameInput);
     dispatch("app-name-changed");
+  }
+
+  async function saveTurnSettings() {
+    turnSaving = true;
+    iceTestResult = null;
+    try {
+      await saveGlobalSetting("turn_server", turnServer.trim());
+      // Only update the secret if the user entered a new value
+      if (turnSecret.trim()) {
+        await saveGlobalSetting("turn_secret", turnSecret.trim());
+      }
+    } finally {
+      turnSaving = false;
+    }
+  }
+
+  async function saveAndTestTurn() {
+    await saveTurnSettings();
+    await testIceServers();
+  }
+
+  async function testIceServers() {
+    // Fetch computed credentials from server
+    let iceServers = [];
+    try {
+      const res = await fetch("/api/chat/ice-servers");
+      if (res.ok) iceServers = await res.json();
+    } catch (err) {
+      iceTestResult = { status: "error", error: err.message };
+      return;
+    }
+    if (iceServers.length === 0) {
+      iceTestResult = { status: "ok", host: 0, srflx: 0, relay: 0, candidates: [], detail: "No TURN server configured (LAN-only)" };
+      return;
+    }
+
+    iceTestRunning = true;
+    iceTestResult = null;
+
+    const result = { host: 0, srflx: 0, relay: 0, candidates: [] };
+    let testPc;
+    try {
+      testPc = new RTCPeerConnection({ iceServers });
+      testPc.createDataChannel("ice-test");
+
+      const gatherDone = new Promise((resolve) => {
+        const timeout = setTimeout(resolve, 5000);
+        testPc.onicecandidate = ({ candidate }) => {
+          if (!candidate) { clearTimeout(timeout); resolve(); return; }
+          const typ = candidate.type;
+          if (typ === "host") result.host++;
+          else if (typ === "srflx") result.srflx++;
+          else if (typ === "relay") result.relay++;
+          result.candidates.push(
+            `${typ} ${candidate.protocol || ""} ${candidate.address || "?"}:${candidate.port || "?"}`
+          );
+        };
+      });
+
+      const offer = await testPc.createOffer();
+      await testPc.setLocalDescription(offer);
+      await gatherDone;
+
+      if (iceServers.length === 0) {
+        iceTestResult = { status: "ok", ...result, detail: "No ICE servers configured (LAN-only)" };
+      } else {
+        const hasTurn = iceServers.some(s => (s.urls || "").toString().startsWith("turn:"));
+        const hasStun = iceServers.some(s => (s.urls || "").toString().startsWith("stun:"));
+        let status = "ok";
+        let detail = "";
+        const parts = [];
+        if (result.host > 0) parts.push(`${result.host} host`);
+        if (result.srflx > 0) parts.push(`${result.srflx} srflx`);
+        if (result.relay > 0) parts.push(`${result.relay} relay`);
+        detail = `Candidates: ${parts.join(", ") || "none"}`;
+
+        if (hasStun && result.srflx === 0) {
+          status = "warning";
+          detail += " — STUN server did not return srflx candidates";
+        }
+        if (hasTurn && result.relay === 0) {
+          status = "error";
+          detail += " — TURN server did not return relay candidates (check credentials)";
+        }
+        iceTestResult = { status, ...result, detail };
+      }
+    } catch (err) {
+      iceTestResult = { status: "error", error: err.message, ...result };
+    } finally {
+      if (testPc) { try { testPc.close(); } catch {} }
+      iceTestRunning = false;
+    }
   }
 
   async function saveGlobalSetting(key, value) {
@@ -2419,9 +2518,6 @@
       {#if natsStatus.cn}
         <p class="hint">Client CN: {natsStatus.cn}</p>
       {/if}
-      <div class="setting-row" style="margin-top: 0.5em;">
-        <button class="btn" on:click={async () => { await fetch("/api/nats/restart", { method: "POST" }); }}>Reconnect</button>
-      </div>
     </section>
 
     <section class="settings-section">
@@ -2516,6 +2612,50 @@
       {/if}
     </section>
     {/if}
+
+    <section class="settings-section">
+      <h3>TURN Server (WebRTC)</h3>
+      <p class="hint">Configure a TURN relay server for P2P connections across the internet. Credentials are generated automatically from the shared secret. Leave empty for LAN-only connections.</p>
+      <div class="setting-row">
+        <label for="turn-server">Server:Port</label>
+        <input id="turn-server" type="text" bind:value={turnServer} placeholder="turn.example.com:3478" />
+      </div>
+      <div class="setting-row">
+        <label for="turn-secret">Shared Secret</label>
+        <input id="turn-secret" type="password" bind:value={turnSecret} placeholder="coturn static-auth-secret" />
+      </div>
+      <div class="button-row">
+        <button class="save-btn" on:click={saveAndTestTurn} disabled={turnSaving || iceTestRunning}>
+          {turnSaving ? "Saving..." : iceTestRunning ? "Testing..." : "Save & Test"}
+        </button>
+        <button class="cancel-btn" on:click={testIceServers} disabled={iceTestRunning}>
+          {iceTestRunning ? "Testing..." : "Test Only"}
+        </button>
+      </div>
+      {#if iceTestRunning}
+        <p class="hint">Gathering ICE candidates (up to 5s)...</p>
+      {/if}
+      {#if iceTestResult}
+        <div class="ice-test-result ice-test-{iceTestResult.status}">
+          {#if iceTestResult.error}
+            <p>Error: {iceTestResult.error}</p>
+          {/if}
+          {#if iceTestResult.detail}
+            <p>{iceTestResult.detail}</p>
+          {/if}
+          {#if iceTestResult.candidates && iceTestResult.candidates.length > 0}
+            <details>
+              <summary>{iceTestResult.candidates.length} candidate{iceTestResult.candidates.length === 1 ? "" : "s"} found</summary>
+              <ul class="ice-candidates">
+                {#each iceTestResult.candidates as c}
+                  <li>{c}</li>
+                {/each}
+              </ul>
+            </details>
+          {/if}
+        </div>
+      {/if}
+    </section>
 
     {/if}
   </div></div>
@@ -2911,6 +3051,21 @@
     font-size: 0.7rem;
     color: var(--text-dim);
   }
+
+  .ice-test-result {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+  }
+  .ice-test-ok { background: rgba(0, 180, 0, 0.15); color: #4caf50; }
+  .ice-test-warning { background: rgba(255, 165, 0, 0.15); color: #ffa726; }
+  .ice-test-error { background: rgba(255, 50, 50, 0.15); color: #ff4444; }
+  .ice-test-result p { margin: 0 0 0.25rem; }
+  .ice-test-result details { margin-top: 0.25rem; }
+  .ice-test-result summary { cursor: pointer; font-size: 0.75rem; }
+  .ice-candidates { margin: 0.25rem 0 0; padding-left: 1.2rem; font-size: 0.7rem; font-family: monospace; }
+  .ice-candidates li { margin: 0.1rem 0; }
 
   .toggle-row {
     flex-direction: row;

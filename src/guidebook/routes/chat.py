@@ -1,8 +1,14 @@
+import base64
+import hashlib
+import hmac
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import select
 
+from guidebook.db import InstanceSetting, db_manager
 from guidebook.chat import (
     WEBRTC_SIGNAL_TYPES,
     accept_verification,
@@ -34,6 +40,48 @@ class SignalMessage(BaseModel):
     sdpMid: str | None = None
     sdpMLineIndex: int | None = None
     ts: float | None = None
+
+
+TURN_TTL_SECONDS = 14400  # 4 hours
+
+
+@router.get("/ice-servers")
+async def get_ice_servers():
+    """Return ICE servers with ephemeral TURN credentials computed from shared secret."""
+    if db_manager._instance_session_factory is None:
+        return []
+    async with db_manager._instance_session_factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    select(InstanceSetting).where(
+                        InstanceSetting.key.in_(["turn_server", "turn_secret"])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    settings = {r.key: r.value for r in rows if r.value}
+    server = settings.get("turn_server", "").strip()
+    secret = settings.get("turn_secret", "").strip()
+    if not server or not secret:
+        return []
+
+    expiry = int(time.time()) + TURN_TTL_SECONDS
+    username = f"{expiry}:guidebook"
+    password = base64.b64encode(
+        hmac.new(secret.encode(), username.encode(), hashlib.sha1).digest()
+    ).decode()
+
+    return [
+        {"urls": f"stun:{server}"},
+        {
+            "urls": f"turn:{server}",
+            "username": username,
+            "credential": password,
+        },
+    ]
 
 
 @router.get("/status")

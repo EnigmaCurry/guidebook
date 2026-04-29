@@ -65,6 +65,7 @@
   let formDirty = false;
   let dualShowForm = !!editId || (page === "dual" && (window.location.hash.slice(1) === "/add"));
   let recordsRef = null;
+  let chatRef = null;
   let recordAutoCreated = false;
   let databaseRight = false;
   let mediaSearchQuery = "";
@@ -97,6 +98,12 @@
     // If dropped on the attachments section, Records already handled the upload
     if (e.target.closest?.(".attachments-section")) return;
     const files = e.dataTransfer.files;
+
+    // If on chat page with an active room, send files via WebRTC (auto-connects if needed)
+    if (page === "chat" && chatRef && chatRef.canDropFiles()) {
+      chatRef.dropFiles(files);
+      return;
+    }
 
     // If Records component exists and has a form open, upload to it
     if (recordsRef) {
@@ -169,6 +176,9 @@
   let natsChatEnabled = false;
   let natsConnected = false;
   let chatRoomCount = 0;
+  let chatRooms = [];
+  let chatPeers = [];
+  $: onlineFriendCount = chatRooms.filter(r => chatPeers.some(p => p.fingerprint === r.fingerprint)).length;
   let noShutdown = false;
   let unreadCount = 0;
   let prevUnreadCount = -1;
@@ -613,7 +623,8 @@
       eventSource.addEventListener(evt, (e) => {
         const detail = JSON.parse(e.data);
         window.dispatchEvent(new CustomEvent(evt, { detail }));
-        if (evt === "chat-rooms") { chatRoomCount = (detail.rooms || []).length; }
+        if (evt === "chat-rooms") { chatRooms = detail.rooms || []; chatRoomCount = chatRooms.length; }
+        if (evt === "chat-peers") { chatPeers = detail.peers || []; }
         if (evt === "webrtc-offer") {
           (async () => {
             try {
@@ -820,8 +831,12 @@
 
   async function fetchChatRoomCount() {
     try {
-      const res = await fetch("/api/chat/rooms");
-      if (res.ok) chatRoomCount = (await res.json()).length;
+      const [roomsRes, peersRes] = await Promise.all([
+        fetch("/api/chat/rooms"),
+        fetch("/api/chat/peers"),
+      ]);
+      if (roomsRes.ok) { chatRooms = await roomsRes.json(); chatRoomCount = chatRooms.length; }
+      if (peersRes.ok) { chatPeers = await peersRes.json(); }
     } catch {}
   }
 
@@ -1109,7 +1124,7 @@
 <main class:picker-mode={pickerMode && !databaseOpen} class:dual-mode={page === "dual"} class:records-mode={page === "records" || page === "add"} class:query-mode={page === "query"} class:scratchpad-mode={page === "scratchpad"} class:chat-mode={page === "chat"} class:settings-mode={page === "settings"}>
   {#if globalDragOver && databaseOpen}
     <div class="global-drop-overlay">
-      <div class="global-drop-message">Drop files to attach</div>
+      <div class="global-drop-message">{page === "chat" && chatRef && chatRef.canDropFiles() ? "Drop files to send via P2P" : "Drop files to attach"}</div>
     </div>
   {/if}
   {#if authBlocked}
@@ -1135,7 +1150,7 @@
         <h1 class="app-title"><span class="title-full">{appName}</span><span class="title-short">{appName.slice(0, 2).toUpperCase()}</span>{#if appVersion}<span class="app-version" title={!appFrozen ? "Local build" : updateChecked && updateExact ? "Up to date" : updateChecked && updateDev ? "Development version" : !updateChecked ? "Enable update checker in the settings" : ""} on:click={() => { navigate("about"); }} style="cursor: pointer">v{appVersion}{#if updateSupported && updateChecked && updateExact}<span class="up-to-date-check">✔</span>{/if}{#if (updateChecked && updateDev) || !appFrozen}<span class="dev-version">🚧</span>{/if}{#if updateAvailable} <button class="update-link-btn" title={"v" + updateLatest + " available"} on:click|stopPropagation={() => { settingsTab = "updates"; navigate("settings"); }}>Update Available</button><button class="update-skip-btn" title="Skip this version" on:click|stopPropagation={skipUpdate}>✕</button>{/if}</span>{/if}</h1>
       </div>
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-      <span class="client-count"><span class="client-count-link" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>{#if natsChatEnabled && natsConnected && chatRoomCount > 0}<span class="client-count-sep"> + </span><span class="client-count-link" on:click={() => navigate("chat")} title="Mutual friends">{chatRoomCount} friend{chatRoomCount !== 1 ? "s" : ""}</span>{/if}</span>
+      <span class="client-count"><span class="client-count-link" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>{#if natsChatEnabled && natsConnected && onlineFriendCount > 0}<span class="client-count-sep"> + </span><span class="client-count-link" on:click={() => navigate("chat")} title="Online friends">{onlineFriendCount} friend{onlineFriendCount !== 1 ? "s" : ""}</span>{/if}</span>
     </header>
     <div class="welcome-container">
       <div class="welcome-card">
@@ -1172,7 +1187,7 @@
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-    <span class="client-count"><span class="client-count-link" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>{#if natsChatEnabled && natsConnected && chatRoomCount > 0}<span class="client-count-sep"> + </span><span class="client-count-link" on:click={() => navigate("chat")} title="Mutual friends">{chatRoomCount} friend{chatRoomCount !== 1 ? "s" : ""}</span>{/if}</span>
+    <span class="client-count"><span class="client-count-link" on:click={() => { settingsTab = "auth"; navigate("settings"); }} title="Connected clients">{clientCount} client{clientCount !== 1 ? "s" : ""}</span>{#if natsChatEnabled && natsConnected && onlineFriendCount > 0}<span class="client-count-sep"> + </span><span class="client-count-link" on:click={() => navigate("chat")} title="Online friends">{onlineFriendCount} friend{onlineFriendCount !== 1 ? "s" : ""}</span>{/if}</span>
     <div class="hamburger-wrap">
       {#if wide}
         <button class="add-btn dual-btn" class:active-nav={dualRightPage === "media"} on:click={() => { dualRightPage = "media"; navigate("media"); }} title="Records & Media">{#if dualRightPage === "media" && !databaseRight}<Icon icon={iconBook} width={14} />{/if}<Icon icon={iconCamera} width={18} />{#if dualRightPage === "media" && databaseRight}<Icon icon={iconBook} width={14} />{/if}</button>
@@ -1253,7 +1268,7 @@
     {:else if page === "scratchpad"}
       <Scratchpad />
     {:else if page === "chat"}
-      <Chat />
+      <Chat bind:this={chatRef} />
     {:else if page === "about"}
       <About />
     {/if}

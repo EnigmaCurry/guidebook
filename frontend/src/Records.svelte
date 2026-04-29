@@ -1,6 +1,7 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from "svelte";
   import { storageGet, storageSet } from "./storage.js";
+  import { pushRecord, pushDeleteAttachment, pushDeleteRecord } from "./p2p.js";
   import Icon from "@iconify/svelte";
   import iconPencil from "@iconify-icons/twemoji/pencil";
 
@@ -21,6 +22,7 @@
   let formContent = "";
   let formTags = "";
   let formId = null;
+  let formUuid = null;
   let formAutoCreated = false;
   let saving = false;
   let error = "";
@@ -37,6 +39,9 @@
   let attDragCounter = 0;
   let previewIndex = -1;
   let selectedTags = new Set();
+  let formRecipients = [];
+  let origRecipients = [];
+  let trustedPeers = [];
 
   $: previewableAttachments = attachments.filter(a =>
     a.content_type.startsWith("image/") ||
@@ -300,7 +305,7 @@
   $: if (showForm && !formId && (formTitle || formContent || formTags)) {
     formDirty = true;
   }
-  $: if (showForm && formId && (formTitle !== origTitle || formContent !== origContent || formTags !== origTags)) {
+  $: if (showForm && formId && (formTitle !== origTitle || formContent !== origContent || formTags !== origTags || JSON.stringify(formRecipients) !== JSON.stringify(origRecipients))) {
     formDirty = true;
   }
 
@@ -376,6 +381,7 @@
   onMount(() => {
     fetchRecords();
     connectRecordsSSE();
+    fetchTrustedPeers();
     document.addEventListener("drop", onDocDrop);
     document.addEventListener("dragend", onDocDragEnd);
   });
@@ -402,6 +408,24 @@
     loading = false;
   }
 
+  async function fetchTrustedPeers() {
+    try {
+      const res = await fetch("/api/chat/trusted");
+      if (res.ok) {
+        const peers = await res.json();
+        trustedPeers = peers.filter(p => p.mutual);
+      }
+    } catch {}
+  }
+
+  function toggleRecipient(fp, checked) {
+    if (checked) {
+      formRecipients = [...formRecipients, fp];
+    } else {
+      formRecipients = formRecipients.filter(f => f !== fp);
+    }
+  }
+
   function onSearchInput() {
     clearTimeout(searchTimeout);
     searchTimeout = setTimeout(fetchRecords, 300);
@@ -410,9 +434,12 @@
 
   async function startNew() {
     formId = null;
+    formUuid = null;
     formTitle = "";
     formContent = "";
     formTags = "";
+    formRecipients = [];
+    origRecipients = [];
     error = "";
     attachments = [];
     attachmentError = "";
@@ -428,9 +455,12 @@
       if (res.ok) {
         const r = await res.json();
         formId = r.id;
+        formUuid = r.uuid;
         formTitle = origTitle = r.title || "";
         formContent = origContent = r.content || "";
         formTags = origTags = r.tags || "";
+        formRecipients = r.recipients || [];
+        origRecipients = [...formRecipients];
         showForm = true;
         formDirty = false;
         fetchAttachments(r.id);
@@ -440,9 +470,12 @@
 
   function editRecord(r) {
     formId = r.id;
+    formUuid = r.uuid;
     formTitle = origTitle = r.title || "";
     formContent = origContent = r.content || "";
     formTags = origTags = r.tags || "";
+    formRecipients = r.recipients || [];
+    origRecipients = [...formRecipients];
     error = "";
     attachmentError = "";
     showForm = true;
@@ -462,6 +495,7 @@
       title: formTitle.trim(),
       content: formContent.trim() || null,
       tags: formTags.trim() || null,
+      recipients: formRecipients.length > 0 ? formRecipients : null,
     };
     try {
       let res;
@@ -479,6 +513,8 @@
         });
       }
       if (res.ok) {
+        const saved = await res.json();
+        pushRecord(saved);
         formAutoCreated = false;
         cancelForm();
         await fetchRecords();
@@ -494,8 +530,12 @@
 
   async function deleteRecord(id) {
     if (!confirm("Delete this record?")) return;
+    const rec = records.find(r => r.id === id);
     try {
       await fetch(`/api/records/${id}`, { method: "DELETE" });
+      if (rec && rec.uuid && rec.recipients) {
+        pushDeleteRecord(rec.uuid, rec.recipients);
+      }
       if (formId === id) cancelForm();
       await fetchRecords();
     } catch {}
@@ -511,6 +551,7 @@
     editId = null;
     showForm = false;
     formId = null;
+    formUuid = null;
     formAutoCreated = false;
     selectedIndex = -1;
     dispatch("editchange", null);
@@ -518,6 +559,8 @@
     formTitle = "";
     formContent = "";
     formTags = "";
+    formRecipients = [];
+    origRecipients = [];
     error = "";
     attachments = [];
     attachmentError = "";
@@ -586,8 +629,12 @@
 
   async function deleteAttachment(attId) {
     if (!confirm("Delete this attachment? This cannot be undone.")) return;
+    const att = attachments.find(a => a.id === attId);
     try {
       await fetch(`/api/records/${formId}/attachments/${attId}`, { method: "DELETE" });
+      if (att && formUuid) {
+        pushDeleteAttachment(formUuid, att.filename, formRecipients);
+      }
       await fetchAttachments(formId);
     } catch {}
   }
@@ -717,6 +764,22 @@
         <label for="rec-tags">Tags</label>
         <input id="rec-tags" type="text" bind:value={formTags} placeholder="Tags (optional, comma-separated)" />
       </div>
+      {#if trustedPeers.length > 0}
+        <div class="form-field">
+          <!-- svelte-ignore a11y-label-has-associated-control -->
+          <label>Recipients</label>
+          <div class="recipients-list">
+            {#each trustedPeers as peer (peer.fingerprint)}
+              <label class="recipient-checkbox">
+                <input type="checkbox"
+                  checked={formRecipients.includes(peer.fingerprint)}
+                  on:change={e => toggleRecipient(peer.fingerprint, e.target.checked)} />
+                {peer.cn}
+              </label>
+            {/each}
+          </div>
+        </div>
+      {/if}
       {#if formId}
         <!-- svelte-ignore a11y-no-static-element-interactions -->
         <div class="attachments-section" class:drag-active={dragOver}
@@ -977,6 +1040,25 @@
     font-size: 0.9rem;
     font-family: inherit;
     resize: vertical;
+  }
+
+  .recipients-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+  }
+
+  .recipient-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    color: var(--text, #eaeaea);
+    cursor: pointer;
+  }
+
+  .recipient-checkbox input[type="checkbox"] {
+    margin: 0;
   }
 
   .error {
