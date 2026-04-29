@@ -94,7 +94,18 @@ docker-build: _check-docker
 
 # Build and install on the current Docker context
 docker-install: docker-build
+    #!/usr/bin/env bash
+    set -euo pipefail
     docker compose up -d
+    endpoint=$(docker context inspect --format '{{`{{.Endpoints.docker.Host}}`}}')
+    case "$endpoint" in
+        unix://*) host=localhost ;;
+        ssh://*)  host=$(echo "$endpoint" | sed 's|ssh://\([^@]*@\)\?\([^:/]*\).*|\2|') ;;
+        tcp://*)  host=$(echo "$endpoint" | sed 's|tcp://\([^:/]*\).*|\1|') ;;
+        *)        host=localhost ;;
+    esac
+    port=${GUIDEBOOK_PORT:-4280}
+    echo "Open https://${host}:${port}"
 
 # Follow container logs
 docker-logs: _check-docker
