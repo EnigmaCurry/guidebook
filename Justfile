@@ -146,7 +146,7 @@ ssb-build: _check-node
     cd ssb && npx electron-builder --linux
 
 # Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo 4281)
-ssb-install instance="default" port="4280": ssb-deps
+ssb-install instance="default" port="4280": ssb-deps build-frontend
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p ~/.local/bin ~/.local/share/applications
@@ -178,6 +178,10 @@ ssb-install instance="default" port="4280": ssb-deps
         ssb/guidebook-ssb.desktop > "$desktop"
     echo "Installed: $launcher (instance=${instance}, port=${port})"
     echo "Installed: $desktop"
+    # Bootstrap auth and launch SSB on first install
+    echo ""
+    echo "Starting first-run auth setup..."
+    uv run guidebook --reset-auth --ssb --port "$port" --instance "$instance"
 
 # Create a remote SSB launcher (e.g. just ssb-connect myserver 10.0.0.5 4280)
 ssb-connect name host port="4280" scale="2": ssb-deps
