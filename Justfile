@@ -133,6 +133,123 @@ docker-destroy: _check-docker
         echo "Cancelled."
     fi
 
+# Install SSB (site-specific browser) dependencies
+ssb-deps: _check-node
+    cd ssb && npm install
+
+# Run Guidebook in the SSB (e.g. just ssb --host 192.168.1.50 --port 8443)
+ssb *ARGS: _check-node
+    cd ssb && npx electron . {{ ARGS }}
+
+# Build SSB AppImage
+ssb-build: _check-node
+    cd ssb && npx electron-builder --linux
+
+# Derive a 127.x.x.x address from an instance name
+_instance-host instance:
+    #!/usr/bin/env bash
+    instance="{{ instance }}"
+    if [[ "$instance" == "default" ]]; then
+        echo "127.0.0.1"
+    else
+        hash=$(echo -n "$instance" | md5sum | cut -c1-6)
+        dec=$(( 16#$hash ))
+        # Map to 127.0.0.2 – 127.255.255.254 (avoid .0.0.0, .0.0.1, .255.255.255)
+        dec=$(( (dec % 16777213) + 2 ))
+        echo "127.$(( (dec >> 16) & 255 )).$(( (dec >> 8) & 255 )).$(( dec & 255 ))"
+    fi
+
+# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo)
+ssb-install instance="default": ssb-deps build-frontend
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ~/.local/bin ~/.local/share/applications
+    instance="{{ instance }}"
+    host=$(just _instance-host "$instance")
+    port=4280
+    project_dir="$(pwd)"
+    ssb_dir="$(pwd)/ssb"
+    if [[ "$instance" == "default" ]]; then
+        suffix=""
+        name="Guidebook"
+    else
+        suffix="-${instance}"
+        # Capitalize first letter of instance name
+        pretty="$(echo "${instance:0:1}" | tr '[:lower:]' '[:upper:]')${instance:1}"
+        name="Guidebook-${pretty}"
+    fi
+    launcher=~/.local/bin/guidebook-ssb${suffix}
+    desktop=~/.local/share/applications/guidebook-ssb${suffix}.desktop
+    # Generate launcher with paths baked in
+    sed -e "s|__SSB_DIR__|${ssb_dir}|g" \
+        -e "s|__PROJECT_DIR__|${project_dir}|g" \
+        -e "s|__INSTANCE__|${instance}|g" \
+        -e "s|__HOST__|${host}|g" \
+        -e "s|__PORT__|${port}|g" \
+        ssb/guidebook-ssb > "$launcher"
+    chmod +x "$launcher"
+    # Install desktop entry
+    sed -e "s|Exec=guidebook-ssb|Exec=${launcher}|" \
+        -e "s|Name=Guidebook|Name=${name}|" \
+        ssb/guidebook-ssb.desktop > "$desktop"
+    echo "Installed: $launcher (instance=${instance}, host=${host}:${port})"
+    echo "Installed: $desktop"
+    # Bootstrap auth and launch SSB on first install
+    echo ""
+    echo "Starting first-run auth setup..."
+    GUIDEBOOK_HOST="$host" uv run guidebook --reset-auth --ssb --port "$port" --instance "$instance"
+
+# Uninstall an SSB launcher (e.g. just ssb-uninstall, just ssb-uninstall foo)
+ssb-uninstall instance="default":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    instance="{{ instance }}"
+    if [[ "$instance" == "default" ]]; then
+        suffix=""
+    else
+        suffix="-${instance}"
+    fi
+    launcher=~/.local/bin/guidebook-ssb${suffix}
+    desktop=~/.local/share/applications/guidebook-ssb${suffix}.desktop
+    removed=false
+    for f in "$launcher" "$desktop"; do
+        if [[ -f "$f" ]]; then
+            rm "$f"
+            echo "Removed: $f"
+            removed=true
+        fi
+    done
+    if [[ "$removed" == false ]]; then
+        echo "Nothing to uninstall for instance '${instance}'"
+    fi
+
+# Create a remote SSB launcher (e.g. just ssb-connect myserver 10.0.0.5 4280)
+ssb-connect name host port="4280" scale="2": ssb-deps
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ~/.local/bin ~/.local/share/applications
+    ssb_dir="$(pwd)/ssb"
+    launcher=~/.local/bin/guidebook-ssb-{{ name }}
+    cat > "$launcher" <<SCRIPT
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "${ssb_dir}"
+    exec npx electron . --host {{ host }} --port {{ port }} --scale {{ scale }} "\$@"
+    SCRIPT
+    chmod +x "$launcher"
+    cat > ~/.local/share/applications/guidebook-ssb-{{ name }}.desktop <<DESKTOP
+    [Desktop Entry]
+    Name=Guidebook ({{ name }})
+    Comment=Guidebook on {{ host }}:{{ port }}
+    Exec=${HOME}/.local/bin/guidebook-ssb-{{ name }}
+    Icon=guidebook
+    Type=Application
+    Categories=Utility;
+    StartupWMClass=guidebook-ssb
+    DESKTOP
+    echo "Installed: $launcher"
+    echo "Installed: ~/.local/share/applications/guidebook-ssb-{{ name }}.desktop"
+
 # Remove build artifacts and stamp files
 clean:
     rm -rf dist/ build/

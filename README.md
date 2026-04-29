@@ -84,6 +84,63 @@ just test
 just build
 ```
 
+## Site-Specific Browser (SSB)
+
+Guidebook includes an Electron-based site-specific browser for Linux. It
+provides a frameless, locked-down window with no browser chrome or
+shortcuts — a blank slate for the app.
+
+### Install
+
+```bash
+# Install SSB dependencies
+just ssb-deps
+
+# Install default instance (bootstraps auth and launches SSB)
+just ssb-install
+
+# Install a named instance
+just ssb-install foo
+```
+
+Each instance gets a unique loopback address (e.g. `127.172.189.26:4280`)
+derived from its name, so multiple instances can run simultaneously on
+the same port without conflict.
+
+After install, the launcher appears in rofi (or any XDG-compliant app
+launcher) as "Guidebook" or "Guidebook-Foo". The launcher starts the
+server automatically if it isn't already running.
+
+### Remote connections
+
+Create a launcher that connects to a remote Guidebook server (no local
+server management):
+
+```bash
+just ssb-connect myserver 10.0.0.5 4280
+```
+
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `Alt+W` | Open a new window (same session) |
+
+### Uninstall
+
+```bash
+just ssb-uninstall          # Remove default launcher
+just ssb-uninstall foo      # Remove named launcher
+```
+
+### Configuration
+
+The SSB defaults to 2x scaling. Override via `--scale` or environment:
+
+```bash
+GUIDEBOOK_SSB_SCALE=1.5 guidebook-ssb-foo
+```
+
 ## License
 
 MIT

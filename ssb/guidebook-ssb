@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Guidebook SSB launcher
+# Usage:
+#   guidebook-ssb                          # Local dev: start server + SSB
+#   guidebook-ssb --host 10.0.0.5          # Remote: connect-only (no server)
+#   guidebook-ssb --host 10.0.0.5 --port 8443 --scale 1.5
+
+# Defaults (overridden by args or env)
+HOST="${GUIDEBOOK_SSB_HOST:-__HOST__}"
+PORT="${GUIDEBOOK_SSB_PORT:-__PORT__}"
+SCALE="${GUIDEBOOK_SSB_SCALE:-2}"
+INSTANCE="__INSTANCE__"
+AUTH_TOKEN=""
+SSB_DIR="__SSB_DIR__"
+PROJECT_DIR="__PROJECT_DIR__"
+LOCAL_MODE=true
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --host) HOST="$2"; shift 2 ;;
+        --port) PORT="$2"; shift 2 ;;
+        --scale) SCALE="$2"; shift 2 ;;
+        --instance) INSTANCE="$2"; shift 2 ;;
+        --auth-token) AUTH_TOKEN="$2"; shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+# If host is in 127.0.0.0/8, this is local (manage server lifecycle)
+case "$HOST" in
+    127.*|localhost|::1) LOCAL_MODE=true ;;
+    *) LOCAL_MODE=false ;;
+esac
+
+if [[ "$LOCAL_MODE" == true ]] && [[ -d "$PROJECT_DIR" ]]; then
+    # Check if server is already running
+    if ! curl -sk --connect-timeout 1 "https://${HOST}:${PORT}/api/version" >/dev/null 2>&1; then
+        echo "Starting Guidebook server..."
+        cd "$PROJECT_DIR"
+        GUIDEBOOK_HOST="$HOST" uv run guidebook --no-browser --port "$PORT" --instance "$INSTANCE" &
+        SERVER_PID=$!
+        # Wait for server to come up
+        for i in $(seq 1 30); do
+            if curl -sk --connect-timeout 1 "https://${HOST}:${PORT}/api/version" >/dev/null 2>&1; then
+                break
+            fi
+            sleep 0.5
+        done
+        if ! curl -sk --connect-timeout 1 "https://${HOST}:${PORT}/api/version" >/dev/null 2>&1; then
+            echo "Error: server failed to start" >&2
+            kill "$SERVER_PID" 2>/dev/null || true
+            exit 1
+        fi
+    fi
+fi
+
+# Build electron args
+ELECTRON_ARGS=(. --host "$HOST" --port "$PORT" --scale "$SCALE")
+if [[ -n "$AUTH_TOKEN" ]]; then
+    ELECTRON_ARGS+=(--auth-token "$AUTH_TOKEN")
+fi
+
+cd "$SSB_DIR"
+exec npx electron "${ELECTRON_ARGS[@]}"

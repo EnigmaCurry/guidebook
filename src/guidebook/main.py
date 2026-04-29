@@ -344,6 +344,12 @@ async def http_middleware(request: Request, call_next):
                         status_code=401,
                         content=_inline_page(
                             "<p>You need a login link from the owner to access this site.</p>"
+                            '<form method="GET" action="/" style="margin:1rem 0">'
+                            '<input type="text" name="auth_token" placeholder="Paste login token" '
+                            'style="background:#222;color:#ccc;border:1px solid #444;padding:8px 12px;'
+                            'border-radius:4px;font-size:0.9rem;width:100%;box-sizing:border-box;font-family:monospace" />'
+                            '<button type="submit">Login</button>'
+                            "</form>"
                             '<p class="dim">If you are the owner and have lost access, restart the server with '
                             "<code style='white-space:nowrap'>--reset-auth</code> to clear all sessions and generate a new login link.</p>"
                         ),
@@ -861,6 +867,11 @@ environment variables (overridden by command line options):
         help="Enable session transfer (move session to another browser)",
     )
     parser.add_argument(
+        "--ssb",
+        action="store_true",
+        help="Open in Electron SSB instead of default browser",
+    )
+    parser.add_argument(
         "--no-tls",
         action="store_true",
         help="Disable TLS (serve plain HTTP instead of HTTPS)",
@@ -1200,16 +1211,34 @@ environment variables (overridden by command line options):
             default_url = f"{scheme}://{host}:{port}/?auth_token={reset_token}"
         env_browser_url = os.environ.get("GUIDEBOOK_BROWSER_URL", "").strip()
 
-        def open_browser():
-            import time
+        if args.ssb:
+            def open_ssb():
+                import subprocess
+                import time
 
-            time.sleep(1)
-            url = env_browser_url or default_url
-            browser_name = _detect_browser_name()
-            logger.info("Opening %s in %s", url, browser_name)
-            webbrowser.open(url)
+                time.sleep(1)
+                ssb_dir = Path(__file__).parent.parent.parent / "ssb"
+                if not (ssb_dir / "node_modules").is_dir():
+                    logger.error("SSB not installed — run 'just ssb-deps' first")
+                    return
+                cmd = ["npx", "electron", ".", "--host", host, "--port", str(port)]
+                if reset_token:
+                    cmd.extend(["--auth-token", reset_token])
+                logger.info("Opening SSB (host=%s port=%s)", host, port)
+                subprocess.Popen(cmd, cwd=str(ssb_dir))
 
-        threading.Thread(target=open_browser, daemon=True).start()
+            threading.Thread(target=open_ssb, daemon=True).start()
+        else:
+            def open_browser():
+                import time
+
+                time.sleep(1)
+                url = env_browser_url or default_url
+                browser_name = _detect_browser_name()
+                logger.info("Opening %s in %s", url, browser_name)
+                webbrowser.open(url)
+
+            threading.Thread(target=open_browser, daemon=True).start()
 
     ssl_kwargs = {}
     if not no_tls:
