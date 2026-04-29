@@ -88,8 +88,7 @@ just build
 
 Guidebook includes an Electron-based site-specific browser for Linux. It
 provides a frameless, locked-down window with no browser chrome or
-shortcuts — a blank slate for the app. WebGL and three.js work out of
-the box.
+shortcuts — a blank slate for the app.
 
 ### Install
 
