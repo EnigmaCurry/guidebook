@@ -107,6 +107,10 @@ docker-install: docker-build
     port=${GUIDEBOOK_PORT:-4280}
     echo "Open https://${host}:${port}"
 
+# Reset authentication (interactive)
+docker-reset-auth: _check-docker
+    docker compose run --rm -it guidebook .venv/bin/guidebook --reset-auth
+
 # Follow container logs
 docker-logs: _check-docker
     docker compose logs -f
