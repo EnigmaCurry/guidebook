@@ -8,7 +8,7 @@ const HOST = args.host || process.env.GUIDEBOOK_SSB_HOST || "127.0.0.1";
 const PORT = parseInt(args.port || process.env.GUIDEBOOK_SSB_PORT || "4280", 10);
 const AUTH_TOKEN = args.authToken || null;
 const DEV = args.dev || false;
-const SCALE = parseFloat(args.scale || process.env.GUIDEBOOK_SSB_SCALE || "2");
+const SCALE = parseFloat(args.scale || process.env.GUIDEBOOK_SSB_SCALE || "1.5");
 app.commandLine.appendSwitch("force-device-scale-factor", String(SCALE));
 
 // Isolate session data (cookies, localStorage) per host:port
