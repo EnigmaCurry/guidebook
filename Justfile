@@ -145,6 +145,51 @@ ssb *ARGS: _check-node
 ssb-build: _check-node
     cd ssb && npx electron-builder --linux
 
+# Install local dev SSB launcher into ~/.local/bin and ~/.local/share/applications
+ssb-install: ssb-deps
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ~/.local/bin ~/.local/share/applications
+    project_dir="$(pwd)"
+    ssb_dir="$(pwd)/ssb"
+    # Generate launcher with paths baked in
+    sed -e "s|__SSB_DIR__|${ssb_dir}|g" \
+        -e "s|__PROJECT_DIR__|${project_dir}|g" \
+        ssb/guidebook-ssb > ~/.local/bin/guidebook-ssb
+    chmod +x ~/.local/bin/guidebook-ssb
+    # Install desktop entry
+    sed "s|Exec=guidebook-ssb|Exec=${HOME}/.local/bin/guidebook-ssb|" \
+        ssb/guidebook-ssb.desktop > ~/.local/share/applications/guidebook-ssb.desktop
+    echo "Installed: ~/.local/bin/guidebook-ssb"
+    echo "Installed: ~/.local/share/applications/guidebook-ssb.desktop"
+
+# Create a remote SSB launcher (e.g. just ssb-connect myserver 10.0.0.5 4280)
+ssb-connect name host port="4280" scale="2": ssb-deps
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p ~/.local/bin ~/.local/share/applications
+    ssb_dir="$(pwd)/ssb"
+    launcher=~/.local/bin/guidebook-ssb-{{ name }}
+    cat > "$launcher" <<SCRIPT
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd "${ssb_dir}"
+    exec npx electron . --host {{ host }} --port {{ port }} --scale {{ scale }} "\$@"
+    SCRIPT
+    chmod +x "$launcher"
+    cat > ~/.local/share/applications/guidebook-ssb-{{ name }}.desktop <<DESKTOP
+    [Desktop Entry]
+    Name=Guidebook ({{ name }})
+    Comment=Guidebook on {{ host }}:{{ port }}
+    Exec=${HOME}/.local/bin/guidebook-ssb-{{ name }}
+    Icon=guidebook
+    Type=Application
+    Categories=Utility;
+    StartupWMClass=guidebook-ssb
+    DESKTOP
+    echo "Installed: $launcher"
+    echo "Installed: ~/.local/share/applications/guidebook-ssb-{{ name }}.desktop"
+
 # Remove build artifacts and stamp files
 clean:
     rm -rf dist/ build/
