@@ -24,7 +24,9 @@ WORKDIR /app
 COPY --from=backend /app /app
 COPY --from=frontend /app/src/guidebook/static src/guidebook/static
 RUN if [ "$UID" != "0" ]; then \
-      chown -R guidebook:guidebook /app; \
+      chown -R guidebook:guidebook /app && \
+      mkdir -p /home/guidebook/.local/share && \
+      chown -R guidebook:guidebook /home/guidebook/.local/share; \
     fi
 USER $UID:$GID
 EXPOSE 4280
