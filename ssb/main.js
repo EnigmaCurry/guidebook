@@ -9,6 +9,10 @@ const PORT = parseInt(args.port || process.env.GUIDEBOOK_SSB_PORT || "4280", 10)
 const AUTH_TOKEN = args.authToken || null;
 const SCALE = parseFloat(args.scale || process.env.GUIDEBOOK_SSB_SCALE || "2");
 app.commandLine.appendSwitch("force-device-scale-factor", String(SCALE));
+
+// Isolate session data (cookies, localStorage) per host:port
+app.setPath("userData", path.join(app.getPath("appData"), `guidebook-ssb-${HOST}-${PORT}`));
+
 const ALLOWED_ORIGIN = `https://${HOST}:${PORT}`;
 const START_URL = AUTH_TOKEN
   ? `${ALLOWED_ORIGIN}/?auth_token=${AUTH_TOKEN}`
