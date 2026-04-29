@@ -1059,6 +1059,15 @@ environment variables (overridden by command line options):
                 "\nAuth reset complete: all sessions, CA, certificates, and mTLS state cleared."
             )
 
+            if os.environ.get("GUIDEBOOK_RESET_AUTH_ONLY", "").lower() in ("1", "true", "yes"):
+                host = os.environ.get("GUIDEBOOK_HOST", "127.0.0.1") or "127.0.0.1"
+                port = int(os.environ.get("GUIDEBOOK_PORT", "4280"))
+                scheme = "http" if no_tls else "https"
+                browser_url = os.environ.get("GUIDEBOOK_BROWSER_URL", "").strip()
+                base = browser_url or f"{scheme}://{host}:{port}"
+                print(f"Login URL: {base}/?auth_token={token_str}")
+                sys.exit(0)
+
         # If mTLS is enforced, cookie sessions are useless — clear them
         _mtls_row = conn.execute(
             "SELECT value FROM settings WHERE key = 'mtls_mode'"

@@ -85,6 +85,54 @@ next-dev-version:
     done
     echo "${BASE}.dev$(( MAX + 1 ))"
 
+_check-docker:
+    @command -v docker >/dev/null 2>&1 || { echo "Error: docker is not installed."; exit 1; }
+
+# Build the Docker image from local source
+docker-build: _check-docker
+    docker compose build
+
+# Build and install on the current Docker context
+docker-install: docker-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    docker compose up -d
+    endpoint=$(docker context inspect --format '{{"{{.Endpoints.docker.Host}}"}}')
+    case "$endpoint" in
+        unix://*) host=localhost ;;
+        ssh://*)  host=$(echo "$endpoint" | sed 's|ssh://\([^@]*@\)\?\([^:/]*\).*|\2|') ;;
+        tcp://*)  host=$(echo "$endpoint" | sed 's|tcp://\([^:/]*\).*|\1|') ;;
+        *)        host=localhost ;;
+    esac
+    port=${GUIDEBOOK_PORT:-4280}
+    echo "Open https://${host}:${port}"
+
+# Reset authentication (interactive, restarts service after)
+docker-reset-auth: _check-docker
+    docker compose stop guidebook
+    docker compose run --rm -it -e GUIDEBOOK_RESET_AUTH_ONLY=true guidebook .venv/bin/guidebook --reset-auth
+    docker compose start guidebook
+
+# Follow container logs
+docker-logs: _check-docker
+    docker compose logs -f
+
+# Remove containers (preserves volumes)
+docker-uninstall: _check-docker
+    docker compose down
+
+# Destroy containers and volumes (with confirmation)
+docker-destroy: _check-docker
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read -rp "This will destroy all guidebook containers AND volumes. Are you sure? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        docker compose down -v
+        echo "Destroyed."
+    else
+        echo "Cancelled."
+    fi
+
 # Remove build artifacts and stamp files
 clean:
     rm -rf dist/ build/
