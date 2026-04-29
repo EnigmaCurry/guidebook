@@ -159,11 +159,19 @@ _instance-host instance:
         echo "127.$(( (dec >> 16) & 255 )).$(( (dec >> 8) & 255 )).$(( dec & 255 ))"
     fi
 
-# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo)
-ssb-install instance="default": ssb-deps build-frontend
+# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo, just ssb-install foo --dev)
+ssb-install instance="default" *FLAGS="": ssb-deps build-frontend
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p ~/.local/bin ~/.local/share/applications
+    flags="{{ FLAGS }}"
+    dev=false
+    for flag in $flags; do
+        case "$flag" in
+            --dev) dev=true ;;
+            *) echo "Unknown flag: $flag" >&2; exit 1 ;;
+        esac
+    done
     instance="{{ instance }}"
     if [[ ! "$instance" =~ ^[a-zA-Z0-9_-]+$ ]]; then
         echo "Error: instance name must contain only letters, digits, hyphens, and underscores" >&2
@@ -190,6 +198,7 @@ ssb-install instance="default": ssb-deps build-frontend
         -e "s|__INSTANCE__|${instance}|g" \
         -e "s|__HOST__|${host}|g" \
         -e "s|__PORT__|${port}|g" \
+        -e "s|__DEV__|${dev}|g" \
         ssb/guidebook-ssb > "$launcher"
     chmod +x "$launcher"
     # Install desktop entry

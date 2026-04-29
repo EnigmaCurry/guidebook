@@ -13,6 +13,7 @@ PORT="${GUIDEBOOK_SSB_PORT:-__PORT__}"
 SCALE="${GUIDEBOOK_SSB_SCALE:-1.5}"
 INSTANCE="__INSTANCE__"
 AUTH_TOKEN=""
+DEV=__DEV__
 SSB_DIR="__SSB_DIR__"
 PROJECT_DIR="__PROJECT_DIR__"
 LOCAL_MODE=true
@@ -25,6 +26,7 @@ while [[ $# -gt 0 ]]; do
         --scale) SCALE="$2"; shift 2 ;;
         --instance) INSTANCE="$2"; shift 2 ;;
         --auth-token) AUTH_TOKEN="$2"; shift 2 ;;
+        --dev) DEV=true; shift ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
     esac
 done
@@ -61,6 +63,9 @@ fi
 ELECTRON_ARGS=(. --host "$HOST" --port "$PORT" --scale "$SCALE")
 if [[ -n "$AUTH_TOKEN" ]]; then
     ELECTRON_ARGS+=(--auth-token "$AUTH_TOKEN")
+fi
+if [[ "$DEV" == true ]]; then
+    ELECTRON_ARGS+=(--dev)
 fi
 
 cd "$SSB_DIR"
