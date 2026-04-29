@@ -67,7 +67,7 @@
   let recordsRef = null;
   let chatRef = null;
   let recordAutoCreated = false;
-  let databaseRight = false;
+  let databaseRight = true;
   let mediaSearchQuery = "";
   let mediaSelectedTags = [];
   let mediaSelectedRecordId = null;
@@ -796,7 +796,7 @@
       const res = await fetch("/api/settings/database_right");
       if (res.ok) {
         const data = await res.json();
-        databaseRight = data.value === "true";
+        databaseRight = data.value !== "false";
       }
     } catch {}
   }

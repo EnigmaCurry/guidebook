@@ -28,7 +28,7 @@
   let updateBuildRepo = "";
   let updateBuildSha = "";
   let updateOfficialBuild = false;
-  let database_right = false;
+  let database_right = true;
   let wide_breakpoint = "1200";
   let wide_mode_enabled = true;
   let theme = "dark";
@@ -1338,7 +1338,7 @@
               wide_breakpoint = s.value || "1500";
             }
           }
-          if (s.key === "database_right") database_right = s.value === "true";
+          if (s.key === "database_right") database_right = s.value !== "false";
           if (s.key === "custom_header") custom_header = s.value || "";
           if (s.key === "default_page") default_page = s.value || "log";
           if (s.key === "theme") theme = s.value || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
@@ -1844,8 +1844,8 @@
     </div>
     <div class="setting-row toggle-row">
       <label>
-        <input type="checkbox" bind:checked={database_right} on:change={onDatabaseRightChange} disabled={!wide_mode_enabled} />
-        Database on right side
+        <input type="checkbox" checked={!database_right} on:change={(e) => { database_right = !e.target.checked; onDatabaseRightChange(); }} disabled={!wide_mode_enabled} />
+        Database on left side
       </label>
     </div>
   </section>
