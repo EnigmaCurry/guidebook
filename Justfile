@@ -159,8 +159,8 @@ _instance-host instance:
         echo "127.$(( (dec >> 16) & 255 )).$(( (dec >> 8) & 255 )).$(( dec & 255 ))"
     fi
 
-# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo)
-ssb-install instance="default": ssb-deps build-frontend
+# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo 1.5)
+ssb-install instance="default" scale="1.5": ssb-deps build-frontend
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p ~/.local/bin ~/.local/share/applications
@@ -180,12 +180,14 @@ ssb-install instance="default": ssb-deps build-frontend
     fi
     launcher=~/.local/bin/guidebook-ssb${suffix}
     desktop=~/.local/share/applications/guidebook-ssb${suffix}.desktop
+    scale="{{ scale }}"
     # Generate launcher with paths baked in
     sed -e "s|__SSB_DIR__|${ssb_dir}|g" \
         -e "s|__PROJECT_DIR__|${project_dir}|g" \
         -e "s|__INSTANCE__|${instance}|g" \
         -e "s|__HOST__|${host}|g" \
         -e "s|__PORT__|${port}|g" \
+        -e "s|__SCALE__|${scale}|g" \
         ssb/guidebook-ssb > "$launcher"
     chmod +x "$launcher"
     # Install desktop entry
