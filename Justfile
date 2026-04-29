@@ -109,7 +109,7 @@ docker-install: docker-build
 
 # Reset authentication (interactive)
 docker-reset-auth: _check-docker
-    docker compose run --rm -it guidebook .venv/bin/guidebook --reset-auth
+    docker compose run --rm -it --init guidebook .venv/bin/guidebook --reset-auth
 
 # Follow container logs
 docker-logs: _check-docker
