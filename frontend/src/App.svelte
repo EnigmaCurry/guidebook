@@ -1401,7 +1401,7 @@
   main {
     max-width: 100%;
     margin: 0 auto;
-    padding: 1rem;
+    padding: 0.25rem;
   }
 
   .page-content {
