@@ -1,0 +1,31 @@
+services:
+  guidebook:
+    build:
+      context: .
+      args:
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    ports:
+      - "${GUIDEBOOK_PORT:-4280}:4280"
+    volumes:
+      - data:/home/guidebook/.local/share
+    environment:
+      GUIDEBOOK_INSTANCE: ${GUIDEBOOK_INSTANCE:-default}
+      GUIDEBOOK_DB: ${GUIDEBOOK_DB:-guidebook}
+      GUIDEBOOK_PICKER: ${GUIDEBOOK_PICKER:-false}
+      GUIDEBOOK_NO_BROWSER: "true"
+      GUIDEBOOK_NO_SHUTDOWN: ${GUIDEBOOK_NO_SHUTDOWN:-true}
+      GUIDEBOOK_HOST: "0.0.0.0"
+      GUIDEBOOK_PORT: "4280"
+      GUIDEBOOK_DISABLE_AUTH: ${GUIDEBOOK_DISABLE_AUTH:-false}
+      GUIDEBOOK_AUTH_SLOTS: ${GUIDEBOOK_AUTH_SLOTS:-1}
+      GUIDEBOOK_AUTH_TTL: ${GUIDEBOOK_AUTH_TTL:-30d}
+      GUIDEBOOK_AUTH_RENEW_COOLDOWN: ${GUIDEBOOK_AUTH_RENEW_COOLDOWN:-24h}
+      GUIDEBOOK_ALLOW_TRANSFER: ${GUIDEBOOK_ALLOW_TRANSFER:-false}
+      GUIDEBOOK_NO_TLS: ${GUIDEBOOK_NO_TLS:-false}
+      GUIDEBOOK_PROXY: ${GUIDEBOOK_PROXY:-}
+      GUIDEBOOK_BROWSER_URL: ${GUIDEBOOK_BROWSER_URL:-}
+    restart: unless-stopped
+
+volumes:
+  data:

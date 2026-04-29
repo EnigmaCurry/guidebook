@@ -85,6 +85,33 @@ next-dev-version:
     done
     echo "${BASE}.dev$(( MAX + 1 ))"
 
+_check-docker:
+    @command -v docker >/dev/null 2>&1 || { echo "Error: docker is not installed."; exit 1; }
+
+# Build the Docker image from local source
+docker-build: _check-docker
+    docker compose build
+
+# Build and install on the current Docker context
+docker-install: docker-build
+    docker compose up -d
+
+# Remove containers (preserves volumes)
+docker-uninstall: _check-docker
+    docker compose down
+
+# Destroy containers and volumes (with confirmation)
+docker-destroy: _check-docker
+    #!/usr/bin/env bash
+    set -euo pipefail
+    read -rp "This will destroy all guidebook containers AND volumes. Are you sure? [y/N] " ans
+    if [[ "$ans" =~ ^[Yy]$ ]]; then
+        docker compose down -v
+        echo "Destroyed."
+    else
+        echo "Cancelled."
+    fi
+
 # Remove build artifacts and stamp files
 clean:
     rm -rf dist/ build/

@@ -14,8 +14,18 @@ COPY src/ src/
 RUN uv sync --no-dev --frozen
 
 FROM python:3.12-slim
+ARG UID=1000
+ARG GID=1000
+RUN if [ "$UID" != "0" ]; then \
+      groupadd --gid "$GID" guidebook && \
+      useradd --uid "$UID" --gid "$GID" --create-home guidebook; \
+    fi
 WORKDIR /app
 COPY --from=backend /app /app
 COPY --from=frontend /app/src/guidebook/static src/guidebook/static
+RUN if [ "$UID" != "0" ]; then \
+      chown -R guidebook:guidebook /app; \
+    fi
+USER $UID:$GID
 EXPOSE 4280
 CMD [".venv/bin/guidebook"]
