@@ -117,8 +117,8 @@ function blockShortcuts() {
 
 }
 
-// Single instance lock — second launch focuses existing window
-const gotLock = app.requestSingleInstanceLock();
+// Single instance lock scoped per host:port — different instances can coexist
+const gotLock = app.requestSingleInstanceLock({ key: `${HOST}:${PORT}` });
 if (!gotLock) {
   app.quit();
 } else {
