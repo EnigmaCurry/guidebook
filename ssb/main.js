@@ -31,6 +31,8 @@ function createWindow() {
     width: 1280,
     height: 900,
     frame: false,
+    show: false,
+    backgroundColor: "#000000",
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -62,6 +64,7 @@ function createWindow() {
   });
 
   win.webContents.setZoomFactor(2.0);
+  win.once("ready-to-show", () => win.show());
   win.loadURL(START_URL);
 }
 
