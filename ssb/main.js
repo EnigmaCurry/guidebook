@@ -41,7 +41,7 @@ function createWindow() {
     height: 900,
     frame: false,
     show: false,
-    backgroundColor: "#000000",
+    backgroundColor: "#24252b",
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

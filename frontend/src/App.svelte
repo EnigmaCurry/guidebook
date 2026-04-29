@@ -1378,9 +1378,18 @@
     box-sizing: border-box;
   }
 
+  :global(html) {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--bg-gradient, var(--bg));
+    background-attachment: fixed;
+  }
+
   :global(body) {
     margin: 0;
     padding: 0;
+    min-height: 100%;
     background: var(--bg-gradient, var(--bg));
     background-attachment: fixed;
     color: var(--text);
