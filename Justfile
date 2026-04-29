@@ -145,12 +145,13 @@ ssb *ARGS: _check-node
 ssb-build: _check-node
     cd ssb && npx electron-builder --linux
 
-# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo)
-ssb-install instance="default": ssb-deps
+# Install local dev SSB launcher (e.g. just ssb-install, just ssb-install foo 4281)
+ssb-install instance="default" port="4280": ssb-deps
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p ~/.local/bin ~/.local/share/applications
     instance="{{ instance }}"
+    port="{{ port }}"
     project_dir="$(pwd)"
     ssb_dir="$(pwd)/ssb"
     if [[ "$instance" == "default" ]]; then
@@ -168,13 +169,14 @@ ssb-install instance="default": ssb-deps
     sed -e "s|__SSB_DIR__|${ssb_dir}|g" \
         -e "s|__PROJECT_DIR__|${project_dir}|g" \
         -e "s|__INSTANCE__|${instance}|g" \
+        -e "s|__PORT__|${port}|g" \
         ssb/guidebook-ssb > "$launcher"
     chmod +x "$launcher"
     # Install desktop entry
     sed -e "s|Exec=guidebook-ssb|Exec=${launcher}|" \
         -e "s|Name=Guidebook|Name=${name}|" \
         ssb/guidebook-ssb.desktop > "$desktop"
-    echo "Installed: $launcher"
+    echo "Installed: $launcher (instance=${instance}, port=${port})"
     echo "Installed: $desktop"
 
 # Create a remote SSB launcher (e.g. just ssb-connect myserver 10.0.0.5 4280)

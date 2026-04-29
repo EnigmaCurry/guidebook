@@ -9,7 +9,7 @@ set -euo pipefail
 
 # Defaults (overridden by args or env)
 HOST="${GUIDEBOOK_SSB_HOST:-127.0.0.1}"
-PORT="${GUIDEBOOK_SSB_PORT:-4280}"
+PORT="${GUIDEBOOK_SSB_PORT:-__PORT__}"
 SCALE="${GUIDEBOOK_SSB_SCALE:-2}"
 INSTANCE="__INSTANCE__"
 AUTH_TOKEN=""
