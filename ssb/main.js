@@ -25,6 +25,8 @@ function parseArgs(argv) {
   return result;
 }
 
+let lastWindowCreate = 0;
+
 function isAllowedURL(url) {
   return url.startsWith(ALLOWED_ORIGIN + "/") || url === ALLOWED_ORIGIN;
 }
@@ -68,9 +70,13 @@ function createWindow() {
 
   // App-local keyboard shortcuts
   win.webContents.on("before-input-event", (event, input) => {
-    if (input.alt && !input.control && !input.meta && input.key === "w") {
+    if (input.alt && !input.control && !input.meta && input.key === "w" && input.type === "keyDown") {
       event.preventDefault();
-      createWindow();
+      const now = Date.now();
+      if (now - lastWindowCreate > 500) {
+        lastWindowCreate = now;
+        createWindow();
+      }
     }
   });
 
