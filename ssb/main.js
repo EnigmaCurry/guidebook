@@ -102,6 +102,20 @@ function blockShortcuts() {
   }
 }
 
+// Single instance lock — second launch focuses existing window
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+}
+
 // Trust self-signed certs on the configured host (TOFU)
 app.on("certificate-error", (event, webContents, url, error, certificate, callback) => {
   const parsed = new URL(url);
