@@ -1,0 +1,27 @@
+{
+  "name": "guidebook-ssb",
+  "version": "1.0.0",
+  "description": "Site-specific browser for Guidebook",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "tech.rymcg.guidebook.ssb",
+    "productName": "Guidebook",
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "../guidebook.png",
+      "category": "Utility"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^35.0.0",
+    "electron-builder": "^26.0.0"
+  }
+}

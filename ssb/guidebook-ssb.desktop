@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Guidebook
+Comment=Guidebook site-specific browser
+Exec=guidebook-ssb
+Icon=guidebook
+Type=Application
+Categories=Utility;
+StartupWMClass=guidebook-ssb

@@ -133,6 +133,18 @@ docker-destroy: _check-docker
         echo "Cancelled."
     fi
 
+# Install SSB (site-specific browser) dependencies
+ssb-deps: _check-node
+    cd ssb && npm install
+
+# Run Guidebook in the SSB (e.g. just ssb --host 192.168.1.50 --port 8443)
+ssb *ARGS: _check-node
+    cd ssb && npx electron . {{ ARGS }}
+
+# Build SSB AppImage
+ssb-build: _check-node
+    cd ssb && npx electron-builder --linux
+
 # Remove build artifacts and stamp files
 clean:
     rm -rf dist/ build/
