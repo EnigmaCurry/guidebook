@@ -97,7 +97,7 @@ docker-install: docker-build
     #!/usr/bin/env bash
     set -euo pipefail
     docker compose up -d
-    endpoint=$(docker context inspect --format '{{`{{.Endpoints.docker.Host}}`}}')
+    endpoint=$(docker context inspect --format '{{"{{.Endpoints.docker.Host}}"}}')
     case "$endpoint" in
         unix://*) host=localhost ;;
         ssh://*)  host=$(echo "$endpoint" | sed 's|ssh://\([^@]*@\)\?\([^:/]*\).*|\2|') ;;
