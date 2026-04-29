@@ -75,7 +75,10 @@ function createWindow() {
 
   // App-local keyboard shortcuts
   win.webContents.on("before-input-event", (event, input) => {
-    if (input.alt && !input.control && !input.meta && input.key === "w" && input.type === "keyDown") {
+    if (input.key === "F12" && input.type === "keyDown") {
+      event.preventDefault();
+      win.webContents.toggleDevTools();
+    } else if (input.alt && !input.control && !input.meta && input.key === "w" && input.type === "keyDown") {
       event.preventDefault();
       const now = Date.now();
       if (now - lastWindowCreate > 500) {
