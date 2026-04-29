@@ -1215,11 +1215,11 @@ environment variables (overridden by command line options):
                 if not (ssb_dir / "node_modules").is_dir():
                     logger.error("SSB not installed — run 'just ssb-deps' first")
                     return
+                cmd = ["npx", "electron", ".", "--host", host, "--port", str(port)]
+                if reset_token:
+                    cmd.extend(["--auth-token", reset_token])
                 logger.info("Opening SSB (host=%s port=%s)", host, port)
-                subprocess.Popen(
-                    ["npx", "electron", ".", "--host", host, "--port", str(port)],
-                    cwd=str(ssb_dir),
-                )
+                subprocess.Popen(cmd, cwd=str(ssb_dir))
 
             threading.Thread(target=open_ssb, daemon=True).start()
         else:

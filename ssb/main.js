@@ -6,14 +6,18 @@ const path = require("path");
 const args = parseArgs(process.argv.slice(2));
 const HOST = args.host || process.env.GUIDEBOOK_SSB_HOST || "127.0.0.1";
 const PORT = parseInt(args.port || process.env.GUIDEBOOK_SSB_PORT || "4280", 10);
+const AUTH_TOKEN = args.authToken || null;
 const ALLOWED_ORIGIN = `https://${HOST}:${PORT}`;
-const START_URL = `${ALLOWED_ORIGIN}/`;
+const START_URL = AUTH_TOKEN
+  ? `${ALLOWED_ORIGIN}/?auth_token=${AUTH_TOKEN}`
+  : `${ALLOWED_ORIGIN}/`;
 
 function parseArgs(argv) {
   const result = {};
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--host" && argv[i + 1]) result.host = argv[++i];
     else if (argv[i] === "--port" && argv[i + 1]) result.port = argv[++i];
+    else if (argv[i] === "--auth-token" && argv[i + 1]) result.authToken = argv[++i];
   }
   return result;
 }
