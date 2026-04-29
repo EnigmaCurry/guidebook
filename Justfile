@@ -183,6 +183,30 @@ ssb-install instance="default" port="4280": ssb-deps build-frontend
     echo "Starting first-run auth setup..."
     uv run guidebook --reset-auth --ssb --port "$port" --instance "$instance"
 
+# Uninstall an SSB launcher (e.g. just ssb-uninstall, just ssb-uninstall foo)
+ssb-uninstall instance="default":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    instance="{{ instance }}"
+    if [[ "$instance" == "default" ]]; then
+        suffix=""
+    else
+        suffix="-${instance}"
+    fi
+    launcher=~/.local/bin/guidebook-ssb${suffix}
+    desktop=~/.local/share/applications/guidebook-ssb${suffix}.desktop
+    removed=false
+    for f in "$launcher" "$desktop"; do
+        if [[ -f "$f" ]]; then
+            rm "$f"
+            echo "Removed: $f"
+            removed=true
+        fi
+    done
+    if [[ "$removed" == false ]]; then
+        echo "Nothing to uninstall for instance '${instance}'"
+    fi
+
 # Create a remote SSB launcher (e.g. just ssb-connect myserver 10.0.0.5 4280)
 ssb-connect name host port="4280" scale="2": ssb-deps
     #!/usr/bin/env bash
