@@ -30,13 +30,17 @@ steps:
       - export PATH="$HOME/.local/bin:$PATH"
       - just deps
       - just build-binary
-      - arch=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
-      - mv dist/guidebook dist/guidebook-linux-${arch}
+      - |
+        case "$(uname -m)" in
+          x86_64)  arch=amd64 ;;
+          aarch64) arch=arm64 ;;
+          *)       arch=$(uname -m) ;;
+        esac
+        mv dist/guidebook dist/guidebook-linux-${arch}
 
   - name: release
-    image: woodpeckerci/plugin-gitea-release
+    image: codeberg.org/woodpecker-plugins/release
     settings:
-      base_url: ${CI_FORGE_URL}
       api_key:
         from_secret: forgejo_token
       files:
