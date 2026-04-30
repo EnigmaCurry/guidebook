@@ -6,6 +6,10 @@ matrix:
 labels:
   platform: ${platform}
 
+when:
+  - event: tag
+    ref: refs/tags/v*
+
 steps:
   - name: test
     image: python:3.12-bookworm
@@ -26,3 +30,16 @@ steps:
       - export PATH="$HOME/.local/bin:$PATH"
       - just deps
       - just build-binary
+      - arch=$(uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+      - mv dist/guidebook dist/guidebook-linux-${arch}
+
+  - name: release
+    image: woodpeckerci/plugin-gitea-release
+    settings:
+      base_url: ${CI_FORGE_URL}
+      api_key:
+        from_secret: forgejo_token
+      files:
+        - dist/guidebook-*
+      title: ${CI_COMMIT_TAG}
+      note: CHANGELOG.md

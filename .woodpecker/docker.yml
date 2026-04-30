@@ -1,0 +1,23 @@
+depends_on:
+  - release
+
+when:
+  - event: tag
+    ref: refs/tags/v*
+
+steps:
+  - name: docker
+    image: woodpeckerci/plugin-docker-buildx
+    settings:
+      repo: ${CI_FORGE_URL##https://}/${CI_REPO}
+      registry: ${CI_FORGE_URL##https://}
+      username:
+        from_secret: forgejo_user
+      password:
+        from_secret: forgejo_token
+      platforms:
+        - linux/amd64
+        - linux/arm64
+      tag:
+        - ${CI_COMMIT_TAG##v}
+        - latest
