@@ -1,3 +1,11 @@
+matrix:
+  platform:
+    - linux/amd64
+    - linux/arm64
+
+labels:
+  platform: ${platform}
+
 steps:
   - name: test
     image: python:3.12-bookworm
