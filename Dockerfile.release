@@ -1,0 +1,11 @@
+FROM debian:bookworm-slim
+ARG TARGETARCH
+ARG VERSION
+ARG FORGE_URL
+ADD ${FORGE_URL}/releases/download/v${VERSION}/guidebook-linux-${TARGETARCH} /usr/local/bin/guidebook
+RUN chmod +x /usr/local/bin/guidebook && \
+    groupadd --gid 1000 guidebook && \
+    useradd --uid 1000 --gid 1000 --create-home guidebook
+USER 1000:1000
+EXPOSE 4280
+CMD ["guidebook"]
