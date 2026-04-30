@@ -1,0 +1,20 @@
+steps:
+  - name: test
+    image: python:3.12-bookworm
+    commands:
+      - curl -LsSf https://astral.sh/uv/install.sh | sh
+      - export PATH="$HOME/.local/bin:$PATH"
+      - uv sync
+      - uv run ruff check .
+      - uv run ruff format --check .
+      - uv run pytest
+
+  - name: build
+    image: python:3.12-bookworm
+    commands:
+      - apt-get update && apt-get install -y nodejs npm
+      - curl -LsSf https://astral.sh/uv/install.sh | sh
+      - curl -LsSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+      - export PATH="$HOME/.local/bin:$PATH"
+      - just deps
+      - just build-binary
