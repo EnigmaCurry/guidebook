@@ -30,13 +30,8 @@ steps:
       - export PATH="$HOME/.local/bin:$PATH"
       - just deps
       - just build-binary
-      - |
-        case "$(uname -m)" in
-          x86_64)  arch=amd64 ;;
-          aarch64) arch=arm64 ;;
-          *)       arch=$(uname -m) ;;
-        esac
-        mv dist/guidebook dist/guidebook-linux-${arch}
+      - uname -m
+      - uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/' | xargs -I{} mv dist/guidebook dist/guidebook-linux-{}
 
   - name: release
     image: codeberg.org/woodpecker-plugins/release
