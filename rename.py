@@ -44,7 +44,19 @@ REPLACE_PATHS = [
 
 # Skip these when walking directories
 SKIP_DIRS = {".git", "node_modules", "__pycache__", "static", ".venv", "dist", "build"}
-SKIP_EXTENSIONS = {".lock", ".pyc", ".ico", ".png", ".jpg", ".jpeg", ".gif", ".woff", ".woff2", ".ttf", ".eot"}
+SKIP_EXTENSIONS = {
+    ".lock",
+    ".pyc",
+    ".ico",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+}
 
 
 def validate_name(name: str) -> str | None:

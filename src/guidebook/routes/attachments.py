@@ -13,9 +13,7 @@ import guidebook.db as _db
 from guidebook.db import Attachment, Record, db_manager, get_session, _ensure_data_dir
 from guidebook.routes.records import _broadcast_records_changed
 
-router = APIRouter(
-    prefix="/api/records/{record_id}/attachments", tags=["attachments"]
-)
+router = APIRouter(prefix="/api/records/{record_id}/attachments", tags=["attachments"])
 
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
@@ -91,14 +89,16 @@ async def upload_attachments(
     for f in files:
         data = await f.read()
         if len(data) > MAX_FILE_SIZE:
-            raise HTTPException(
-                status_code=413, detail=f"File too large: {f.filename}"
-            )
+            raise HTTPException(status_code=413, detail=f"File too large: {f.filename}")
 
         filename = _safe_filename(f.filename or "upload", existing)
         existing.add(filename)
 
-        content_type = f.content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        content_type = (
+            f.content_type
+            or mimetypes.guess_type(filename)[0]
+            or "application/octet-stream"
+        )
 
         filepath = att_dir / filename
         filepath.write_bytes(data)
@@ -169,10 +169,6 @@ def cleanup_record_attachments(record: Record) -> None:
             shutil.rmtree(att_dir)
 
 
-async def delete_attachments_for_record(
-    record_id: int, session: AsyncSession
-) -> None:
+async def delete_attachments_for_record(record_id: int, session: AsyncSession) -> None:
     """Delete all attachment DB rows for a record."""
-    await session.execute(
-        delete(Attachment).where(Attachment.record_id == record_id)
-    )
+    await session.execute(delete(Attachment).where(Attachment.record_id == record_id))

@@ -22,7 +22,10 @@ def _check_auth_enabled():
     from guidebook.routes.auth import DISABLE_AUTH, _env_disable_auth
 
     if DISABLE_AUTH or _env_disable_auth():
-        raise HTTPException(403, "Authentication is disabled. Certificate management is unavailable.")
+        raise HTTPException(
+            403, "Authentication is disabled. Certificate management is unavailable."
+        )
+
 
 PENDING_DOWNLOAD_TTL = 600  # 10 minutes
 

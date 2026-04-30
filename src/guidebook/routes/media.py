@@ -43,21 +43,20 @@ class MediaItem(BaseModel):
 async def list_media(
     q: str | None = Query(None, description="Search query"),
     type: str | None = Query(None, description="Filter: image, video, audio, document"),
-    tags: str | None = Query(None, description="Comma-separated tags to filter by (AND)"),
+    tags: str | None = Query(
+        None, description="Comma-separated tags to filter by (AND)"
+    ),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = (
-        select(
-            Attachment.id,
-            Attachment.record_id,
-            Record.title.label("record_title"),
-            Attachment.filename,
-            Attachment.content_type,
-            Attachment.size,
-            Attachment.created_at,
-        )
-        .join(Record, Attachment.record_id == Record.id)
-    )
+    stmt = select(
+        Attachment.id,
+        Attachment.record_id,
+        Record.title.label("record_title"),
+        Attachment.filename,
+        Attachment.content_type,
+        Attachment.size,
+        Attachment.created_at,
+    ).join(Record, Attachment.record_id == Record.id)
     if type and type in TYPE_FILTERS:
         stmt = stmt.where(and_(*TYPE_FILTERS[type]))
     else:

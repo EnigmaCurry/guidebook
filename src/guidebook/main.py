@@ -1070,7 +1070,11 @@ environment variables (overridden by command line options):
                 "\nAuth reset complete: all sessions, CA, certificates, and mTLS state cleared."
             )
 
-            if os.environ.get("GUIDEBOOK_RESET_AUTH_ONLY", "").lower() in ("1", "true", "yes"):
+            if os.environ.get("GUIDEBOOK_RESET_AUTH_ONLY", "").lower() in (
+                "1",
+                "true",
+                "yes",
+            ):
                 host = os.environ.get("GUIDEBOOK_HOST", "127.0.0.1") or "127.0.0.1"
                 port = int(os.environ.get("GUIDEBOOK_PORT", "4280"))
                 scheme = "http" if no_tls else "https"
@@ -1212,6 +1216,7 @@ environment variables (overridden by command line options):
         env_browser_url = os.environ.get("GUIDEBOOK_BROWSER_URL", "").strip()
 
         if args.ssb:
+
             def open_ssb():
                 import subprocess
                 import time
@@ -1229,6 +1234,7 @@ environment variables (overridden by command line options):
 
             threading.Thread(target=open_ssb, daemon=True).start()
         else:
+
             def open_browser():
                 import time
 

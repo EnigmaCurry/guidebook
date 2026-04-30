@@ -71,17 +71,15 @@ async def list_settings(
     db_settings = result.scalars().all()
     # Track which defaultable keys have a non-blank database value
     db_filled = {
-        s.key
-        for s in db_settings
-        if s.key not in INSTANCE_DEFAULTABLE_KEYS or s.value
+        s.key for s in db_settings if s.key not in INSTANCE_DEFAULTABLE_KEYS or s.value
     }
-    responses = [
-        _redact(s, "database") for s in db_settings if s.key in db_filled
-    ]
+    responses = [_redact(s, "database") for s in db_settings if s.key in db_filled]
 
     # Fill in global defaults for defaultable keys that are missing or blank
     meta_result = await gdb.execute(
-        select(InstanceSetting).where(InstanceSetting.key.in_(INSTANCE_DEFAULTABLE_KEYS))
+        select(InstanceSetting).where(
+            InstanceSetting.key.in_(INSTANCE_DEFAULTABLE_KEYS)
+        )
     )
     for ms in meta_result.scalars().all():
         if ms.key not in db_filled and ms.value:
@@ -125,7 +123,9 @@ async def upsert_setting(
     from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
     stmt = sqlite_insert(Setting).values(key=key, value=data.value)
-    stmt = stmt.on_conflict_do_update(index_elements=["key"], set_={"value": data.value})
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["key"], set_={"value": data.value}
+    )
     await session.execute(stmt)
     await session.commit()
     log_value = "***" if key in HIDDEN_KEYS else data.value
