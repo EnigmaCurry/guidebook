@@ -24,8 +24,4 @@ steps:
         - latest
       build_args:
         - VERSION=${CI_COMMIT_TAG##v}
-      build_args_from_env:
-        - FORGE_URL
-    environment:
-      FORGE_URL:
-        from_secret: forge_url
+        - FORGE_URL=${CI_FORGE_URL}/${CI_REPO}
