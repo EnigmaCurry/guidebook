@@ -1,0 +1,44 @@
+matrix:
+  platform:
+    - linux/amd64
+    - linux/arm64
+
+labels:
+  platform: ${platform}
+
+when:
+  - event: tag
+    ref: refs/tags/v*
+
+steps:
+  - name: test
+    image: python:3.12-bookworm
+    commands:
+      - curl -LsSf https://astral.sh/uv/install.sh | sh
+      - export PATH="$HOME/.local/bin:$PATH"
+      - uv sync
+      - uv run ruff check .
+      - uv run ruff format --check .
+      - uv run pytest || [ $? -eq 5 ]
+
+  - name: build
+    image: python:3.12-bookworm
+    commands:
+      - apt-get update && apt-get install -y nodejs npm
+      - curl -LsSf https://astral.sh/uv/install.sh | sh
+      - curl -LsSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+      - export PATH="$HOME/.local/bin:$PATH"
+      - just deps
+      - just build-binary
+      - uname -m
+      - uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/' | xargs -I{} mv dist/guidebook dist/guidebook-linux-{}
+
+  - name: release
+    image: codeberg.org/woodpecker-plugins/release
+    settings:
+      api_key:
+        from_secret: forgejo_token
+      files:
+        - dist/guidebook-*
+      title: ${CI_COMMIT_TAG}
+      note: CHANGELOG.md

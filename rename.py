@@ -11,7 +11,6 @@ lock file and frontend, commits the result, then deletes itself.
 
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -45,7 +44,19 @@ REPLACE_PATHS = [
 
 # Skip these when walking directories
 SKIP_DIRS = {".git", "node_modules", "__pycache__", "static", ".venv", "dist", "build"}
-SKIP_EXTENSIONS = {".lock", ".pyc", ".ico", ".png", ".jpg", ".jpeg", ".gif", ".woff", ".woff2", ".ttf", ".eot"}
+SKIP_EXTENSIONS = {
+    ".lock",
+    ".pyc",
+    ".ico",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".eot",
+}
 
 
 def validate_name(name: str) -> str | None:
@@ -187,7 +198,7 @@ def main():
     script_path = Path(__file__).resolve()
     print(f"Removing {script_path.name}...")
     run(["git", "rm", str(script_path.relative_to(ROOT))])
-    run(["git", "commit", "-m", f"Remove rename script"])
+    run(["git", "commit", "-m", "Remove rename script"])
     print()
 
     print(f"Done! Project is now '{new_title}'.")

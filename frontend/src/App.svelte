@@ -1401,7 +1401,7 @@
   main {
     max-width: 100%;
     margin: 0 auto;
-    padding: 1rem;
+    padding: 0.25rem;
   }
 
   .page-content {
@@ -1501,8 +1501,6 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     border-bottom: 1px solid var(--border);
-    padding-bottom: 0.5rem;
-    margin-bottom: 1rem;
   }
 
   .header-left {

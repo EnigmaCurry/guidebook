@@ -68,7 +68,9 @@ def _execute_query(
         conn.set_authorizer(_authorizer)
         # Attach global database for cross-DB queries
         if _db.INSTANCE_DB_PATH.exists():
-            conn.execute(f"ATTACH DATABASE 'file:{_db.INSTANCE_DB_PATH}?mode=ro' AS meta")
+            conn.execute(
+                f"ATTACH DATABASE 'file:{_db.INSTANCE_DB_PATH}?mode=ro' AS meta"
+            )
         ops = [0]
 
         def progress():

@@ -41,6 +41,7 @@ def connected_cert_serials() -> set[str]:
     """Return set of client cert serial numbers with active SSE connections."""
     return {k for k, v in _connected_cert_serials.items() if v > 0}
 
+
 AUTO_SHUTDOWN_DELAY_DEFAULT = 300  # seconds
 _auto_shutdown_delay: int = AUTO_SHUTDOWN_DELAY_DEFAULT
 
@@ -241,11 +242,17 @@ async def event_stream(request: Request):
             if queue in _subscribers:
                 _subscribers.remove(queue)
             # Untrack auth identity
-            if _sse_session_id is not None and _sse_session_id in _connected_session_ids:
+            if (
+                _sse_session_id is not None
+                and _sse_session_id in _connected_session_ids
+            ):
                 _connected_session_ids[_sse_session_id] -= 1
                 if _connected_session_ids[_sse_session_id] <= 0:
                     del _connected_session_ids[_sse_session_id]
-            if _sse_cert_serial is not None and _sse_cert_serial in _connected_cert_serials:
+            if (
+                _sse_cert_serial is not None
+                and _sse_cert_serial in _connected_cert_serials
+            ):
                 _connected_cert_serials[_sse_cert_serial] -= 1
                 if _connected_cert_serials[_sse_cert_serial] <= 0:
                     del _connected_cert_serials[_sse_cert_serial]
