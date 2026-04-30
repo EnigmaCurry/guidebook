@@ -8,8 +8,9 @@ when:
 steps:
   - name: download
     image: alpine
-    secrets:
-      - forgejo_token
+    environment:
+      FORGEJO_TOKEN:
+        from_secret: forgejo_token
     commands:
       - apk add --no-cache curl
       - mkdir -p dist
