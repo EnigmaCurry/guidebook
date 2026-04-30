@@ -8,6 +8,7 @@ when:
 steps:
   - name: docker
     image: woodpeckerci/plugin-docker-buildx
+    privileged: true
     settings:
       dockerfile: Dockerfile.release
       repo: ${CI_FORGE_URL##https://}/${CI_REPO}
